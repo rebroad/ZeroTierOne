@@ -147,20 +147,16 @@ NetconEthernetTap::NetconEthernetTap(
 
 	Utils::snprintf(lwipPath,sizeof(lwipPath),"%s%sliblwip.so",homePath,ZT_PATH_SEPARATOR_S);
 	
-    
     lwipstack = new LWIPStack(lwipPath);
 	if(!lwipstack)
 		throw std::runtime_error("unable to dynamically load a new instance of liblwip.so (searched ZeroTier home path)");
 	lwipstack->__lwip_init();
     
 	_unixListenSocket = _phy.unixListen(sockPath,(void *)this);
-	//fprintf(stderr," NetconEthernetTap initialized on: %s\n", sockPath);
+	dwr(MSG_DEBUG, " NetconEthernetTap initialized on: %s\n", sockPath);
     
 	if (!_unixListenSocket)
 		throw std::runtime_error(std::string("unable to bind to ")+sockPath);
-	
-    fprintf(stderr, "NetconEthernetTap() [starting threadMain]: tid = %d\n", pthread_mach_thread_np(pthread_self()));
-
      _thread = Thread::start(this);
 }
 
@@ -273,8 +269,6 @@ void NetconEthernetTap::put(const MAC &from,const MAC &to,unsigned int etherType
 	}
 
 	{
-        // FIXME: Double-check lock logic for this call (was solution to lock problem during receipt of packet)
-		//Mutex::Lock _l2(lwipstack->_lock);
 		if(interface.input(p, &interface) != ERR_OK) {
 			dwr(MSG_ERROR,"put(): Error while RXing packet (netif->input)\n");
 		}
@@ -362,18 +356,11 @@ void NetconEthernetTap::threadMain()
 		if (since_tcp >= ZT_LWIP_TCP_TIMER_INTERVAL) {
 			prev_tcp_time = now;
             lwipstack->__tcp_tmr();
-			
             // FIXME: could be removed or refactored?
             // Makeshift poll
 			for(size_t i=0;i<_TcpConnections.size();++i) {
 				if(_TcpConnections[i]->txsz > 0){
-                    //fprintf(stderr, "threadMain[LOCK]: tid = %d\n", pthread_mach_thread_np(pthread_self()));
-
-                    // FIXME: Double-check lock logic here
-					//lwipstack->_lock.lock();
-                    fprintf(stderr, "threadMain(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
 					handleWrite(_TcpConnections[i]);
-					//lwipstack->_lock.unlock();
 				}
 			}
 		} else {
@@ -588,12 +575,8 @@ void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,uns
 		if(conn->txsz > (DEFAULT_BUF_SZ / 2)) {
 			_phy.setNotifyReadable(sock, false);
 		}
-        
-        // FIXME: double-check lock logic here
-		//lwipstack->_lock.lock();
-		conn->txsz += wlen;
+        conn->txsz += wlen;
 		handleWrite(conn);
-		//lwipstack->_lock.unlock();
 	}
 	// Process RPC if we have a corresponding jobmap entry
     if(foundJob) {
