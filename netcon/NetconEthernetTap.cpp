@@ -52,8 +52,27 @@
 #include "lwip/ip_frag.h"
 #include "lwip/tcp.h"
 
-#include "common.inc.c"
-#include "RPC.h"
+#if defined(__APPLE__)
+    #include "TargetConditionals.h"
+    #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
+        // Special for xcode static library wrapper
+        // FIXME: Should be refactored before production
+        #include "Common.hpp"
+    #else
+        #include "common.inc.c"
+    #endif
+#elif defined(__linux__)
+    #include "common.inc.c"
+#endif
+
+#include "lwip/init.h"
+#include "lwip/mem.h"
+#include "lwip/pbuf.h"
+#include "lwip/ip_addr.h"
+#include "lwip/netif.h"
+
+void dwr(int level, const char *fmt, ... );
+
 
 namespace ZeroTier {
 
@@ -127,16 +146,22 @@ NetconEthernetTap::NetconEthernetTap(
     _dev = sockPath; // in netcon mode, set device to be just the network ID
 
 	Utils::snprintf(lwipPath,sizeof(lwipPath),"%s%sliblwip.so",homePath,ZT_PATH_SEPARATOR_S);
-	lwipstack = new LWIPStack(lwipPath);
+	
+    
+    lwipstack = new LWIPStack(lwipPath);
 	if(!lwipstack)
 		throw std::runtime_error("unable to dynamically load a new instance of liblwip.so (searched ZeroTier home path)");
-	lwipstack->lwip_init();
-
+	lwipstack->__lwip_init();
+    
 	_unixListenSocket = _phy.unixListen(sockPath,(void *)this);
-	fprintf(stderr," NetconEthernetTap initialized on: %s\n", sockPath);
+	//fprintf(stderr," NetconEthernetTap initialized on: %s\n", sockPath);
+    
 	if (!_unixListenSocket)
 		throw std::runtime_error(std::string("unable to bind to ")+sockPath);
-	_thread = Thread::start(this);
+	
+    fprintf(stderr, "NetconEthernetTap() [starting threadMain]: tid = %d\n", pthread_mach_thread_np(pthread_self()));
+
+     _thread = Thread::start(this);
 }
 
 NetconEthernetTap::~NetconEthernetTap()
@@ -174,7 +199,7 @@ bool NetconEthernetTap::addIp(const InetAddress &ip)
 			netmask.addr = *((u32_t *)ip.netmask().rawIpData());
 
 			// Set up the lwip-netif for LWIP's sake
-			lwipstack->netif_add(&interface,&ipaddr, &netmask, &gw, NULL, tapif_init, lwipstack->_ethernet_input);
+			lwipstack->__netif_add(&interface,&ipaddr, &netmask, &gw, NULL, tapif_init, lwipstack->_ethernet_input);
 			interface.state = this;
 			interface.output = lwipstack->_etharp_output;
 			_mac.copyTo(interface.hwaddr, 6);
@@ -184,8 +209,8 @@ bool NetconEthernetTap::addIp(const InetAddress &ip)
 			interface.linkoutput = low_level_output;
 			interface.hwaddr_len = 6;
 			interface.flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_IGMP;
-			lwipstack->netif_set_default(&interface);
-			lwipstack->netif_set_up(&interface);
+			lwipstack->__netif_set_default(&interface);
+			lwipstack->__netif_set_up(&interface);
 		}
 	}
 	return true;
@@ -222,7 +247,7 @@ void NetconEthernetTap::put(const MAC &from,const MAC &to,unsigned int etherType
 	ethhdr.type = Utils::hton((uint16_t)etherType);
 
 	// We allocate a pbuf chain of pbufs from the pool.
-	p = lwipstack->pbuf_alloc(PBUF_RAW, len+sizeof(struct eth_hdr), PBUF_POOL);
+	p = lwipstack->__pbuf_alloc(PBUF_RAW, len+sizeof(struct eth_hdr), PBUF_POOL);
 
 	if (p != NULL) {
 		const char *dataptr = reinterpret_cast<const char *>(data);
@@ -248,7 +273,8 @@ void NetconEthernetTap::put(const MAC &from,const MAC &to,unsigned int etherType
 	}
 
 	{
-		Mutex::Lock _l2(lwipstack->_lock);
+        // FIXME: Double-check lock logic for this call (was solution to lock problem during receipt of packet)
+		//Mutex::Lock _l2(lwipstack->_lock);
 		if(interface.input(p, &interface) != ERR_OK) {
 			dwr(MSG_ERROR,"put(): Error while RXing packet (netif->input)\n");
 		}
@@ -291,6 +317,8 @@ void NetconEthernetTap::scanMulticastGroups(std::vector<MulticastGroup> &added,s
 void NetconEthernetTap::threadMain()
 	throw()
 {
+    fprintf(stderr, "threadMain(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+
 	uint64_t prev_tcp_time = 0, prev_status_time = 0, prev_etharp_time = 0;
 
 	// Main timer loop
@@ -305,11 +333,12 @@ void NetconEthernetTap::threadMain()
 		// Connection prunning
 		if (since_status >= STATUS_TMR_INTERVAL) {
 			prev_status_time = now;
+            
 			for(size_t i=0;i<_TcpConnections.size();++i) {
 				if(!_TcpConnections[i]->sock)
 					continue;
 				int fd = _phy.getDescriptor(_TcpConnections[i]->sock);
-				dwr(MSG_DEBUG," tap_thread(): tcp\\jobs = {%d, %d}\n", _TcpConnections.size(), jobmap.size());
+				//dwr(MSG_DEBUG," tap_thread(): tcp\\jobs = {%d, %d}\n", _TcpConnections.size(), jobmap.size());
 				// If there's anything on the RX buf, set to notify in case we stalled
 				if(_TcpConnections[i]->rxsz > 0)
 					_phy.setNotifyWritable(_TcpConnections[i]->sock, true);
@@ -332,13 +361,19 @@ void NetconEthernetTap::threadMain()
 		// Main TCP/ETHARP timer section
 		if (since_tcp >= ZT_LWIP_TCP_TIMER_INTERVAL) {
 			prev_tcp_time = now;
-			lwipstack->tcp_tmr();
-			// Makeshift poll
+            lwipstack->__tcp_tmr();
+			
+            // FIXME: could be removed or refactored?
+            // Makeshift poll
 			for(size_t i=0;i<_TcpConnections.size();++i) {
 				if(_TcpConnections[i]->txsz > 0){
-					lwipstack->_lock.lock();
+                    //fprintf(stderr, "threadMain[LOCK]: tid = %d\n", pthread_mach_thread_np(pthread_self()));
+
+                    // FIXME: Double-check lock logic here
+					//lwipstack->_lock.lock();
+                    fprintf(stderr, "threadMain(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
 					handleWrite(_TcpConnections[i]);
-					lwipstack->_lock.unlock();
+					//lwipstack->_lock.unlock();
 				}
 			}
 		} else {
@@ -346,13 +381,14 @@ void NetconEthernetTap::threadMain()
 		}
 		if (since_etharp >= ARP_TMR_INTERVAL) {
 			prev_etharp_time = now;
-			lwipstack->etharp_tmr();
-		} else {
+            lwipstack->__etharp_tmr();
+		
+        } else {
 			etharp_remaining = ARP_TMR_INTERVAL - since_etharp;
 		}
 		_phy.poll((unsigned long)std::min(tcp_remaining,etharp_remaining));
 	}
-	dlclose(lwipstack->_libref);
+    lwipstack->close();
 }
 
 // Unused -- no UDP or TCP from this thread/Phy<>
@@ -375,6 +411,7 @@ TcpConnection *NetconEthernetTap::getConnection(PhySocket *sock)
 
 void NetconEthernetTap::closeConnection(PhySocket *sock)
 {
+    dwr(MSG_DEBUG, "closeConnection():\n");
 	// Here we assume _tcpconns_m is already locked by caller
 	if(!sock) {
 		dwr(MSG_DEBUG," closeConnection(): invalid PhySocket\n");
@@ -389,13 +426,13 @@ void NetconEthernetTap::closeConnection(PhySocket *sock)
 			dwr(MSG_DEBUG," closeConnection(%x): invalid PCB state for this operation. ignoring.\n", sock);
 			return;
 		}	
-		if(lwipstack->_tcp_close(conn->pcb) == ERR_OK) {
+		if(lwipstack->__tcp_close(conn->pcb) == ERR_OK) {
 			// Unregister callbacks for this PCB
-			lwipstack->_tcp_arg(conn->pcb, NULL);
-		    lwipstack->_tcp_recv(conn->pcb, NULL);
-		    lwipstack->_tcp_err(conn->pcb, NULL);
-		    lwipstack->_tcp_sent(conn->pcb, NULL);
-		    lwipstack->_tcp_poll(conn->pcb, NULL, 1);
+			lwipstack->__tcp_arg(conn->pcb, NULL);
+		    lwipstack->__tcp_recv(conn->pcb, NULL);
+		    lwipstack->__tcp_err(conn->pcb, NULL);
+		    lwipstack->__tcp_sent(conn->pcb, NULL);
+		    lwipstack->__tcp_poll(conn->pcb, NULL, 1);
 		}
 		else {
 			dwr(MSG_ERROR," closeConnection(%x): error while calling tcp_close()\n", sock);
@@ -415,6 +452,7 @@ void NetconEthernetTap::closeConnection(PhySocket *sock)
 }
 
 void NetconEthernetTap::phyOnUnixClose(PhySocket *sock,void **uptr) {
+    dwr(MSG_DEBUG, "phyOnUnixClose():\n");
 	Mutex::Lock _l(_tcpconns_m);
 	closeConnection(sock);
 }
@@ -432,7 +470,13 @@ void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_
 			if(conn->rxsz-n > 0)
 				memcpy(conn->rxbuf, conn->rxbuf+n, conn->rxsz-n);
 		  	conn->rxsz -= n;
-		  	lwipstack->_tcp_recved(conn->pcb, n);
+            fprintf(stderr, "phyOnUnixWritable(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+		  	lwipstack->__tcp_recved(conn->pcb, n);
+            
+            float max = (float)DEFAULT_BUF_SZ;
+            dwr(MSG_TRANSFER," RX <---    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
+                (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, n);
+            
 		} else {
 			dwr(MSG_DEBUG," phyOnUnixWritable(): errno = %d, rxsz = %d\n", errno, conn->rxsz);
 			_phy.setNotifyWritable(conn->sock, false);
@@ -445,7 +489,7 @@ void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_
 }
 
 void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,unsigned long len)
-{		
+{
 	uint64_t CANARY_num;
 	pid_t pid, tid;
 	int rpcCount, wlen = len;
@@ -481,7 +525,7 @@ void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,uns
 				new_conn->pid = pid; // Merely kept to look up application path/names later, not strictly necessary
 			}
 		} else {
-			jobmap[CANARY_num] = std::make_pair<PhySocket*, void*>(sock, data);
+			jobmap[CANARY_num] = std::pair<PhySocket*, void*>(sock, data);
 		}
 		write(_phy.getDescriptor(sock), "z", 1); // RPC ACK byte to maintain order
 	}
@@ -544,10 +588,12 @@ void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,uns
 		if(conn->txsz > (DEFAULT_BUF_SZ / 2)) {
 			_phy.setNotifyReadable(sock, false);
 		}
-		lwipstack->_lock.lock();
+        
+        // FIXME: double-check lock logic here
+		//lwipstack->_lock.lock();
 		conn->txsz += wlen;
 		handleWrite(conn);
-		lwipstack->_lock.unlock();
+		//lwipstack->_lock.unlock();
 	}
 	if(foundJob) {
 		rpcSock = sockdata.first;
@@ -652,11 +698,11 @@ err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
 
 		if(sock_fd_write(fd, fds[1]) < 0)
 	  		return -1;
-	    tap->lwipstack->_tcp_arg(newPCB, new Larg(tap, newTcpConn));
-	    tap->lwipstack->_tcp_recv(newPCB, nc_recved);
-	    tap->lwipstack->_tcp_err(newPCB, nc_err);
-	    tap->lwipstack->_tcp_sent(newPCB, nc_sent);
-	    tap->lwipstack->_tcp_poll(newPCB, nc_poll, 1);
+	    tap->lwipstack->__tcp_arg(newPCB, new Larg(tap, newTcpConn));
+	    tap->lwipstack->__tcp_recv(newPCB, nc_recved);
+	    tap->lwipstack->__tcp_err(newPCB, nc_err);
+	    tap->lwipstack->__tcp_sent(newPCB, nc_sent);
+	    tap->lwipstack->__tcp_poll(newPCB, nc_poll, 1);
 	    if(conn->pcb->state == LISTEN) {
 	    	dwr(MSG_DEBUG," nc_accept(): can't call tcp_accept() on LISTEN socket (pcb = %x)\n", conn->pcb);
 	    	return ERR_OK;
@@ -670,7 +716,7 @@ err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
 
 err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err)
 {
-	Larg *l = (Larg*)arg;
+    Larg *l = (Larg*)arg;
 	int tot = 0;
   	struct pbuf* q = p;
 	Mutex::Lock _l(l->tap->_tcpconns_m);
@@ -702,15 +748,17 @@ err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *
 		tot += len;
 	}
 	if(tot) {
+        fprintf(stderr, "nc_recved(): tot = %d\n", tot);
 		l->tap->phyOnUnixWritable(l->conn->sock, NULL, true);
 		l->tap->_phy.setNotifyWritable(l->conn->sock, true);
 	}
-	l->tap->lwipstack->_pbuf_free(q);
+	l->tap->lwipstack->__pbuf_free(q);
 	return ERR_OK;
 }
 
 err_t NetconEthernetTap::nc_sent(void* arg, struct tcp_pcb *PCB, u16_t len)
 {
+    fprintf(stderr, "nc_sent():\n");
 	Larg *l = (Larg*)arg;
 	Mutex::Lock _l(l->tap->_tcpconns_m);
 	if(l->conn->probation && l->conn->txsz == 0){
@@ -727,6 +775,7 @@ err_t NetconEthernetTap::nc_sent(void* arg, struct tcp_pcb *PCB, u16_t len)
 
 err_t NetconEthernetTap::nc_connected(void *arg, struct tcp_pcb *PCB, err_t err)
 {
+    fprintf(stderr, "nc_connected():\n");
 	Larg *l = (Larg*)arg;
 	if(l && l->conn)
 		l->tap->sendReturnValue(l->tap->_phy.getDescriptor(l->conn->rpcSock), ERR_OK);
@@ -834,14 +883,14 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
 {
 	Mutex::Lock _l(_tcpconns_m);
 	struct sockaddr_in *rawAddr = (struct sockaddr_in *) &bind_rpc->addr;
-	int port = lwipstack->ntohs(rawAddr->sin_port);
+	int port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
 	ip_addr_t connAddr;
 	connAddr.addr = *((u32_t *)_ips[0].rawIpData());
 	TcpConnection *conn = getConnection(sock);
 	dwr(MSG_DEBUG," handleBind(%d)\n", bind_rpc->sockfd);
 	if(conn) {
 		if(conn->pcb->state == CLOSED){
-	  		int err = lwipstack->tcp_bind(conn->pcb, &connAddr, port);
+	  		int err = lwipstack->__tcp_bind(conn->pcb, &connAddr, port);
 			int ip = rawAddr->sin_addr.s_addr;
 			unsigned char d[4];
 			d[0] = ip & 0xFF;
@@ -889,15 +938,15 @@ void NetconEthernetTap::handleListen(PhySocket *sock, PhySocket *rpcSock, void *
 	struct tcp_pcb* listeningPCB;
 
 #ifdef TCP_LISTEN_BACKLOG
-		listeningPCB = lwipstack->tcp_listen_with_backlog(conn->pcb, listen_rpc->backlog);
+		listeningPCB = lwipstack->__tcp_listen_with_backlog(conn->pcb, listen_rpc->backlog);
 #else
-		listeningPCB = lwipstack->tcp_listen(conn->pcb);
+		listeningPCB = lwipstack->__tcp_listen(conn->pcb);
 #endif
 
 	if(listeningPCB != NULL) {
     	conn->pcb = listeningPCB;
-    	lwipstack->tcp_accept(listeningPCB, nc_accept);
-		lwipstack->tcp_arg(listeningPCB, new Larg(this, conn));
+    	lwipstack->__tcp_accept(listeningPCB, nc_accept);
+		lwipstack->__tcp_arg(listeningPCB, new Larg(this, conn));
 		/* we need to wait for the client to send us the fd allocated on their end
 		for this listening socket */
 		fcntl(_phy.getDescriptor(conn->sock), F_SETFL, O_NONBLOCK);
@@ -911,7 +960,7 @@ void NetconEthernetTap::handleListen(PhySocket *sock, PhySocket *rpcSock, void *
 TcpConnection * NetconEthernetTap::handleSocket(PhySocket *sock, void **uptr, struct socket_st* socket_rpc)
 {
 	Mutex::Lock _l(_tcpconns_m);
-	struct tcp_pcb *newPCB = lwipstack->tcp_new();
+	struct tcp_pcb *newPCB = lwipstack->__tcp_new();
   	if(newPCB != NULL) {
   		TcpConnection *newConn = new TcpConnection();
   		*uptr = newConn;
@@ -929,15 +978,15 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, TcpCo
 {
 	Mutex::Lock _l(_tcpconns_m);
 	struct sockaddr_in *rawAddr = (struct sockaddr_in *) &connect_rpc->__addr;
-	int port = lwipstack->ntohs(rawAddr->sin_port);
+	int port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
 	ip_addr_t connAddr = convert_ip(rawAddr);
 
 	if(conn != NULL) {
-		lwipstack->tcp_sent(conn->pcb, nc_sent);
-		lwipstack->tcp_recv(conn->pcb, nc_recved);
-		lwipstack->tcp_err(conn->pcb, nc_err);
-		lwipstack->tcp_poll(conn->pcb, nc_poll, APPLICATION_POLL_FREQ);
-		lwipstack->tcp_arg(conn->pcb, new Larg(this, conn));
+		lwipstack->__tcp_sent(conn->pcb, nc_sent);
+		lwipstack->__tcp_recv(conn->pcb, nc_recved);
+		lwipstack->__tcp_err(conn->pcb, nc_err);
+		lwipstack->__tcp_poll(conn->pcb, nc_poll, APPLICATION_POLL_FREQ);
+		lwipstack->__tcp_arg(conn->pcb, new Larg(this, conn));
 
 		int err = 0, ip = rawAddr->sin_addr.s_addr;
 		unsigned char d[4];
@@ -952,7 +1001,7 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, TcpCo
 			sendReturnValue(rpcSock, -1, EAGAIN);
 			return;
 		}
-		if((err = lwipstack->tcp_connect(conn->pcb,&connAddr,port,nc_connected)) < 0)
+		if((err = lwipstack->__tcp_connect(conn->pcb,&connAddr,port,nc_connected)) < 0)
 		{
 			if(err == ERR_ISCONN) {
 				sendReturnValue(rpcSock, -1, EISCONN); // Already in connected state
@@ -1027,15 +1076,15 @@ void NetconEthernetTap::handleWrite(TcpConnection *conn)
 	if(conn->txsz <= 0)
 		return; // Nothing to write
 	if(!conn->listening)
-		lwipstack->_tcp_output(conn->pcb);
+		lwipstack->__tcp_output(conn->pcb);
 
 	if(conn->sock) {
 		r = conn->txsz < sndbuf ? conn->txsz : sndbuf;
 		/* Writes data pulled from the client's socket buffer to LWIP. This merely sends the
 		 * data to LWIP to be enqueued and eventually sent to the network. */
 		if(r > 0) {
-			err = lwipstack->_tcp_write(conn->pcb, &conn->txbuf, r, TCP_WRITE_FLAG_COPY);
-			lwipstack->_tcp_output(conn->pcb);
+			err = lwipstack->__tcp_write(conn->pcb, &conn->txbuf, r, TCP_WRITE_FLAG_COPY);
+			lwipstack->__tcp_output(conn->pcb);
 			if(err != ERR_OK) {
 				dwr(MSG_ERROR," handleWrite(): error while writing to PCB, (err = %d)\n", err);
 				if(err == -1) 

@@ -57,7 +57,7 @@ struct getsockname_st;
 struct accept_st;
 
 #define APPLICATION_POLL_FREQ           2
-#define ZT_LWIP_TCP_TIMER_INTERVAL      5
+#define ZT_LWIP_TCP_TIMER_INTERVAL      500
 #define STATUS_TMR_INTERVAL             250 // How often we check connection statuses (in ms)
 #define DEFAULT_BUF_SZ                  1024 * 1024 * 2
 #define DEFAULT_BUF_SOFTMAX				DEFAULT_BUF_SZ / 2
