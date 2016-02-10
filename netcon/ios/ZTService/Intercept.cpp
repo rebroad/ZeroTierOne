@@ -159,7 +159,7 @@ int set_up_intercept()
 #if defined(__APPLE__)
     #include "TargetConditionals.h"
     #if TARGET_IPHONE_SIMULATOR
-        netpath = "/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
+        netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
     #elif TARGET_OS_IPHONE
         netpath = "/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
     #endif

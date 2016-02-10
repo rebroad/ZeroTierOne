@@ -595,12 +595,11 @@ void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,uns
 		handleWrite(conn);
 		//lwipstack->_lock.unlock();
 	}
-	if(foundJob) {
-		rpcSock = sockdata.first;
-		buf = (unsigned char*)sockdata.second;
-	}
 	// Process RPC if we have a corresponding jobmap entry
-	if(foundJob) {
+    if(foundJob) {
+        
+        rpcSock = sockdata.first;
+        buf = (unsigned char*)sockdata.second;
 		unloadRPC(buf, pid, tid, rpcCount, timestamp, CANARY, cmd, payload);
 		dwr(MSG_DEBUG," <%x> RPC: (pid=%d, tid=%d, rpcCount=%d, timestamp=%s, cmd=%d)\n", 
 			sock, pid, tid, rpcCount, timestamp, cmd);
