@@ -13,8 +13,8 @@
 #include "OneServiceSetup.hpp"
 #include "Intercept.hpp"
 
-extern "C" int start_service() {
-    init_new_service();
+extern "C" int start_service(const char * path) {
+    init_new_service(path);
     return 1;
 }
 

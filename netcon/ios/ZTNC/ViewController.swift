@@ -15,6 +15,8 @@ class ViewController: UIViewController {
     @IBOutlet weak var getButton: UIButton!
     @IBOutlet weak var myWebView: UIWebView!
     
+    let path: String = "";
+    
     @IBAction func getButtonAction(sender: AnyObject) {
         //let url_str = "http://10.242.9.160:8083/"
         //let url = NSURL (string: url_str);
@@ -41,8 +43,10 @@ class ViewController: UIViewController {
     }
     
     func ztnc_start_service() {
+        // FIXME: We use this to get a path for the ZeroTierOne service to use, this should be done differently for production
+        let path = NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory.DocumentDirectory, NSSearchPathDomainMask.UserDomainMask, true)
         print("Starting service\n")
-        start_service()
+        start_service(path[0])
     }
     func ztnc_start_intercept() {
         print("Starting intercept\n")

@@ -36,13 +36,18 @@
 #include "Intercept.hpp"
 #include "Common.hpp"
 
-void init_new_service() {
+std::string service_path;
+
+void init_new_service(const char * path) {
     fprintf(stderr, "init_new_service(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+    service_path = path;
     init_new_intercept(222);
 }
 
     int start_OneService()
     {
+        chdir(service_path.c_str());
+        fprintf(stderr, "\n\n\n\nSERVICE PATH = %s\n", service_path.c_str());
         fprintf(stderr, "start_service(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
         static std::string homeDir = "";
@@ -55,9 +60,10 @@ void init_new_service() {
 #if TARGET_IPHONE_SIMULATOR
             homeDir = "/iosdev/data/Library/Application Support/ZeroTier/One";
 #elif TARGET_OS_IPHONE
-        homeDir = "/Library/Application Support/ZeroTier/One";
+        homeDir = "ZeroTier/One";
 #endif
 #endif
+        
         
             //homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {

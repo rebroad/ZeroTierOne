@@ -93,6 +93,7 @@ public:
 		return (::CreateDirectoryA(path,NULL) == TRUE);
 #else
 		if (::mkdir(path,0755) != 0)
+            perror("");
 			return (errno == EEXIST);
 		return true;
 #endif

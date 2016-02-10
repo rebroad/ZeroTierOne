@@ -161,7 +161,9 @@ int set_up_intercept()
     #if TARGET_IPHONE_SIMULATOR
         netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
     #elif TARGET_OS_IPHONE
-        netpath = "/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
+        // FIXME
+        // Working directory is reset to a crazy path upon startup, that is done in start_OneService and should be fixed before production
+        netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace";
     #endif
 #endif
                 

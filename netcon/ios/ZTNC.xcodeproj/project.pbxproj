@@ -105,7 +105,6 @@
 		7CFF1BF71C6A431F000CD05C /* Utils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CFF1BDE1C6A431F000CD05C /* Utils.cpp */; };
 		7CFF1C0B1C6A4335000CD05C /* Arp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CFF1BF81C6A4335000CD05C /* Arp.cpp */; };
 		7CFF1C0C1C6A4335000CD05C /* BackgroundResolver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CFF1BFA1C6A4335000CD05C /* BackgroundResolver.cpp */; };
-		7CFF1C0D1C6A4335000CD05C /* BSDEthernetTap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CFF1BFC1C6A4335000CD05C /* BSDEthernetTap.cpp */; };
 		7CFF1C0E1C6A4335000CD05C /* Http.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CFF1BFE1C6A4335000CD05C /* Http.cpp */; };
 		7CFF1C101C6A4335000CD05C /* OSUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CFF1C021C6A4335000CD05C /* OSUtils.cpp */; };
 		7CFF1C111C6A4335000CD05C /* PortMapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CFF1C051C6A4335000CD05C /* PortMapper.cpp */; };
@@ -388,8 +387,6 @@
 		7CFF1BF91C6A4335000CD05C /* Arp.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = Arp.hpp; path = ../../../osdep/Arp.hpp; sourceTree = "<group>"; };
 		7CFF1BFA1C6A4335000CD05C /* BackgroundResolver.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = BackgroundResolver.cpp; path = ../../../osdep/BackgroundResolver.cpp; sourceTree = "<group>"; };
 		7CFF1BFB1C6A4335000CD05C /* BackgroundResolver.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = BackgroundResolver.hpp; path = ../../../osdep/BackgroundResolver.hpp; sourceTree = "<group>"; };
-		7CFF1BFC1C6A4335000CD05C /* BSDEthernetTap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = BSDEthernetTap.cpp; path = ../../../osdep/BSDEthernetTap.cpp; sourceTree = "<group>"; };
-		7CFF1BFD1C6A4335000CD05C /* BSDEthernetTap.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = BSDEthernetTap.hpp; path = ../../../osdep/BSDEthernetTap.hpp; sourceTree = "<group>"; };
 		7CFF1BFE1C6A4335000CD05C /* Http.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Http.cpp; path = ../../../osdep/Http.cpp; sourceTree = "<group>"; };
 		7CFF1BFF1C6A4335000CD05C /* Http.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = Http.hpp; path = ../../../osdep/Http.hpp; sourceTree = "<group>"; };
 		7CFF1C021C6A4335000CD05C /* OSUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = OSUtils.cpp; path = ../../../osdep/OSUtils.cpp; sourceTree = "<group>"; };
@@ -524,8 +521,6 @@
 				7CFF1BF91C6A4335000CD05C /* Arp.hpp */,
 				7CFF1BFA1C6A4335000CD05C /* BackgroundResolver.cpp */,
 				7CFF1BFB1C6A4335000CD05C /* BackgroundResolver.hpp */,
-				7CFF1BFC1C6A4335000CD05C /* BSDEthernetTap.cpp */,
-				7CFF1BFD1C6A4335000CD05C /* BSDEthernetTap.hpp */,
 				7CFF1BFE1C6A4335000CD05C /* Http.cpp */,
 				7CFF1BFF1C6A4335000CD05C /* Http.hpp */,
 				7CFF1C021C6A4335000CD05C /* OSUtils.cpp */,
@@ -1081,7 +1076,6 @@
 				7CFF1BF21C6A431F000CD05C /* Salsa20.cpp in Sources */,
 				7C7822EA1C641B4200A8599B /* RPC.cpp in Sources */,
 				7C7822E91C641B4200A8599B /* OneServiceSetup.cpp in Sources */,
-				7CFF1C0D1C6A4335000CD05C /* BSDEthernetTap.cpp in Sources */,
 				7CFF1C101C6A4335000CD05C /* OSUtils.cpp in Sources */,
 				7CFF1C0C1C6A4335000CD05C /* BackgroundResolver.cpp in Sources */,
 				7CFF1BED1C6A431F000CD05C /* OutboundMulticast.cpp in Sources */,

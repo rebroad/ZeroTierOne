@@ -13,7 +13,7 @@
 #include <pthread.h>
 #include <string> 
 
-void init_new_service();
+void init_new_service(const char * path);
 int start_OneService();
 
 #endif /* Mock_hpp */

@@ -2,7 +2,7 @@
 //  Use this file to import your target's public headers that you would like to expose to Swift.
 //
 
-int start_service();
+int start_service(const char * path);
 int start_intercept();
 
 // For demo
