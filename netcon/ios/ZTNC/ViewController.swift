@@ -11,12 +11,23 @@ import CFNetwork
 
 class ViewController: UIViewController {
     
+    @IBAction func actionRestartService(sender: AnyObject) {
+        // TODO: A mechanism for detecting this "cancel" should be build into the thread. Is this possible for a C++ static lib?
+        service_thread.cancel();
+        service_thread = NSThread(target:self, selector:"ztnc_start_service", object:nil)
+        service_thread.start()
+    }
+    
+    @IBOutlet weak var btnRestartService: UIButton!
     @IBOutlet weak var urlTextField: UITextField!
     @IBOutlet weak var getButton: UIButton!
     @IBOutlet weak var myWebView: UIWebView!
+    @IBOutlet weak var myTextView: UITextView!
     
-    let path: String = "";
-    
+    var debug_thread : NSThread!
+    var service_thread : NSThread!
+    var intercept_thread : NSThread!
+
     @IBAction func getButtonAction(sender: AnyObject) {
         //let url_str = "http://10.242.9.160:8083/"
         //let url = NSURL (string: url_str);
@@ -35,11 +46,11 @@ class ViewController: UIViewController {
 
         // Below is code which calls a wrapped C++ test that uses an intercepted socket API
         // Note, intercepting of CF methods is currently not supported
+        
         urlTextField.text = ""
         let addr_string = "10.242.9.160"
         let port : Int32 = 1000
         urlTextField.text = String.fromCString(cpp_intercepted_socket_api_test(addr_string, port))
-
     }
     
     func ztnc_start_service() {
@@ -52,15 +63,47 @@ class ViewController: UIViewController {
         print("Starting intercept\n")
         start_intercept()
     }
+    func debug_watcher() {
+        while(true) {
+            
+            var debug_str : String = ""
+            
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), {
+                    debug_str = String.fromCString(get_debug_msg_from_ztnc()) ?? "";
+                
+                if (debug_str.characters.count > 0) {
+                    dispatch_async(dispatch_get_main_queue(), {
+                        self.myTextView.text.appendContentsOf(debug_str + "\n")
+                        let range = NSMakeRange(self.myTextView.text.characters.count - 1, 0)
+                        self.myTextView.scrollRangeToVisible(range)
+                    });
+                    debug_str = ""
+                }
+            });
+            usleep(10000)
+        }
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        let service_thread = NSThread(target:self, selector:"ztnc_start_service", object:nil)
-        service_thread.start()
-        sleep(5)
-        ztnc_start_intercept()
+        myTextView.backgroundColor = UIColor.blackColor()
+        myTextView.textColor = UIColor.greenColor()
+        myTextView.font = UIFont(name: "Courier New", size: 12);
+        myTextView.text = ""
         
+        // Logging re-direction thread (super-primitive on-device debug output)
+        debug_thread = NSThread(target:self, selector:"debug_watcher", object:nil)
+        debug_thread.start()
+        
+        // Service thread
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), {
+            self.service_thread = NSThread(target:self, selector:"ztnc_start_service", object:nil)
+            self.service_thread.start()
+        });
+
+        sleep(2)
+        ztnc_start_intercept()
         // Do any additional setup after loading the view, typically from a nib.
     }
     

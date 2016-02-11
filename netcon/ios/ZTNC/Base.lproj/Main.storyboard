@@ -18,10 +18,10 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <webView contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="mUh-4Z-hAz">
-                                <rect key="frame" x="127" y="76" width="315" height="320"/>
+                                <rect key="frame" x="38" y="85" width="322" height="111"/>
                                 <color key="backgroundColor" red="0.36078431370000003" green="0.38823529410000002" blue="0.4039215686" alpha="1" colorSpace="deviceRGB"/>
                                 <variation key="widthClass=compact" fixedFrame="YES">
-                                    <rect key="frame" x="43" y="112" width="315" height="468"/>
+                                    <rect key="frame" x="43" y="112" width="315" height="60"/>
                                 </variation>
                             </webView>
                             <textField opaque="NO" clipsSubviews="YES" contentMode="scaleToFill" contentHorizontalAlignment="left" contentVerticalAlignment="center" borderStyle="roundedRect" textAlignment="natural" minimumFontSize="17" translatesAutoresizingMaskIntoConstraints="NO" id="ySg-If-3Z3">
@@ -35,7 +35,7 @@
                             <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="url:" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="pBH-Vv-RQl">
                                 <rect key="frame" x="-42" y="-21" width="42" height="21"/>
                                 <fontDescription key="fontDescription" type="system" pointSize="17"/>
-                                <color key="textColor" cocoaTouchSystemColor="darkTextColor"/>
+                                <color key="textColor" red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="calibratedRGB"/>
                                 <nil key="highlightedColor"/>
                                 <variation key="widthClass=compact" fixedFrame="YES">
                                     <rect key="frame" x="48" y="70" width="25" height="21"/>
@@ -45,10 +45,30 @@
                                 <rect key="frame" x="27" y="28" width="46" height="30"/>
                                 <state key="normal" title="HTTP Request"/>
                                 <variation key="widthClass=compact" fixedFrame="YES">
-                                    <rect key="frame" x="149" y="21" width="99" height="30"/>
+                                    <rect key="frame" x="259" y="29" width="99" height="30"/>
                                 </variation>
                                 <connections>
                                     <action selector="getButtonAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="aI0-Kr-TUR"/>
+                                </connections>
+                            </button>
+                            <textView clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="scaleToFill" fixedFrame="YES" textAlignment="natural" translatesAutoresizingMaskIntoConstraints="NO" id="5xU-9I-nGP">
+                                <rect key="frame" x="7" y="220" width="306" height="335"/>
+                                <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
+                                <string key="text">Lorem ipsum dolor sit er elit lamet, consectetaur cillium adipisicing pecu, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Nam liber te conscient to factor tum poen legum odioque civiuda.</string>
+                                <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                <textInputTraits key="textInputTraits" autocapitalizationType="sentences"/>
+                                <variation key="widthClass=compact" fixedFrame="YES">
+                                    <rect key="frame" x="29" y="180" width="292" height="420"/>
+                                </variation>
+                            </textView>
+                            <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="xoV-Zf-570">
+                                <rect key="frame" x="-23" y="-15" width="46" height="30"/>
+                                <state key="normal" title="Restart Service"/>
+                                <variation key="widthClass=compact" fixedFrame="YES">
+                                    <rect key="frame" x="82" y="29" width="105" height="30"/>
+                                </variation>
+                                <connections>
+                                    <action selector="actionRestartService:" destination="BYZ-38-t0r" eventType="touchUpInside" id="f10-MD-6nX"/>
                                 </connections>
                             </button>
                         </subviews>
@@ -57,24 +77,28 @@
                             <mask key="subviews">
                                 <exclude reference="ySg-If-3Z3"/>
                                 <exclude reference="pBH-Vv-RQl"/>
+                                <exclude reference="xoV-Zf-570"/>
                             </mask>
                         </variation>
                         <variation key="widthClass=compact">
                             <mask key="subviews">
                                 <include reference="ySg-If-3Z3"/>
                                 <include reference="pBH-Vv-RQl"/>
+                                <include reference="xoV-Zf-570"/>
                             </mask>
                         </variation>
                     </view>
                     <connections>
+                        <outlet property="btnRestartService" destination="xoV-Zf-570" id="FWT-Ij-dv0"/>
                         <outlet property="getButton" destination="ReH-Nr-whF" id="CEq-bN-Pbp"/>
+                        <outlet property="myTextView" destination="5xU-9I-nGP" id="bff-cA-b1r"/>
                         <outlet property="myWebView" destination="mUh-4Z-hAz" id="v2Y-4T-tKS"/>
                         <outlet property="urlTextField" destination="ySg-If-3Z3" id="Eki-Eg-7o9"/>
                     </connections>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="dkx-z0-nzr" sceneMemberID="firstResponder"/>
             </objects>
-            <point key="canvasLocation" x="529.5" y="322"/>
+            <point key="canvasLocation" x="528" y="322"/>
         </scene>
     </scenes>
 </document>

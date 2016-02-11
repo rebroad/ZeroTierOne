@@ -12,6 +12,16 @@
 
 #include "OneServiceSetup.hpp"
 #include "Intercept.hpp"
+#include "Common.hpp"
+#include "ZeroTierOne.h"
+
+extern "C" void kill_service() {
+    //ZeroTier::kill_service = 1;
+}
+
+extern "C" const char * get_debug_msg_from_ztnc() {
+    return get_debug_msg().c_str();
+}
 
 extern "C" int start_service(const char * path) {
     init_new_service(path);

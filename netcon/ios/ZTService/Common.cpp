@@ -20,7 +20,45 @@
 #include <fcntl.h>
 #include <sys/syscall.h>
 
+#include <vector>
 #include "Common.hpp"
+
+#include "Mutex.hpp"
+
+ZeroTier::Mutex _msg_m;
+std::vector<std::string> msgs;
+
+// Assembles and returns a debug string containing the most recent debug statements from the service
+// FIXME: We should develop a better mechanism for this in production
+
+
+#if defined(__APPLE__)
+#include "TargetConditionals.h"
+#if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
+
+std::string get_debug_msg() {
+    ZeroTier::Mutex::Lock _l(_msg_m);
+    
+    std::string debug_str;
+    
+    if(msgs.size() > 0) {
+        debug_str = msgs.back();
+        msgs.pop_back();
+    }
+    return debug_str;
+}
+
+void push_msg(const char * msg)
+{
+    ZeroTier::Mutex::Lock _l(_msg_m);
+    msgs.push_back(msg);
+}
+
+#endif
+#endif
+
+
+
 
 #ifdef NETCON_INTERCEPT
 
@@ -56,6 +94,17 @@ void print_addr(struct sockaddr *addr)
         saveerr = errno;
         va_list ap;
         va_start(ap, fmt);
+        
+#if defined(__APPLE__)
+    #include "TargetConditionals.h"
+    #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
+        // For pushing messages to an iOS thread watching for debug statements. FIXME: Remove for production
+        char buf[100];
+        memset(buf, 0, sizeof(buf));
+        push_msg(fmt);
+    #endif
+#endif
+        
 #ifdef VERBOSE // So we can cut out some clutter in the strace output while debugging
         char timestring[20];
         time_t timestamp;

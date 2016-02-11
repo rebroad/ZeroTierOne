@@ -237,6 +237,7 @@
 		7C7A2C641C6217A200497D52 /* ZeroTierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeroTierTests.swift; sourceTree = "<group>"; };
 		7C7A2C661C6217A200497D52 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7C7A2D121C621A7F00497D52 /* liblibZeroTier.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = liblibZeroTier.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		7CC1C9CE1C6C1E8E00C2EDD3 /* ZeroTierOne.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ZeroTierOne.h; path = ../../../include/ZeroTierOne.h; sourceTree = "<group>"; };
 		7CCF4FAC1C61E34600E16863 /* ZTNC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZTNC.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CCF4FAF1C61E34600E16863 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7CCF4FB11C61E34600E16863 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -503,6 +504,7 @@
 		7C7A2D131C621A8000497D52 /* libZeroTier */ = {
 			isa = PBXGroup;
 			children = (
+				7CC1C9CE1C6C1E8E00C2EDD3 /* ZeroTierOne.h */,
 				7CFF1C241C6A49E9000CD05C /* LWIPStack.hpp */,
 				7CFF1C251C6A49E9000CD05C /* NetconEthernetTap.cpp */,
 				7CFF1C261C6A49E9000CD05C /* NetconEthernetTap.hpp */,
@@ -1505,6 +1507,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/ZeroTier/",
 					"$(SRCROOT)/ilbZeroTier",
+					"$(SRCROOT)/../include",
 				);
 				INFOPLIST_FILE = ZTNC/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
@@ -1513,7 +1516,7 @@
 				PROVISIONING_PROFILE = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "ZTNC-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/../../../include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/../../../include $(SRCROOT)/../include";
 			};
 			name = Debug;
 		};
@@ -1529,6 +1532,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(SRCROOT)/ZeroTier/",
 					"$(SRCROOT)/ilbZeroTier",
+					"$(SRCROOT)/../include",
 				);
 				INFOPLIST_FILE = ZTNC/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
@@ -1536,7 +1540,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "ZTNC-Bridging-Header.h";
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/../../../include";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/../../../include $(SRCROOT)/../include";
 			};
 			name = Release;
 		};

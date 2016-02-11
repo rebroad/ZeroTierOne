@@ -1,6 +1,10 @@
 #ifndef _COMMON_HPP_
 #define _COMMON_HPP_
 
+#include <string>
+
+std::string get_debug_msg();
+
 #define DEBUG_LEVEL     4
 
 #define MSG_TRANSFER    1 // RX/TX specific statements
