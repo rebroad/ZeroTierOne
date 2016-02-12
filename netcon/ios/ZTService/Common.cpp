@@ -26,12 +26,18 @@
 #include "Mutex.hpp"
 
 ZeroTier::Mutex _msg_m;
-std::vector<std::string> msgs;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+//std::vector<std::string> msgs;
 
 // Assembles and returns a debug string containing the most recent debug statements from the service
 // FIXME: We should develop a better mechanism for this in production
 
 
+/*
 #if defined(__APPLE__)
 #include "TargetConditionals.h"
 #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
@@ -56,7 +62,7 @@ void push_msg(const char * msg)
 
 #endif
 #endif
-
+*/
 
 
 
@@ -95,6 +101,7 @@ void print_addr(struct sockaddr *addr)
         va_list ap;
         va_start(ap, fmt);
         
+        /*
 #if defined(__APPLE__)
     #include "TargetConditionals.h"
     #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
@@ -104,6 +111,7 @@ void print_addr(struct sockaddr *addr)
         push_msg(fmt);
     #endif
 #endif
+        */
         
 #ifdef VERBOSE // So we can cut out some clutter in the strace output while debugging
         char timestring[20];
@@ -119,3 +127,9 @@ void print_addr(struct sockaddr *addr)
         errno = saveerr;
         va_end(ap);
     }
+    
+    
+#ifdef __cplusplus
+}
+#endif
+

@@ -6,10 +6,12 @@
 //  Copyright © 2016 ZeroTier. All rights reserved.
 //
 
+
+
+
 #ifdef USE_GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include "Intercept.hpp"
 
 #include <unistd.h>
 #include <stdint.h>
@@ -38,19 +40,59 @@
 #include <linux/net.h> /* for NPROTO */
 #endif
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+    
 #if defined(__linux__)
 #define SOCK_MAX (SOCK_PACKET + 1)
 #endif
 #define SOCK_TYPE_MASK 0xf
 
-#include "Intercept.hpp"
+#include "Intercept.h"
 #include "RPC.hpp"
 #include "Common.hpp"
+
+#include "fishhook.h"
 
 void print_addr(struct sockaddr *addr);
 void dwr(int level, const char *fmt, ... );
 
 static char *netpath = (char *)0;
+
+// ----------------- FISH HOOK test section ---------------------------
+
+
+
+int test_rebind()
+{
+    return internal_test_rebind();
+}
+
+#define SOCKET_SIG int socket_family, int socket_type, int protocol
+
+static int (*orig_socket)(SOCKET_SIG);
+int my_socket(SOCKET_SIG)
+{
+    printf("my socket!\n");
+    return 1;
+}
+
+
+int internal_test_rebind()
+{
+    /*
+    rebind_symbols((struct rebinding[1]){
+        {"socket",
+            (int(*)(int, int, int))&my_socket,
+            (void *)&orig_socket}}, 1);
+    */
+    return 1;
+}
+
+
 
 /*------------------------------------------------------------------------------
  ------------------- Intercept<--->Service Comm mechanisms ----------------------
@@ -60,7 +102,7 @@ static char *netpath = (char *)0;
 #define IOS_SERVICE_THREAD_ID   222
 
 // FIXME: 
-#include "OneServiceSetup.hpp"
+//#include "OneServiceSetup.hpp"
 
 /* TEST SECTION */
 
@@ -76,8 +118,8 @@ void *start_new_intercept(void *thread_id)
     
     int key = *((int*)pthread_getspecific(thr_id_key));
     
-    if(key == IOS_SERVICE_THREAD_ID)
-        start_OneService();
+    //if(key == IOS_SERVICE_THREAD_ID)
+    //    start_OneService();
     return NULL;
 }
 void init_new_intercept(int key)
@@ -123,7 +165,6 @@ int connected_to_service(int sockfd)
     return 0;
 }
 
-
 void load_symbols()
 {
     if (!realconnect) {
@@ -147,6 +188,7 @@ void load_symbols()
 /* get symbols and initialize mutexes */
 int set_up_intercept()
 {
+    printf("LOADING SYMBOLS\n");
     load_symbols();
     
     void *spec = pthread_getspecific(thr_id_key);
@@ -283,6 +325,7 @@ int socket(SOCKET_SIG)
  connect() intercept function */
 int connect(CONNECT_SIG)
 {
+    printf("INTERCEPTED CF socket()\n");
     if (!set_up_intercept())
         return realconnect(__fd, __addr, __len);
     
@@ -343,7 +386,7 @@ int connect(CONNECT_SIG)
     rpc_st.__tid = syscall(SYS_gettid);
 #endif
     rpc_st.__fd = __fd;
-    memcpy(&rpc_st.__addr, __addr, sizeof(struct sockaddr_storage));
+    //memcpy(&rpc_st.__addr, __addr, sizeof(struct sockaddr_storage));
     memcpy(&rpc_st.__len, &__len, sizeof(socklen_t));
     return rpc_send_command(netpath, RPC_CONNECT, __fd, &rpc_st, sizeof(struct connect_st));
 }
@@ -402,7 +445,7 @@ int bind(BIND_SIG)
 #if defined(__linux__)
     rpc_st.__tid = syscall(SYS_gettid);
 #endif
-    memcpy(&rpc_st.addr, addr, sizeof(struct sockaddr_storage));
+   // memcpy(&rpc_st.addr, addr, sizeof(struct sockaddr_storage));
     memcpy(&rpc_st.addrlen, &addrlen, sizeof(socklen_t));
     return rpc_send_command(netpath, RPC_BIND, sockfd, &rpc_st, sizeof(struct bind_st));
 }
@@ -568,7 +611,7 @@ int getsockname(GETSOCKNAME_SIG)
     /* assemble and send command */
     struct getsockname_st rpc_st;
     rpc_st.sockfd = sockfd;
-    memcpy(&rpc_st.addr, addr, *addrlen);
+    //memcpy(&rpc_st.addr, addr, *addrlen);
     memcpy(&rpc_st.addrlen, &addrlen, sizeof(socklen_t));
     int rpcfd = rpc_send_command(netpath, RPC_GETSOCKNAME, sockfd, &rpc_st, sizeof(struct getsockname_st));
     /* read address info from service */
@@ -631,5 +674,10 @@ long syscall(SYSCALL_SIG)
     }
 #endif
     return realsyscall(number,a,b,c,d,e,f);
+}
+#endif
+
+
+#ifdef __cplusplus
 }
 #endif

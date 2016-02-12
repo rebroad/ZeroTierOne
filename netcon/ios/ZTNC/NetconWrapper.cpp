@@ -11,10 +11,11 @@
 #include <netdb.h>
 
 #include "OneServiceSetup.hpp"
-#include "Intercept.hpp"
+#include "Intercept.h"
 #include "Common.hpp"
 #include "ZeroTierOne.h"
 
+/*
 extern "C" void kill_service() {
     //ZeroTier::kill_service = 1;
 }
@@ -22,6 +23,16 @@ extern "C" void kill_service() {
 extern "C" const char * get_debug_msg_from_ztnc() {
     return get_debug_msg().c_str();
 }
+*/
+
+#include "testhook.hpp"
+
+extern "C" int fish_test_rebind()
+{
+    test_rebind();
+    return 1;
+}
+
 
 extern "C" int start_service(const char * path) {
     init_new_service(path);

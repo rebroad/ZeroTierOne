@@ -58,6 +58,16 @@
                ReferencedContainer = "container:ZTNC.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "7CBB21431C6D56640081A2B7"
+               BuildableName = "NewFrameworkTests.xctest"
+               BlueprintName = "NewFrameworkTests"
+               ReferencedContainer = "container:ZTNC.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <MacroExpansion>
          <BuildableReference

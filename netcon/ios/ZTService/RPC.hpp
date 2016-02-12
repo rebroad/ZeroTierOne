@@ -69,14 +69,14 @@ extern "C" {
     
     struct bind_st {
         int sockfd;
-        struct sockaddr_storage addr;
+    //    struct sockaddr_storage addr;
         socklen_t addrlen;
         int __tid;
     };
     
     struct connect_st {
         int __fd;
-        struct sockaddr_storage __addr;
+        //struct sockaddr_storage __addr;
         socklen_t __len;
         int __tid;
     };
@@ -100,7 +100,7 @@ extern "C" {
     
     struct accept_st {
         int sockfd;
-        struct sockaddr_storage addr;
+        //struct sockaddr_storage addr;
         socklen_t addrlen;
         int __tid;
     };
@@ -112,7 +112,7 @@ extern "C" {
     
     struct getsockname_st {
         int sockfd;
-        struct sockaddr_storage addr;
+        //struct sockaddr_storage addr;
         socklen_t addrlen;
     };
     

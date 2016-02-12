@@ -33,7 +33,7 @@
 #include "OneService.hpp"
 #include "Utils.hpp"
 #include "OSUtils.hpp"
-#include "Intercept.hpp"
+#include "Intercept.h"
 #include "Common.hpp"
 
 std::string service_path;
@@ -47,8 +47,7 @@ void init_new_service(const char * path) {
     int start_OneService()
     {
         chdir(service_path.c_str());
-        fprintf(stderr, "\n\n\n\nSERVICE PATH = %s\n", service_path.c_str());
-        fprintf(stderr, "start_service(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+        fprintf(stderr, "\n\n\n\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
         static std::string homeDir = "";
         // /Users/Joseph/Library/Developer/CoreSimulator/Devices/0380D5D4-BD2E-4D3D-8930-2E5C3F25C3E1/data/Library/Application Support/ZeroTier/One
@@ -64,8 +63,7 @@ void init_new_service(const char * path) {
 #endif
 #endif
         
-        
-            //homeDir = OneService::platformDefaultHomePath();
+            // homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {
             //fprintf(stderr,"%s: no home path specified and no platform default available" ZT_EOL_S,argv[0]);
             return -1;
