@@ -51,25 +51,14 @@
 #include "lwip/ip_addr.h"
 #include "lwip/ip_frag.h"
 #include "lwip/tcp.h"
-
-#if defined(__APPLE__)
-    #include "TargetConditionals.h"
-    #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
-        // Special for xcode static library wrapper
-        // FIXME: Should be refactored before production
-        #include "Common.hpp"
-    #else
-        #include "common.inc.c"
-    #endif
-#elif defined(__linux__)
-    #include "common.inc.c"
-#endif
-
 #include "lwip/init.h"
 #include "lwip/mem.h"
 #include "lwip/pbuf.h"
 #include "lwip/ip_addr.h"
 #include "lwip/netif.h"
+
+#include "common.inc.c"
+
 
 void dwr(int level, const char *fmt, ... );
 

@@ -16,6 +16,11 @@
 #include <strings.h>
 #include "RPC.h"
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+    
 #define SERVICE_CONNECT_ATTEMPTS 30
 
 #define CONNECT_SIG int __fd, const struct sockaddr * __addr, socklen_t __len
@@ -281,3 +286,7 @@ ssize_t sock_fd_read(int sock, void *buf, ssize_t bufsize, int *fd)
   }
   return size;
 }
+    
+#ifdef __cplusplus
+}
+#endif

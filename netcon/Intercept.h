@@ -30,6 +30,13 @@
 
 #include <sys/socket.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+    
+void init_new_intercept(int key);
+void init_new_intercept_no_spawn(int key);
+void *start_new_intercept(void *thread_id);
 
 #if defined(__linux__)
 	#define ACCEPT4_SIG int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags
@@ -91,4 +98,8 @@ static int (*realgetsockopt)(GETSOCKOPT_SIG) = 0;
 static int (*realclose)(CLOSE_SIG) = 0;
 static int (*realgetsockname)(GETSOCKNAME_SIG) = 0;
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
