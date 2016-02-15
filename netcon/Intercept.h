@@ -34,6 +34,8 @@
 extern "C" {
 #endif
     
+void set_thr_key(pthread_key_t key);
+void setpath(const char * given_path);
 int set_up_intercept();
 void init_intercept(int key);
 void init_intercept_no_spawn(int key);

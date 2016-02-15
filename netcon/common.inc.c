@@ -50,6 +50,7 @@
 #define MSG_DEBUG       4 // Information which is only useful to someone debugging
 #define MSG_DEBUG_EXTRA 5 // If nothing in your world makes sense
 
+/*
 #ifdef NETCON_INTERCEPT
 
 void print_addr(struct sockaddr *addr)
@@ -75,10 +76,11 @@ void print_addr(struct sockaddr *addr)
   free(s);
 }
 #endif
+*/
 
-#ifdef NETCON_SERVICE
-  namespace ZeroTier {
-#endif
+//#ifdef NETCON_SERVICE
+  //namespace ZeroTier {
+//#endif
   void dwr(int level, const char *fmt, ... )
   {
     if(level > DEBUG_LEVEL)
@@ -101,8 +103,8 @@ void print_addr(struct sockaddr *addr)
     errno = saveerr;
     va_end(ap);
   }
-#ifdef NETCON_SERVICE
-}
-#endif
+//#ifdef NETCON_SERVICE
+//}
+//#endif
 
 #endif

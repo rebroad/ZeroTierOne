@@ -42,7 +42,6 @@ class ViewController: UIViewController {
         super.viewDidLoad()
         
         // Service thread
-        
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), {
         self.service_thread = NSThread(target:self, selector:"ztnc_start_service", object:nil)
         self.service_thread.start()
@@ -55,7 +54,5 @@ class ViewController: UIViewController {
         super.didReceiveMemoryWarning()
         // Dispose of any resources that can be recreated.
     }
-
-
 }
 

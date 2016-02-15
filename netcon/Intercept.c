@@ -126,25 +126,43 @@ void load_symbols()
         realclose = (int(*)(int))dlsym(RTLD_NEXT, "close");
         realgetsockname = (int(*)(int, struct sockaddr *, socklen_t *))dlsym(RTLD_NEXT, "getsockname");
 }
-/* get symbols and initialize mutexes */
+    
+    
+// Se from service
+void setpath(const char * given_path) {
+    //if(!netpath)
+    //    rpc_mutex_init();
+    //netpath = given_path;
+}
+    
+void set_thr_key(pthread_key_t key) {
+    //if(!netpath)
+    //    rpc_mutex_init();
+    thr_id_key = key;
+}
+
+    
 int set_up_intercept()
 {
-    printf("set_up_intercept()\n");
+    //if (!netpath) {
+    //    rpc_mutex_init();
+    //}
+    printf("set_up_intercept(): netpath = %s\n", netpath);
     
     if(!realconnect) {
         load_symbols();
-    
 //#ifdef NETCON_MOBILE
         //fishhook_rebind_symbols();
 //#endif
     }
     void *spec = pthread_getspecific(thr_id_key);
     if(spec != NULL) {
+        printf("spec != NULL, ID = %d\n", (*((int*)spec)));
         if(*((int*)spec) == INTERCEPTED_THREAD_ID)
         {
             if (!netpath) {
-                netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
-                //netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace";
+                //netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
+                netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace";
                 dwr(MSG_DEBUG,"Connecting to service at: %s\n", netpath);
                 rpc_mutex_init();
             }
@@ -204,9 +222,10 @@ int set_up_intercept()
      socket() intercept function */
     int socket(SOCKET_SIG)
     {
-        fprintf(stderr, "socket(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
         if (!set_up_intercept())
             return realsocket(socket_family, socket_type, protocol);
+        fprintf(stderr, "socket(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+
         /* Check that type makes sense */
 #if defined(__linux__)
         int flags = socket_type & ~SOCK_TYPE_MASK;
@@ -317,7 +336,7 @@ int set_up_intercept()
         rpc_st.__tid = syscall(SYS_gettid);
 #endif
         rpc_st.__fd = __fd;
-        //memcpy(&rpc_st.__addr, __addr, sizeof(struct sockaddr_storage));
+        memcpy(&rpc_st.__addr, __addr, sizeof(struct sockaddr_storage));
         memcpy(&rpc_st.__len, &__len, sizeof(socklen_t));
         return rpc_send_command(netpath, RPC_CONNECT, __fd, &rpc_st, sizeof(struct connect_st));
     }
@@ -376,7 +395,7 @@ int set_up_intercept()
 #if defined(__linux__)
         rpc_st.__tid = syscall(SYS_gettid);
 #endif
-        // memcpy(&rpc_st.addr, addr, sizeof(struct sockaddr_storage));
+        memcpy(&rpc_st.addr, addr, sizeof(struct sockaddr_storage));
         memcpy(&rpc_st.addrlen, &addrlen, sizeof(socklen_t));
         return rpc_send_command(netpath, RPC_BIND, sockfd, &rpc_st, sizeof(struct bind_st));
     }

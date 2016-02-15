@@ -466,6 +466,7 @@ void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_
 
 void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,unsigned long len)
 {
+    dwr(MSG_DEBUG, "phyOnUnixData(), len = %d\n", len);
 	uint64_t CANARY_num;
 	pid_t pid, tid;
 	int rpcCount, wlen = len;
@@ -687,6 +688,7 @@ err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
 
 err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err)
 {
+    dwr(MSG_DEBUG, "nc_recved()\n");
     Larg *l = (Larg*)arg;
 	int tot = 0;
   	struct pbuf* q = p;
@@ -930,6 +932,7 @@ void NetconEthernetTap::handleListen(PhySocket *sock, PhySocket *rpcSock, void *
 
 TcpConnection * NetconEthernetTap::handleSocket(PhySocket *sock, void **uptr, struct socket_st* socket_rpc)
 {
+    dwr(MSG_DEBUG, "handleSocket()\n");
 	Mutex::Lock _l(_tcpconns_m);
 	struct tcp_pcb *newPCB = lwipstack->__tcp_new();
   	if(newPCB != NULL) {
@@ -947,6 +950,7 @@ TcpConnection * NetconEthernetTap::handleSocket(PhySocket *sock, void **uptr, st
 
 void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, TcpConnection *conn, struct connect_st* connect_rpc)
 {
+    dwr(MSG_DEBUG, "handleConnect()\n");
 	Mutex::Lock _l(_tcpconns_m);
 	struct sockaddr_in *rawAddr = (struct sockaddr_in *) &connect_rpc->__addr;
 	int port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
@@ -1027,6 +1031,7 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, TcpCo
 
 void NetconEthernetTap::handleWrite(TcpConnection *conn)
 {
+    dwr(MSG_DEBUG, "handleWrite()\n");
 	if(!conn || !conn->pcb) {
 		dwr(MSG_ERROR," handleWrite(): invalid connection/PCB\n");
 		return;

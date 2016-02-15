@@ -12,6 +12,7 @@
 #include "Intercept.h"
 extern "C" int start_intercept() {
     init_intercept_no_spawn(111);
+    setpath("ZeroTier/One/nc_e5cd7a9e1c87bace");
     return 1;
 }
 

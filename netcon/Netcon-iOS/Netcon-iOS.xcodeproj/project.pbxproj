@@ -1291,6 +1291,10 @@
 					"$(SRCROOT)/../../ext/lwip/src/include",
 					"$(SRCROOT)/../../include",
 				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"$(OTHER_CFLAGS)",
+					"-DNETCON_SERVICE",
+				);
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1305,6 +1309,10 @@
 					"$(SRCROOT)/../../ext/lwip/src/include/ipv4",
 					"$(SRCROOT)/../../ext/lwip/src/include",
 					"$(SRCROOT)/../../include",
+				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"$(OTHER_CFLAGS)",
+					"-DNETCON_SERVICE",
 				);
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1404,6 +1412,7 @@
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				INFOPLIST_FILE = "Netcon-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_BUNDLE_IDENTIFIER = "ZeroTier.Netcon-iOS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
@@ -1421,6 +1430,7 @@
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				INFOPLIST_FILE = "Netcon-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_BUNDLE_IDENTIFIER = "ZeroTier.Netcon-iOS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
@@ -1499,6 +1509,8 @@
 					"$(OTHER_CFLAGS)",
 					"-DZT_SERVICE_NETCON",
 					"-DZT_ONE_NO_ROOT_CHECK",
+					"-DNETCON_SERVICE",
+					"-DNETCON_INTERCEPT",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = ZeroTier.ZeroTierNetcon;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1531,6 +1543,8 @@
 					"$(OTHER_CFLAGS)",
 					"-DZT_SERVICE_NETCON",
 					"-DZT_ONE_NO_ROOT_CHECK",
+					"-DNETCON_SERVICE",
+					"-DNETCON_INTERCEPT",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = ZeroTier.ZeroTierNetcon;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -49,8 +49,12 @@ void *start_intercept(void *thread_id)
     set_up_intercept();
     int key = *((int*)pthread_getspecific(thr_id_key));
     
-    if(key == IOS_SERVICE_THREAD_ID)
+    if(key == IOS_SERVICE_THREAD_ID){
         start_OneService();
+    }
+    else {
+        set_thr_key(thr_id_key);
+    }
     
     return NULL;
 }
@@ -94,9 +98,11 @@ void init_service(const char * path) {
 #if defined(__APPLE__)
 #include "TargetConditionals.h"
 #if TARGET_IPHONE_SIMULATOR
+            setpath("/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace"); // for intercept
             homeDir = "/iosdev/data/Library/Application Support/ZeroTier/One";
 #elif TARGET_OS_IPHONE
         homeDir = "ZeroTier/One";
+        setpath("ZeroTier/One/nc_e5cd7a9e1c87bace");
 #endif
 #endif
         
