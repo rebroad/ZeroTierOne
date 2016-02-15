@@ -34,8 +34,9 @@
 extern "C" {
 #endif
     
-void init_new_intercept(int key);
-void init_new_intercept_no_spawn(int key);
+int set_up_intercept();
+void init_intercept(int key);
+void init_intercept_no_spawn(int key);
 void *start_new_intercept(void *thread_id);
 
 #if defined(__linux__)

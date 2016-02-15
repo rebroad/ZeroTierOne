@@ -36,12 +36,51 @@
 
 std::string service_path;
 
-void init_new_service(const char * path) {
-    fprintf(stderr, "init_new_service(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-    service_path = path;
-    init_new_intercept(222);
+pthread_t intercept_thread;
+int * intercept_thread_id;
+pthread_key_t thr_id_key;
+
+#define IOS_SERVICE_THREAD_ID   222
+
+void *start_intercept(void *thread_id)
+{
+    fprintf(stderr, "start_new_intercept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+    pthread_setspecific(thr_id_key, thread_id);
+    set_up_intercept();
+    int key = *((int*)pthread_getspecific(thr_id_key));
+    
+    if(key == IOS_SERVICE_THREAD_ID)
+        start_OneService();
+    
+    return NULL;
 }
 
+void init_intercept(int key)
+{
+    fprintf(stderr, "init_new_intercept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+    pthread_key_create(&thr_id_key, NULL);
+    intercept_thread_id = (int*)malloc(sizeof(int));
+    *intercept_thread_id = key;
+    pthread_create(&intercept_thread, NULL, start_intercept, (void *)(intercept_thread_id));
+}
+
+void init_intercept_no_spawn(int key)
+{
+    fprintf(stderr, "init_new_intercept_no_spawn(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+    pthread_key_create(&thr_id_key, NULL);
+    intercept_thread_id = (int*)malloc(sizeof(int));
+    *intercept_thread_id = key;
+    start_intercept(intercept_thread_id);
+}
+
+
+void init_service(const char * path) {
+    fprintf(stderr, "init_new_service(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+    service_path = path;
+    init_intercept(222);
+}
+
+    // Called from new service thread
     int start_OneService()
     {
         chdir(service_path.c_str());

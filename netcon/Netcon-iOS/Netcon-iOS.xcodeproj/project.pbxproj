@@ -13,6 +13,10 @@
 		7C856DC61C70B42F00F34C96 /* RPC.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C856DC31C70B42F00F34C96 /* RPC.c */; };
 		7C856DC91C70B5B800F34C96 /* fishhook.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C856DC71C70B5B800F34C96 /* fishhook.c */; };
 		7C856DCA1C70B5B800F34C96 /* fishhook.h in Headers */ = {isa = PBXBuildFile; fileRef = 7C856DC81C70B5B800F34C96 /* fishhook.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		7CD698201C725E2800F21A9E /* libServiceSetup.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CD698171C725E0300F21A9E /* libServiceSetup.a */; };
+		7CD698251C725EDE00F21A9E /* OneServiceSetup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */; };
+		7CD698271C72651B00F21A9E /* OneServiceSetup.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
+		7CD6982A1C72655300F21A9E /* libServiceSetup.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CD698171C725E0300F21A9E /* libServiceSetup.a */; };
 		7CDB50191C70A0BA00CC09EC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB50181C70A0BA00CC09EC /* AppDelegate.swift */; };
 		7CDB501B1C70A0BA00CC09EC /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB501A1C70A0BA00CC09EC /* ViewController.swift */; };
 		7CDB501E1C70A0BA00CC09EC /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7CDB501C1C70A0BA00CC09EC /* Main.storyboard */; };
@@ -26,8 +30,6 @@
 		7CDB50601C70A21100CC09EC /* ZeroTierNetcon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CDB504B1C70A21100CC09EC /* ZeroTierNetcon.framework */; };
 		7CDB50611C70A21100CC09EC /* ZeroTierNetcon.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7CDB504B1C70A21100CC09EC /* ZeroTierNetcon.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		7CDB507F1C70A32500CC09EC /* NetconWrapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB507D1C70A32500CC09EC /* NetconWrapper.cpp */; };
-		7CE6B3711C70CDE600BEA5A3 /* OneServiceSetup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CE6B36F1C70CDE600BEA5A3 /* OneServiceSetup.cpp */; };
-		7CE6B3721C70CDE600BEA5A3 /* OneServiceSetup.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CE6B3701C70CDE600BEA5A3 /* OneServiceSetup.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CE6B3801C70D14F00BEA5A3 /* ZeroTierOne.h in Headers */ = {isa = PBXBuildFile; fileRef = 7CE6B37F1C70D14F00BEA5A3 /* ZeroTierOne.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CE6B3851C70D18300BEA5A3 /* ClusterDefinition.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CE6B3811C70D18300BEA5A3 /* ClusterDefinition.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CE6B3861C70D18300BEA5A3 /* ClusterGeoIpService.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CE6B3821C70D18300BEA5A3 /* ClusterGeoIpService.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -187,6 +189,20 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		7CD698211C725E7100F21A9E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7CDB500D1C70A0BA00CC09EC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7CD698161C725E0300F21A9E;
+			remoteInfo = ServiceSetup;
+		};
+		7CD698281C72654A00F21A9E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7CDB500D1C70A0BA00CC09EC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7CD698161C725E0300F21A9E;
+			remoteInfo = ServiceSetup;
+		};
 		7CDB502A1C70A0BA00CC09EC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 7CDB500D1C70A0BA00CC09EC /* Project object */;
@@ -225,6 +241,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		7CD698151C725E0300F21A9E /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "include/$(PRODUCT_NAME)";
+			dstSubfolderSpec = 16;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7CDB50651C70A21100CC09EC /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -246,6 +271,9 @@
 		7C856DC31C70B42F00F34C96 /* RPC.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RPC.c; path = ../../RPC.c; sourceTree = "<group>"; };
 		7C856DC71C70B5B800F34C96 /* fishhook.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fishhook.c; path = ../../fishhook.c; sourceTree = "<group>"; };
 		7C856DC81C70B5B800F34C96 /* fishhook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = fishhook.h; path = ../../fishhook.h; sourceTree = "<group>"; };
+		7CD698171C725E0300F21A9E /* libServiceSetup.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libServiceSetup.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OneServiceSetup.cpp; path = ../../OneServiceSetup.cpp; sourceTree = "<group>"; };
+		7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = OneServiceSetup.hpp; path = ../../OneServiceSetup.hpp; sourceTree = "<group>"; };
 		7CDB50151C70A0BA00CC09EC /* Netcon-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Netcon-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CDB50181C70A0BA00CC09EC /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7CDB501A1C70A0BA00CC09EC /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -416,8 +444,6 @@
 		7CE6B3641C70CBD200BEA5A3 /* ControlPlane.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = ControlPlane.hpp; path = ../../../service/ControlPlane.hpp; sourceTree = "<group>"; };
 		7CE6B3651C70CBD200BEA5A3 /* OneService.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OneService.cpp; path = ../../../service/OneService.cpp; sourceTree = "<group>"; };
 		7CE6B3661C70CBD200BEA5A3 /* OneService.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = OneService.hpp; path = ../../../service/OneService.hpp; sourceTree = "<group>"; };
-		7CE6B36F1C70CDE600BEA5A3 /* OneServiceSetup.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = OneServiceSetup.cpp; path = ../../OneServiceSetup.cpp; sourceTree = "<group>"; };
-		7CE6B3701C70CDE600BEA5A3 /* OneServiceSetup.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = OneServiceSetup.hpp; path = ../../OneServiceSetup.hpp; sourceTree = "<group>"; };
 		7CE6B3731C70CF8900BEA5A3 /* LWIPStack.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = LWIPStack.hpp; path = ../../LWIPStack.hpp; sourceTree = "<group>"; };
 		7CE6B3741C70CF8900BEA5A3 /* NetconEthernetTap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NetconEthernetTap.cpp; path = ../../NetconEthernetTap.cpp; sourceTree = "<group>"; };
 		7CE6B3751C70CF8900BEA5A3 /* NetconEthernetTap.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = NetconEthernetTap.hpp; path = ../../NetconEthernetTap.hpp; sourceTree = "<group>"; };
@@ -433,10 +459,18 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		7CD698141C725E0300F21A9E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7CDB50121C70A0BA00CC09EC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7CD6982A1C72655300F21A9E /* libServiceSetup.a in Frameworks */,
 				7CDB50601C70A21100CC09EC /* ZeroTierNetcon.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -459,6 +493,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7CD698201C725E2800F21A9E /* libServiceSetup.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -473,6 +508,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		7CD698181C725E0300F21A9E /* ServiceSetup */ = {
+			isa = PBXGroup;
+			children = (
+				7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */,
+				7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */,
+			);
+			path = ServiceSetup;
+			sourceTree = "<group>";
+		};
 		7CDB500C1C70A0BA00CC09EC = {
 			isa = PBXGroup;
 			children = (
@@ -481,6 +525,7 @@
 				7CDB50371C70A0BA00CC09EC /* Netcon-iOSUITests */,
 				7CDB504C1C70A21100CC09EC /* ZeroTierNetcon */,
 				7CDB505A1C70A21100CC09EC /* ZeroTierNetconTests */,
+				7CD698181C725E0300F21A9E /* ServiceSetup */,
 				7CDB50161C70A0BA00CC09EC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -493,6 +538,7 @@
 				7CDB50341C70A0BA00CC09EC /* Netcon-iOSUITests.xctest */,
 				7CDB504B1C70A21100CC09EC /* ZeroTierNetcon.framework */,
 				7CDB50541C70A21100CC09EC /* ZeroTierNetconTests.xctest */,
+				7CD698171C725E0300F21A9E /* libServiceSetup.a */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -728,8 +774,6 @@
 		7CE6B4201C70D9D200BEA5A3 /* Intercept */ = {
 			isa = PBXGroup;
 			children = (
-				7CE6B36F1C70CDE600BEA5A3 /* OneServiceSetup.cpp */,
-				7CE6B3701C70CDE600BEA5A3 /* OneServiceSetup.hpp */,
 				7C856DC71C70B5B800F34C96 /* fishhook.c */,
 				7C856DC81C70B5B800F34C96 /* fishhook.h */,
 				7C856DC11C70B42F00F34C96 /* common.inc.c */,
@@ -802,7 +846,6 @@
 				7CE6B3B71C70D1FC00BEA5A3 /* Topology.hpp in Headers */,
 				7CE6B3B81C70D1FC00BEA5A3 /* Utils.hpp in Headers */,
 				7CE6B3B91C70D1FC00BEA5A3 /* World.hpp in Headers */,
-				7CE6B3721C70CDE600BEA5A3 /* OneServiceSetup.hpp in Headers */,
 				7C856DBF1C70B3EC00F34C96 /* Intercept.h in Headers */,
 				7C856DCA1C70B5B800F34C96 /* fishhook.h in Headers */,
 				7C856DC01C70B3EC00F34C96 /* RPC.h in Headers */,
@@ -822,12 +865,30 @@
 				7CE6B41D1C70D30C00BEA5A3 /* pppdebug.h in Headers */,
 				7CE6B41E1C70D30C00BEA5A3 /* randm.h in Headers */,
 				7CE6B41F1C70D30C00BEA5A3 /* vj.h in Headers */,
+				7CD698271C72651B00F21A9E /* OneServiceSetup.hpp in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
+		7CD698161C725E0300F21A9E /* ServiceSetup */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7CD6981F1C725E0300F21A9E /* Build configuration list for PBXNativeTarget "ServiceSetup" */;
+			buildPhases = (
+				7CD698131C725E0300F21A9E /* Sources */,
+				7CD698141C725E0300F21A9E /* Frameworks */,
+				7CD698151C725E0300F21A9E /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ServiceSetup;
+			productName = ServiceSetup;
+			productReference = 7CD698171C725E0300F21A9E /* libServiceSetup.a */;
+			productType = "com.apple.product-type.library.static";
+		};
 		7CDB50141C70A0BA00CC09EC /* Netcon-iOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7CDB503D1C70A0BA00CC09EC /* Build configuration list for PBXNativeTarget "Netcon-iOS" */;
@@ -840,6 +901,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				7CD698291C72654A00F21A9E /* PBXTargetDependency */,
 				7CDB505F1C70A21100CC09EC /* PBXTargetDependency */,
 			);
 			name = "Netcon-iOS";
@@ -895,6 +957,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				7CD698221C725E7100F21A9E /* PBXTargetDependency */,
 			);
 			name = ZeroTierNetcon;
 			productName = ZeroTierNetcon;
@@ -930,8 +993,12 @@
 				LastUpgradeCheck = 0720;
 				ORGANIZATIONNAME = ZeroTier;
 				TargetAttributes = {
+					7CD698161C725E0300F21A9E = {
+						CreatedOnToolsVersion = 7.2;
+					};
 					7CDB50141C70A0BA00CC09EC = {
 						CreatedOnToolsVersion = 7.2;
+						DevelopmentTeam = 8ZD9JUCZ4V;
 					};
 					7CDB50281C70A0BA00CC09EC = {
 						CreatedOnToolsVersion = 7.2;
@@ -968,6 +1035,7 @@
 				7CDB50331C70A0BA00CC09EC /* Netcon-iOSUITests */,
 				7CDB504A1C70A21100CC09EC /* ZeroTierNetcon */,
 				7CDB50531C70A21100CC09EC /* ZeroTierNetconTests */,
+				7CD698161C725E0300F21A9E /* ServiceSetup */,
 			);
 		};
 /* End PBXProject section */
@@ -1014,6 +1082,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		7CD698131C725E0300F21A9E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7CD698251C725EDE00F21A9E /* OneServiceSetup.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7CDB50111C70A0BA00CC09EC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1132,7 +1208,6 @@
 				7CE6B3DA1C70D26B00BEA5A3 /* Topology.cpp in Sources */,
 				7CE6B3DB1C70D26B00BEA5A3 /* Utils.cpp in Sources */,
 				7CE6B3BA1C70D23000BEA5A3 /* OneService.cpp in Sources */,
-				7CE6B3711C70CDE600BEA5A3 /* OneServiceSetup.cpp in Sources */,
 				7C856DC91C70B5B800F34C96 /* fishhook.c in Sources */,
 				7C856DC51C70B42F00F34C96 /* Intercept.c in Sources */,
 				7C856DC61C70B42F00F34C96 /* RPC.c in Sources */,
@@ -1150,6 +1225,16 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		7CD698221C725E7100F21A9E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7CD698161C725E0300F21A9E /* ServiceSetup */;
+			targetProxy = 7CD698211C725E7100F21A9E /* PBXContainerItemProxy */;
+		};
+		7CD698291C72654A00F21A9E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7CD698161C725E0300F21A9E /* ServiceSetup */;
+			targetProxy = 7CD698281C72654A00F21A9E /* PBXContainerItemProxy */;
+		};
 		7CDB502B1C70A0BA00CC09EC /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 7CDB50141C70A0BA00CC09EC /* Netcon-iOS */;
@@ -1197,6 +1282,36 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		7CD6981D1C725E0300F21A9E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++98";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../ext/lwip/src/include/ipv4",
+					"$(SRCROOT)/../../ext/lwip/src/include",
+					"$(SRCROOT)/../../include",
+				);
+				OTHER_LDFLAGS = "-ObjC";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		7CD6981E1C725E0300F21A9E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++98";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../ext/lwip/src/include/ipv4",
+					"$(SRCROOT)/../../ext/lwip/src/include",
+					"$(SRCROOT)/../../include",
+				);
+				OTHER_LDFLAGS = "-ObjC";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
 		7CDB503B1C70A0BA00CC09EC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1285,10 +1400,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				INFOPLIST_FILE = "Netcon-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "ZeroTier.Netcon-iOS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Netcon-iOS/Netcon-iOS-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -1299,10 +1417,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				INFOPLIST_FILE = "Netcon-iOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "ZeroTier.Netcon-iOS";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Netcon-iOS/Netcon-iOS-Bridging-Header.h";
 			};
 			name = Release;
@@ -1369,6 +1490,7 @@
 					"$(SRCROOT)/../../ext/lwip/src/include",
 					"$(SRCROOT)/../../ext/lwip/src/include/ipv4",
 					"$(SRCROOT)/../../include",
+					"$(SRCROOT)/../../netcon",
 				);
 				INFOPLIST_FILE = ZeroTierNetcon/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
@@ -1400,6 +1522,7 @@
 					"$(SRCROOT)/../../ext/lwip/src/include",
 					"$(SRCROOT)/../../ext/lwip/src/include/ipv4",
 					"$(SRCROOT)/../../include",
+					"$(SRCROOT)/../../netcon",
 				);
 				INFOPLIST_FILE = ZeroTierNetcon/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
@@ -1442,6 +1565,14 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		7CD6981F1C725E0300F21A9E /* Build configuration list for PBXNativeTarget "ServiceSetup" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7CD6981D1C725E0300F21A9E /* Debug */,
+				7CD6981E1C725E0300F21A9E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+		};
 		7CDB50101C70A0BA00CC09EC /* Build configuration list for PBXProject "Netcon-iOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

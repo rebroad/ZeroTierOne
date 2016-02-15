@@ -54,7 +54,8 @@ extern "C" {
     
 void print_addr(struct sockaddr *addr);
 void dwr(int level, const char *fmt, ... );
-    
+int set_up_intercept();
+
 static char *netpath = (char *)0;
     
 /*------------------------------------------------------------------------------
@@ -64,6 +65,7 @@ static char *netpath = (char *)0;
 /* Use Fishhook to rebind symbols */
 void fishhook_rebind_symbols()
 {
+    dwr(MSG_DEBUG, "fishhook_rebind_symbols()\n");
     rebind_symbols((struct rebinding[1]){{"setsockopt", (int(*)(SETSOCKOPT_SIG))&setsockopt, (void *)&realsetsockopt}}, 1);
     rebind_symbols((struct rebinding[1]){{"getsockopt", (int(*)(GETSOCKOPT_SIG))&getsockopt, (void *)&realgetsockopt}}, 1);
     rebind_symbols((struct rebinding[1]){{"socket", (int(*)(SOCKET_SIG))&socket, (void *)&realsocket}}, 1);
@@ -81,45 +83,9 @@ void fishhook_rebind_symbols()
     
 #define INTERCEPTED_THREAD_ID   111
 #define IOS_SERVICE_THREAD_ID   222
-    
-// FIXME:
-#include "OneServiceSetup.hpp"
-    
-pthread_t intercept_thread;
-int * intercept_thread_id;
+
 pthread_key_t thr_id_key;
-    
-void *start_new_intercept(void *thread_id)
-{
-    fprintf(stderr, "start_new_intercept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-    pthread_setspecific(thr_id_key, thread_id);
-    set_up_intercept();
-    int key = *((int*)pthread_getspecific(thr_id_key));
-        
-    if(key == IOS_SERVICE_THREAD_ID)
-        start_OneService();
-    return NULL;
-}
-void init_new_intercept(int key)
-{
-    //fprintf(stderr, "init_new_intercept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-    pthread_key_create(&thr_id_key, NULL);
-    intercept_thread_id = (int*)malloc(sizeof(int));
-    *intercept_thread_id = key;
-    pthread_create(&intercept_thread, NULL, start_new_intercept, (void *)(intercept_thread_id));
-}
-    
-void init_new_intercept_no_spawn(int key)
-{
-    fishhook_rebind_symbols();
-    //fprintf(stderr, "init_new_intercept_no_spawn(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-    pthread_key_create(&thr_id_key, NULL);
-    intercept_thread_id = (int*)malloc(sizeof(int));
-    *intercept_thread_id = key;
-    start_new_intercept(intercept_thread_id);
-}
-    
-    
+
 /* Check whether the socket is mapped to the service or not. We
 need to know if this is a regular AF_LOCAL socket or an end of a socketpair
 that the service uses. We don't want to keep state in the intercept, so
@@ -146,7 +112,6 @@ int connected_to_service(int sockfd)
     
 void load_symbols()
 {
-    if (!realconnect) {
 #if defined(__linux__)
         realaccept4 = dlsym(RTLD_NEXT, "accept4");
         realsyscall = dlsym(RTLD_NEXT, "syscall");
@@ -160,13 +125,19 @@ void load_symbols()
         reallisten = (int(*)(int, int))dlsym(RTLD_NEXT, "listen");
         realclose = (int(*)(int))dlsym(RTLD_NEXT, "close");
         realgetsockname = (int(*)(int, struct sockaddr *, socklen_t *))dlsym(RTLD_NEXT, "getsockname");
-    }
 }
 /* get symbols and initialize mutexes */
 int set_up_intercept()
 {
     printf("set_up_intercept()\n");
-    load_symbols();
+    
+    if(!realconnect) {
+        load_symbols();
+    
+//#ifdef NETCON_MOBILE
+        //fishhook_rebind_symbols();
+//#endif
+    }
     void *spec = pthread_getspecific(thr_id_key);
     if(spec != NULL) {
         if(*((int*)spec) == INTERCEPTED_THREAD_ID)
