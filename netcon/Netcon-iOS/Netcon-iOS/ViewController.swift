@@ -10,24 +10,53 @@ import UIKit
 
 class ViewController: UIViewController {
 
-    @IBOutlet weak var getButton: UIButton!
     @IBOutlet weak var myWebView: UIWebView!
     
-    @IBAction func getButtonAction(sender: AnyObject) {
-        // Simple Echo server test using classic socket API
-        let addr_string = "10.242.9.160"
-        let port : Int32 = 1000
-        cpp_intercepted_socket_api_test(addr_string, port)
-        
-        /*
-        let url_str = "http://10.242.9.160:8083/"
+    @IBOutlet weak var btnTcpServerTest: UIButton!
+    @IBOutlet weak var btnTcpClientTest: UIButton!
+    @IBOutlet weak var btnUdpServerTest: UIButton!
+    @IBOutlet weak var btnUdpClientTest: UIButton!
+    
+    @IBOutlet weak var txtPort: UITextField!
+    @IBOutlet weak var txtAddr: UITextField!
+
+    @IBAction func TcpServerTestAction(sender: AnyObject) {
+        print("TcpServerTestAction\n")
+        let addr_string = txtAddr.text
+        let port:Int32? = Int32(txtPort.text!);
+        cpp_tcp_socket_server_test(addr_string!, port!)
+    }
+    
+    @IBAction func TcpClientTestAction(sender: AnyObject) {
+        print("TcpClientTestAction\n")
+        let addr_string = txtAddr.text
+        let port:Int32? = Int32(txtPort.text!);
+        cpp_tcp_socket_client_test(addr_string!, port!)
+    }
+    
+    @IBAction func UdpServerTestAction(sender: AnyObject) {
+        print("UdpServerTestAction\n")
+        let addr_string = txtAddr.text
+        let port:Int32? = Int32(txtPort.text!);
+        cpp_udp_socket_server_test(addr_string!, port!)
+    }
+    
+    @IBAction func UdpClientTestAction(sender: AnyObject) {
+        print("UdpClientTestAction\n")
+        let addr_string = txtAddr.text
+        let port:Int32? = Int32(txtPort.text!);
+        cpp_udp_socket_client_test(addr_string!, port!)
+    }
+
+    @IBOutlet weak var WebRequest: UIButton!
+    @IBAction func WebRequestAction(sender: AnyObject) {
+        let url_str = "http://" + txtAddr.text! + "/"
         let url = NSURL (string: url_str);
         //urlTextField.text = url_str;
         let requestObj = NSURLRequest(URL: url!);
         myWebView.loadRequest(requestObj);
-        // Do any additional setup after loading the view, typically from a nib.
-        */
     }
+
     var service_thread : NSThread!
     @IBOutlet weak var urlTextField: UITextField!
     
@@ -39,7 +68,13 @@ class ViewController: UIViewController {
     }
 
     override func viewDidLoad() {
+        self.view.backgroundColor = UIColor.orangeColor()
+        //txtAddr.keyboardType = UIKeyboardType.NumberPad
+        //txtPort.keyboardType = UIKeyboardType.NumberPad
         super.viewDidLoad()
+        
+        txtAddr.text = "10.242.9.160"
+        txtPort.text = "51771"
         
         // Service thread
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), {

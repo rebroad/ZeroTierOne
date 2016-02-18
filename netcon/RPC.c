@@ -16,6 +16,8 @@
 #include <strings.h>
 #include "RPC.h"
 
+#include "Intercept.h"
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,12 +25,15 @@ extern "C" {
     
 #define SERVICE_CONNECT_ATTEMPTS 30
 
+    /*
 #define CONNECT_SIG int __fd, const struct sockaddr * __addr, socklen_t __len
 #define SOCKET_SIG int socket_family, int socket_type, int protocol
 
 static int (*realconnect)(CONNECT_SIG) = 0;
 static int (*realsocket)(SOCKET_SIG) = 0;
-
+static ssize_t (*realsend)(SEND_SIG) = 0;
+*/
+    
 #ifdef NETCON_INTERCEPT
 static int rpc_count;
 #endif
@@ -81,7 +86,8 @@ int load_symbols_rpc()
 //#ifdef NETCON_INTERCEPT
   realsocket = dlsym(RTLD_NEXT, "socket");
   realconnect = dlsym(RTLD_NEXT, "connect");
-  if(!realconnect || !realsocket)
+  realsend = dlsym(RTLD_NEXT, "send");
+  if(!realconnect || !realsocket || !realsend)
     return -1;
 //#endif
   return 1;
@@ -175,7 +181,7 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
     return -1;
   }
   if(c == 'z' && n_write > 0 && forfd > -1){
-    if(send(forfd, &CANARY, CANARY_SZ+PADDING_SZ, 0) < 0) {
+    if(realsend(forfd, &CANARY, CANARY_SZ+PADDING_SZ, 0) < 0) {
       fprintf(stderr,"unable to write canary to stream\n");
       return -1;
     }

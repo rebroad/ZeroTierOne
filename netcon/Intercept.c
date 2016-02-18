@@ -116,37 +116,29 @@ void load_symbols()
         realaccept4 = dlsym(RTLD_NEXT, "accept4");
         realsyscall = dlsym(RTLD_NEXT, "syscall");
 #endif
-        realsetsockopt = (int(*)(int, int, int, const void *, socklen_t))dlsym(RTLD_NEXT, "setsockopt");
-        realgetsockopt = (int(*)(int, int, int, void *, socklen_t *))dlsym(RTLD_NEXT, "getsockopt");
-        realsocket = (int(*)(int, int, int))dlsym(RTLD_NEXT, "socket");
-        realconnect = (int(*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "connect");
-        realbind = (int(*)(int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "bind");
-        realaccept = (int(*)(int, struct sockaddr *, socklen_t *))dlsym(RTLD_NEXT, "accept");
-        reallisten = (int(*)(int, int))dlsym(RTLD_NEXT, "listen");
-        realclose = (int(*)(int))dlsym(RTLD_NEXT, "close");
-        realgetsockname = (int(*)(int, struct sockaddr *, socklen_t *))dlsym(RTLD_NEXT, "getsockname");
-}
+        realsetsockopt = (int(*)(SETSOCKOPT_SIG))dlsym(RTLD_NEXT, "setsockopt");
+        realgetsockopt = (int(*)(GETSOCKOPT_SIG))dlsym(RTLD_NEXT, "getsockopt");
+        realsocket = (int(*)(SOCKET_SIG))dlsym(RTLD_NEXT, "socket");
+        realconnect = (int(*)(CONNECT_SIG))dlsym(RTLD_NEXT, "connect");
+        realbind = (int(*)(BIND_SIG))dlsym(RTLD_NEXT, "bind");
+        realaccept = (int(*)(ACCEPT_SIG))dlsym(RTLD_NEXT, "accept");
+        reallisten = (int(*)(LISTEN_SIG))dlsym(RTLD_NEXT, "listen");
+        realclose = (int(*)(CLOSE_SIG))dlsym(RTLD_NEXT, "close");
+        realgetsockname = (int(*)(GETSOCKNAME_SIG))dlsym(RTLD_NEXT, "getsockname");
     
-    
-// Se from service
-void setpath(const char * given_path) {
-    //if(!netpath)
-    //    rpc_mutex_init();
-    //netpath = given_path;
+        //realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
+        realsend = (ssize_t(*)(int, const void *, size_t, int))dlsym(RTLD_NEXT, "send");
+        realrecv = (int(*)(RECV_SIG))dlsym(RTLD_NEXT, "recv");
+        realrecvfrom = (int(*)(RECVFROM_SIG))dlsym(RTLD_NEXT, "recvfrom");
+        realrecvmsg = (int(*)(RECVMSG_SIG))dlsym(RTLD_NEXT, "recvmsg");
 }
     
 void set_thr_key(pthread_key_t key) {
-    //if(!netpath)
-    //    rpc_mutex_init();
     thr_id_key = key;
 }
-
     
 int set_up_intercept()
 {
-    //if (!netpath) {
-    //    rpc_mutex_init();
-    //}
     printf("set_up_intercept(): netpath = %s\n", netpath);
     
     if(!realconnect) {
@@ -172,8 +164,85 @@ int set_up_intercept()
     return 0;
 }
     
+    // int socket, const void *buffer, size_t length, int flags
+    ssize_t send(SEND_SIG)
+    {
+        // MSG_CONFIRM (Since Linux 2.3.15)
+        // MSG_DONTROUTE
+        // MSG_DONTWAIT (since Linux 2.2)
+        // MSG_EOR (since Linux 2.2)
+        // MSG_MORE (Since Linux 2.4.4)
+        // MSG_NOSIGNAL (since Linux 2.2)
+        // MSG_OOB
+        
+        if (!set_up_intercept())
+            return realsend(socket, buffer, length, flags);
+        dwr(MSG_DEBUG, "send(%d, ..., len = %d, ... )\n", socket, length);
+        return write(socket, buffer, length);
+    }
+    
+    // int socket, const struct msghdr *message, int flags
+    ssize_t sendmsg(SENDMSG_SIG)
+    {
+        return 1;
+    }
+    
+    // int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen
+    //ssize_t sendto(SENDTO_SIG)
+    //{
+        //if (!set_up_intercept())
+        //    return realsendto(sockfd, buf, len, flags, addr, addr_len);
+    //    dwr(MSG_DEBUG, "sendto(%d, ..., len = %d, ... )\n", sockfd, len);
+    //    return write(sockfd, buf, len);
+    //}
+    
+    // int socket, void *buffer, size_t length, int flags);
+    ssize_t recv(RECV_SIG)
+    {
+        // MSG_CMSG_CLOEXEC (recvmsg() only; since Linux 2.6.23)
+        // MSG_DONTWAIT (since Linux 2.2)
+        // MSG_OOB
+        // MSG_PEEK
+        // MSG_TRUNC (since Linux 2.2)
+        // MSG_WAITALL (since Linux 2.2)
+        
+        dwr(MSG_DEBUG, "recv(%d)\n", socket);
+        
+        //return realrecv(socket, buffer, length, flags);
+        return read(socket, buffer, length);
+    }
+    
+    // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len
+    ssize_t recvfrom(RECVFROM_SIG)
+    {
+        dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
+        
+        struct sockaddr_in *connaddr;
+        connaddr = (struct sockaddr_in *)address;
+        
+        int port = connaddr->sin_port;
+        int ip = connaddr->sin_addr.s_addr;
+        unsigned char d[4];
+        d[0] = ip & 0xFF;
+        d[1] = (ip >>  8) & 0xFF;
+        d[2] = (ip >> 16) & 0xFF;
+        d[3] = (ip >> 24) & 0xFF;
+        dwr(MSG_DEBUG," recvfrom(): %d.%d.%d.%d: %d\n", d[0],d[1],d[2],d[3], ntohs(port));
+        
+        int err = realrecvfrom(socket, buffer, length, flags, address, address_len);
+        //printf("err = %d, buf = %s\n", err,buffer);
+        return err;
+    }
+    
+    // int socket, struct msghdr *message, int flags
+    ssize_t recvmsg(RECVMSG_SIG)
+    {
+        dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
+        return realrecvmsg(socket, message, flags);
+    }
+    
     /*------------------------------------------------------------------------------
-     --------------------------------- setsockopt() ---------------------------------
+     --------------------------------- setsockopt() --------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int socket, int level, int option_name, const void *option_value, socklen_t option_len */
@@ -197,7 +266,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     --------------------------------- getsockopt() ---------------------------------
+     --------------------------------- getsockopt() --------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int sockfd, int level, int optname, void *optval, socklen_t *optlen */
@@ -215,7 +284,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     ----------------------------------- socket() -----------------------------------
+     ----------------------------------- socket() ----------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int socket_family, int socket_type, int protocol
@@ -269,7 +338,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     ---------------------------------- connect() -----------------------------------
+     ---------------------------------- connect() ----------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int __fd, const struct sockaddr * __addr, socklen_t __len
@@ -342,7 +411,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     ------------------------------------ bind() ------------------------------------
+     ------------------------------------ bind() -----------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int sockfd, const struct sockaddr *addr, socklen_t addrlen
@@ -401,7 +470,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     ----------------------------------- accept4() ----------------------------------
+     ----------------------------------- accept4() ---------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags */
@@ -418,7 +487,7 @@ int set_up_intercept()
 #endif
     
     /*------------------------------------------------------------------------------
-     ----------------------------------- accept() -----------------------------------
+     ----------------------------------- accept() ----------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int sockfd struct sockaddr *addr, socklen_t *addrlen
@@ -481,7 +550,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     ------------------------------------- listen()----------------------------------
+     ------------------------------------- listen()---------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int sockfd, int backlog */
@@ -527,7 +596,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     ------------------------------------- close() ----------------------------------
+     ------------------------------------- close() ---------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int fd */
@@ -541,7 +610,7 @@ int set_up_intercept()
      */
     
     /*------------------------------------------------------------------------------
-     -------------------------------- getsockname() ---------------------------------
+     -------------------------------- getsockname() --------------------------------
      ------------------------------------------------------------------------------*/
     
     /* int sockfd, struct sockaddr *addr, socklen_t *addrlen */
@@ -581,7 +650,7 @@ int set_up_intercept()
     }
     
     /*------------------------------------------------------------------------------
-     ------------------------------------ syscall() ---------------------------------
+     ------------------------------------ syscall() --------------------------------
      ------------------------------------------------------------------------------*/
     
 #if defined(__linux__)

@@ -11,6 +11,4 @@
 
 #include <stdio.h>
 
-//int start_intercept();
-
 #endif /* NetconWrapper_hpp */

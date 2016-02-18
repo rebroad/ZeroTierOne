@@ -600,6 +600,9 @@
 		7CE6B37D1C70D01A00BEA5A3 /* ZeroTierOne */ = {
 			isa = PBXGroup;
 			children = (
+				7CE6B3731C70CF8900BEA5A3 /* LWIPStack.hpp */,
+				7CE6B3741C70CF8900BEA5A3 /* NetconEthernetTap.cpp */,
+				7CE6B3751C70CF8900BEA5A3 /* NetconEthernetTap.hpp */,
 				7CE6B3811C70D18300BEA5A3 /* ClusterDefinition.hpp */,
 				7CE6B3821C70D18300BEA5A3 /* ClusterGeoIpService.hpp */,
 				7CE6B3831C70D18300BEA5A3 /* ControlPlane.hpp */,
@@ -609,9 +612,6 @@
 				7CE6B37B1C70CFB500BEA5A3 /* http_parser.h */,
 				7CE6B3771C70CFA200BEA5A3 /* lz4.c */,
 				7CE6B3781C70CFA200BEA5A3 /* lz4.h */,
-				7CE6B3731C70CF8900BEA5A3 /* LWIPStack.hpp */,
-				7CE6B3741C70CF8900BEA5A3 /* NetconEthernetTap.cpp */,
-				7CE6B3751C70CF8900BEA5A3 /* NetconEthernetTap.hpp */,
 				7CE6B3601C70CBD200BEA5A3 /* ClusterDefinition.hpp */,
 				7CE6B3611C70CBD200BEA5A3 /* ClusterGeoIpService.cpp */,
 				7CE6B3621C70CBD200BEA5A3 /* ClusterGeoIpService.hpp */,
@@ -1505,6 +1505,7 @@
 				INFOPLIST_FILE = ZeroTierNetcon/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DZT_SERVICE_NETCON",
@@ -1539,6 +1540,7 @@
 				INFOPLIST_FILE = ZeroTierNetcon/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DZT_SERVICE_NETCON",
@@ -1586,6 +1588,7 @@
 				7CD6981E1C725E0300F21A9E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 		7CDB50101C70A0BA00CC09EC /* Build configuration list for PBXProject "Netcon-iOS" */ = {
 			isa = XCConfigurationList;

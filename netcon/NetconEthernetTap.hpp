@@ -49,6 +49,8 @@
 #include "RPC.h"
 
 struct tcp_pcb;
+struct udp_pcb;
+
 struct socket_st;
 struct listen_st;
 struct bind_st;
@@ -68,14 +70,15 @@ class NetconEthernetTap;
 class LWIPStack;
 
 /*
- * TCP connection administered by service
+ * TCP connection
  */
-struct TcpConnection
+struct Connection
 {
   bool listening, probation;
-  int pid, txsz, rxsz;
+  int pid, txsz, rxsz, type;
   PhySocket *rpcSock, *sock;
-  struct tcp_pcb *pcb;
+  struct tcp_pcb *TCP_pcb;
+  struct udp_pcb *UDP_pcb;
   struct sockaddr_storage *addr;
   unsigned char txbuf[DEFAULT_BUF_SZ];
   unsigned char rxbuf[DEFAULT_BUF_SZ];
@@ -87,8 +90,8 @@ struct TcpConnection
 struct Larg
 {
   NetconEthernetTap *tap;
-  TcpConnection *conn;
-  Larg(NetconEthernetTap *_tap, TcpConnection *conn) : tap(_tap), conn(conn) {}
+  Connection *conn;
+  Larg(NetconEthernetTap *_tap, Connection *conn) : tap(_tap), conn(conn) {}
 };
 
 /*
@@ -191,6 +194,16 @@ private:
 	 */
  	static err_t nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err);
 
+    
+    
+    
+    
+    static void nc_udp_recved(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port);
+
+    
+    
+    
+    
 	/*
 	 * Callback from LWIP when an internal error is associtated with the given (arg)
 	 *
@@ -325,7 +338,7 @@ private:
 	[X] ENOBUFS or ENOMEM - Insufficient memory is available.  The socket cannot be created until sufficient resources are freed.
 	[?] EPROTONOSUPPORT - The protocol type or the specified protocol is not supported within this domain.
 	 */
-	TcpConnection * handleSocket(PhySocket *sock, void **uptr, struct socket_st* socket_rpc);
+	Connection * handleSocket(PhySocket *sock, void **uptr, struct socket_st* socket_rpc);
 	
 	/*
 	 * Handles an RPC to connect to a given address and port
@@ -360,7 +373,7 @@ private:
 
 	[X] EINVAL - Invalid argument, SVr4, generally makes sense to set this
 	 */
-	void handleConnect(PhySocket *sock, PhySocket *rpcsock, TcpConnection *conn, struct connect_st* connect_rpc);
+	void handleConnect(PhySocket *sock, PhySocket *rpcsock, Connection *conn, struct connect_st* connect_rpc);
 	
 	/* 
 	 * Return the address that the socket is bound to 
@@ -370,7 +383,7 @@ private:
 	/* 
  	 * Writes data from the application's socket to the LWIP connection
  	 */
-	void handleWrite(TcpConnection *conn);
+	void handleWrite(Connection *conn);
 
 	/*
 	 * Sends a return value to the intercepted application
@@ -410,7 +423,7 @@ private:
 	/*
  	 * Returns a pointer to a TcpConnection associated with a given PhySocket
  	 */
-	TcpConnection *getConnection(PhySocket *sock);
+	Connection *getConnection(PhySocket *sock);
 
 	/*
  	 * Closes a TcpConnection, associated LWIP PCB strcuture, 
@@ -433,7 +446,8 @@ private:
 	Phy<NetconEthernetTap *> _phy;
 	PhySocket *_unixListenSocket;
 
-	std::vector<TcpConnection*> _TcpConnections;
+	std::vector<Connection*> _Connections;
+    
 	std::map<uint64_t, std::pair<PhySocket*, void*> > jobmap;
 
 	pid_t rpcCounter;

@@ -18,22 +18,78 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <webView contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="7gZ-1D-6tC">
-                                <rect key="frame" x="154" y="186" width="240" height="128"/>
+                                <rect key="frame" x="20" y="409" width="284" height="171"/>
                                 <color key="backgroundColor" red="0.36078431370000003" green="0.38823529410000002" blue="0.4039215686" alpha="1" colorSpace="deviceRGB"/>
                             </webView>
-                            <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="eLr-6e-bRN">
-                                <rect key="frame" x="67" y="49" width="46" height="30"/>
-                                <state key="normal" title="Button"/>
+                            <textField opaque="NO" clipsSubviews="YES" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="left" contentVerticalAlignment="center" borderStyle="roundedRect" textAlignment="natural" minimumFontSize="17" translatesAutoresizingMaskIntoConstraints="NO" id="3Ud-Fu-11d">
+                                <rect key="frame" x="114" y="47" width="203" height="30"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                <textInputTraits key="textInputTraits"/>
+                            </textField>
+                            <textField opaque="NO" clipsSubviews="YES" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="left" contentVerticalAlignment="center" borderStyle="roundedRect" textAlignment="natural" minimumFontSize="17" translatesAutoresizingMaskIntoConstraints="NO" id="8Ou-mX-Fsa">
+                                <rect key="frame" x="114" y="96" width="203" height="30"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                <textInputTraits key="textInputTraits"/>
+                            </textField>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" text="dest_addr" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="TBc-Pq-4GK">
+                                <rect key="frame" x="24" y="51" width="76" height="21"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                <color key="textColor" cocoaTouchSystemColor="darkTextColor"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" text="dest_port" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="bas-wF-ZtN">
+                                <rect key="frame" x="26" y="100" width="74" height="21"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                <color key="textColor" cocoaTouchSystemColor="darkTextColor"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="Vtb-3B-ko5">
+                                <rect key="frame" x="20" y="371" width="133" height="30"/>
+                                <state key="normal" title="HTTP Request Test"/>
                                 <connections>
-                                    <action selector="getButtonAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="RHg-BV-iqM"/>
+                                    <action selector="WebRequestAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="JUf-PJ-g9W"/>
+                                </connections>
+                            </button>
+                            <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="eLr-6e-bRN">
+                                <rect key="frame" x="20" y="150" width="106" height="30"/>
+                                <state key="normal" title="TCP Client Test"/>
+                                <connections>
+                                    <action selector="TcpClientTestAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="djN-ig-bgd"/>
+                                </connections>
+                            </button>
+                            <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="5Pt-hG-Giq">
+                                <rect key="frame" x="20" y="247" width="151" height="30"/>
+                                <state key="normal" title="UDP Echo Server Test"/>
+                                <connections>
+                                    <action selector="UdpServerTestAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="DPT-xJ-LN2"/>
+                                </connections>
+                            </button>
+                            <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="aRx-z3-hJr">
+                                <rect key="frame" x="20" y="285" width="146" height="30"/>
+                                <state key="normal" title="UDP Echo Client Test"/>
+                                <connections>
+                                    <action selector="UdpClientTestAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="tbP-in-xhS"/>
+                                </connections>
+                            </button>
+                            <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="p9z-8e-fX4">
+                                <rect key="frame" x="20" y="188" width="111" height="30"/>
+                                <state key="normal" title="TCP Server Test"/>
+                                <connections>
+                                    <action selector="TcpServerTestAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="vbp-jr-dcM"/>
                                 </connections>
                             </button>
                         </subviews>
                         <color key="backgroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="calibratedWhite"/>
                     </view>
                     <connections>
-                        <outlet property="getButton" destination="eLr-6e-bRN" id="bVx-zH-e10"/>
+                        <outlet property="WebRequest" destination="Vtb-3B-ko5" id="IvH-hT-sJd"/>
+                        <outlet property="btnTcpClientTest" destination="eLr-6e-bRN" id="Ae7-XE-wdb"/>
+                        <outlet property="btnTcpServerTest" destination="p9z-8e-fX4" id="cXE-He-6u8"/>
+                        <outlet property="btnUdpClientTest" destination="aRx-z3-hJr" id="XXa-ol-AMp"/>
+                        <outlet property="btnUdpServerTest" destination="5Pt-hG-Giq" id="Zn6-Xx-PKx"/>
                         <outlet property="myWebView" destination="7gZ-1D-6tC" id="pSv-UW-je0"/>
+                        <outlet property="txtAddr" destination="3Ud-Fu-11d" id="lK3-e5-3pI"/>
+                        <outlet property="txtPort" destination="8Ou-mX-Fsa" id="RJu-ta-2I3"/>
                     </connections>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="dkx-z0-nzr" sceneMemberID="firstResponder"/>

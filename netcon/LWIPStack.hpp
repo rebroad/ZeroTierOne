@@ -35,6 +35,9 @@
 
 #include "lwip/init.h"
 #include "lwip/tcp_impl.h"
+
+#include "lwip/udp.h"
+
 #include <stdio.h>
 #include <dlfcn.h>
 
@@ -45,13 +48,38 @@
 typedef ip_addr ip_addr_t;
 struct tcp_pcb;
 
+// lwip General Stack API
+#define PBUF_FREE_SIG struct pbuf *p
+#define PBUF_ALLOC_SIG pbuf_layer layer, u16_t length, pbuf_type type
+#define LWIP_HTONS_SIG u16_t x
+#define LWIP_NTOHS_SIG u16_t x
+#define IPADDR_NTOA_SIG const ip_addr_t *addr
+#define ETHARP_OUTPUT_SIG struct netif *netif, struct pbuf *q, ip_addr_t *ipaddr
+#define ETHERNET_INPUT_SIG struct pbuf *p, struct netif *netif
+#define IP_INPUT_SIG struct pbuf *p, struct netif *inp
+#define NETIF_SET_DEFAULT_SIG struct netif *netif
+#define NETIF_ADD_SIG struct netif *netif, ip_addr_t *ipaddr, ip_addr_t *netmask, ip_addr_t *gw, void *state, netif_init_fn init, netif_input_fn input
+#define NETIF_SET_UP_SIG struct netif *netif
+#define NETIF_POLL_SIG struct netif *netif
+
+// lwIP UDP API
+#define UDP_NEW_SIG void
+#define UDP_CONNECT_SIG struct udp_pcb * pcb, struct ip_addr * ipaddr, u16_t port
+#define UDP_SEND_SIG struct udp_pcb * pcb, struct pbuf * p
+#define UDP_SENDTO_SIG struct udp_pcb *pcb, struct pbuf *p, ip_addr_t *dst_ip, u16_t dst_port
+#define UDP_RECV_SIG struct udp_pcb * pcb, void (* recv)(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port), void * recv_arg
+#define UDP_RECVED_SIG struct udp_pcb * pcb, u16_t len
+#define UDP_BIND_SIG struct udp_pcb * pcb, struct ip_addr * ipaddr, u16_t port
+
+// lwIP TCP API
 #define TCP_WRITE_SIG struct tcp_pcb *pcb, const void *arg, u16_t len, u8_t apiflags
 #define TCP_SENT_SIG struct tcp_pcb * pcb, err_t (* sent)(void * arg, struct tcp_pcb * tpcb, u16_t len)
 #define TCP_NEW_SIG void
+#define TCP_RECV_SIG struct tcp_pcb * pcb, err_t (* recv)(void * arg, struct tcp_pcb * tpcb, struct pbuf * p, err_t err)
+#define TCP_RECVED_SIG struct tcp_pcb * pcb, u16_t len
 #define TCP_SNDBUF_SIG struct tcp_pcb * pcb
 #define TCP_CONNECT_SIG struct tcp_pcb * pcb, struct ip_addr * ipaddr, u16_t port, err_t (* connected)(void * arg, struct tcp_pcb * tpcb, err_t err)
 #define TCP_RECV_SIG struct tcp_pcb * pcb, err_t (* recv)(void * arg, struct tcp_pcb * tpcb, struct pbuf * p, err_t err)
-#define TCP_RECVED_SIG struct tcp_pcb * pcb, u16_t len
 #define TCP_ERR_SIG struct tcp_pcb * pcb, void (* err)(void * arg, err_t err)
 #define TCP_POLL_SIG struct tcp_pcb * pcb, err_t (* poll)(void * arg, struct tcp_pcb * tpcb), u8_t interval
 #define TCP_ARG_SIG struct tcp_pcb * pcb, void * arg
@@ -62,19 +90,7 @@ struct tcp_pcb;
 #define TCP_LISTEN_SIG struct tcp_pcb * pcb
 #define TCP_LISTEN_WITH_BACKLOG_SIG struct tcp_pcb * pcb, u8_t backlog
 #define TCP_BIND_SIG struct tcp_pcb * pcb, struct ip_addr * ipaddr, u16_t port
-#define PBUF_FREE_SIG struct pbuf *p
-#define PBUF_ALLOC_SIG pbuf_layer layer, u16_t length, pbuf_type type
-#define LWIP_HTONS_SIG u16_t x
-#define LWIP_NTOHS_SIG u16_t x
-#define IPADDR_NTOA_SIG const ip_addr_t *addr
-#define ETHARP_OUTPUT_SIG struct netif *netif, struct pbuf *q, ip_addr_t *ipaddr
-#define ETHERNET_INPUT_SIG struct pbuf *p, struct netif *netif
 #define TCP_INPUT_SIG struct pbuf *p, struct netif *inp
-#define IP_INPUT_SIG struct pbuf *p, struct netif *inp
-#define NETIF_SET_DEFAULT_SIG struct netif *netif
-#define NETIF_ADD_SIG struct netif *netif, ip_addr_t *ipaddr, ip_addr_t *netmask, ip_addr_t *gw, void *state, netif_init_fn init, netif_input_fn input
-#define NETIF_SET_UP_SIG struct netif *netif
-#define NETIF_POLL_SIG struct netif *netif
 
 void dwr(int level, const char *fmt, ... );
 
@@ -110,6 +126,15 @@ namespace ZeroTier {
         struct tcp_pcb * (*_tcp_new)(TCP_NEW_SIG);
         u16_t (*_tcp_sndbuf)(TCP_SNDBUF_SIG);
         err_t (*_tcp_connect)(TCP_CONNECT_SIG);
+        
+        struct udp_pcb * (*_udp_new)(UDP_NEW_SIG);
+        err_t (*_udp_connect)(UDP_CONNECT_SIG);
+        err_t (*_udp_send)(UDP_SEND_SIG);
+        err_t (*_udp_sendto)(UDP_SENDTO_SIG);
+        void (*_udp_recv)(UDP_RECV_SIG);
+        void (*_udp_recved)(UDP_RECVED_SIG);
+        err_t (*_udp_bind)(UDP_BIND_SIG);
+
         void (*_tcp_recv)(TCP_RECV_SIG);
         void (*_tcp_recved)(TCP_RECVED_SIG);
         void (*_tcp_err)(TCP_ERR_SIG);
@@ -172,6 +197,14 @@ namespace ZeroTier {
             _tcp_write = (err_t(*)(TCP_WRITE_SIG))&tcp_write;
             _tcp_sent = (void(*)(TCP_SENT_SIG))&tcp_sent;
             _tcp_new = (struct tcp_pcb*(*)(TCP_NEW_SIG))&tcp_new;
+            
+            _udp_new = (struct udp_pcb*(*)(UDP_NEW_SIG))&udp_new;
+            _udp_connect = (err_t(*)(UDP_CONNECT_SIG))&udp_connect;
+            _udp_send = (err_t(*)(UDP_SEND_SIG))&udp_send;
+            _udp_sendto = (err_t(*)(UDP_SENDTO_SIG))&udp_sendto;
+            _udp_recv = (void(*)(UDP_RECV_SIG))&udp_recv;
+            _udp_bind = (err_t(*)(UDP_BIND_SIG))&udp_bind;
+
             _tcp_connect = (err_t(*)(TCP_CONNECT_SIG))&tcp_connect;
             _tcp_recv = (void(*)(TCP_RECV_SIG))&tcp_recv;
             _tcp_recved = (void(*)(TCP_RECVED_SIG))&tcp_recved;
@@ -209,6 +242,14 @@ namespace ZeroTier {
             _tcp_write = (err_t(*)(TCP_WRITE_SIG))dlsym(_libref, "tcp_write");
             _tcp_sent = (void(*)(TCP_SENT_SIG))dlsym(_libref, "tcp_sent");
             _tcp_new = (struct tcp_pcb*(*)(TCP_NEW_SIG))dlsym(_libref, "tcp_new");
+            
+            _udp_new = (struct udp_pcb*(*)(UDP_NEW_SIG))dlsym(_libref, "udp_new");
+            _udp_connect = (err_t(*)(UDP_CONNECT_SIG))dlsym(_libref, "udp_connect");
+            _udp_send = (err_t(*)(UDP_SEND_SIG))dlsym(_libref, "udp_send");
+            _udp_sendto = (err_t(*)(UDP_SENDTO_SIG))dlsym(_libref, "udp_sendto");
+            _udp_recv = (void(*)(UDP_RECV_SIG))dlsym(_libref, "udp_recv");
+            _udp_bind = (err_t(*)(UDP_BIND_SIG))dlsym(_libref, "udp_bind");
+
             _tcp_sndbuf = (u16_t(*)(TCP_SNDBUF_SIG))dlsym(_libref, "tcp_sndbuf");
             _tcp_connect = (err_t(*)(TCP_CONNECT_SIG))dlsym(_libref, "tcp_connect");
             _tcp_recv = (void(*)(TCP_RECV_SIG))dlsym(_libref, "tcp_recv");
@@ -236,7 +277,6 @@ namespace ZeroTier {
             _netif_add = (struct netif*(*)(NETIF_ADD_SIG))dlsym(_libref, "netif_add");
             _netif_set_up = (void(*)(NETIF_SET_UP_SIG))dlsym(_libref, "netif_set_up");
 #endif
-            
         }
         
         ~LWIPStack()
@@ -249,8 +289,17 @@ namespace ZeroTier {
         inline err_t __tcp_write(TCP_WRITE_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_write(pcb,arg,len,apiflags); }
         inline void __tcp_sent(TCP_SENT_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_sent(pcb,sent); }
         inline struct tcp_pcb * __tcp_new(TCP_NEW_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_new(); }
+        
+        inline struct udp_pcb * __udp_new(UDP_NEW_SIG) throw() { Mutex::Lock _l(_lock); return _udp_new(); }
+        inline err_t __udp_connect(UDP_CONNECT_SIG) throw() { Mutex::Lock _l(_lock); return _udp_connect(pcb,ipaddr,port); }
+        inline err_t __udp_send(UDP_SEND_SIG) throw() { Mutex::Lock _l(_lock); return _udp_send(pcb,p); }
+        inline err_t __udp_sendto(UDP_SENDTO_SIG) throw() { Mutex::Lock _l(_lock); return _udp_sendto(pcb,p,dst_ip,dst_port); }
+        inline void __udp_recv(UDP_RECV_SIG) throw() { Mutex::Lock _l(_lock); return _udp_recv(pcb,recv,recv_arg); }
+        inline err_t __udp_bind(UDP_BIND_SIG) throw() { Mutex::Lock _l(_lock); return _udp_bind(pcb,ipaddr,port); }
+
         inline u16_t __tcp_sndbuf(TCP_SNDBUF_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_sndbuf(pcb); }
         inline err_t __tcp_connect(TCP_CONNECT_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_connect(pcb,ipaddr,port,connected); }
+        
         inline void __tcp_recv(TCP_RECV_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_recv(pcb,recv); }
         inline void __tcp_recved(TCP_RECVED_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_recved(pcb,len); }
         inline void __tcp_err(TCP_ERR_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_err(pcb,err); }

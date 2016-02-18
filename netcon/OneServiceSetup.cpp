@@ -98,11 +98,11 @@ void init_service(const char * path) {
 #if defined(__APPLE__)
 #include "TargetConditionals.h"
 #if TARGET_IPHONE_SIMULATOR
-            setpath("/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace"); // for intercept
+            //setpath("/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace"); // for intercept
             homeDir = "/iosdev/data/Library/Application Support/ZeroTier/One";
 #elif TARGET_OS_IPHONE
         homeDir = "ZeroTier/One";
-        setpath("ZeroTier/One/nc_e5cd7a9e1c87bace");
+        //setpath("ZeroTier/One/nc_e5cd7a9e1c87bace");
 #endif
 #endif
         

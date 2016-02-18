@@ -65,7 +65,14 @@ void *start_new_intercept(void *thread_id);
 #define GETSOCKNAME_SIG int sockfd, struct sockaddr *addr, socklen_t *addrlen
 #define DUP2_SIG int oldfd, int newfd
 #define DUP3_SIG int oldfd, int newfd, int flags
-
+    
+#define SEND_SIG int socket, const void *buffer, size_t length, int flags
+#define SENDMSG_SIG int socket, const struct msghdr *message, int flags
+#define SENDTO_SIG int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *addr, socklen_t addr_len
+    
+#define RECV_SIG int socket, void *buffer, size_t length, int flags
+#define RECVFROM_SIG int socket, void * buffer, size_t length, int flags, struct sockaddr * __restrict address, socklen_t * __restrict address_len
+#define RECVMSG_SIG int socket, struct msghdr *message,int flags
 
 #if defined(__linux__)
 	int accept4(ACCEPT4_SIG);
@@ -85,6 +92,14 @@ int clone(CLONE_SIG);
 int dup2(DUP2_SIG);
 int dup3(DUP3_SIG);
 int getsockname(GETSOCKNAME_SIG);
+    
+ssize_t send(SEND_SIG);
+ssize_t sendmsg(SENDMSG_SIG);
+//ssize_t sendto(SENDTO_SIG);
+    
+ssize_t recv(RECV_SIG);
+ssize_t recvfrom(RECVFROM_SIG);
+ssize_t recvmsg(RECVMSG_SIG);
 
 #if defined(__linux__)
 	static int (*realaccept4)(ACCEPT4_SIG) = 0;
@@ -100,6 +115,14 @@ static int (*realsetsockopt)(SETSOCKOPT_SIG) = 0;
 static int (*realgetsockopt)(GETSOCKOPT_SIG) = 0;
 static int (*realclose)(CLOSE_SIG) = 0;
 static int (*realgetsockname)(GETSOCKNAME_SIG) = 0;
+    
+static ssize_t (*realsend)(SEND_SIG) = 0;
+static int (*realsendmsg)(SENDMSG_SIG) = 0;
+//static ssize_t (*realsendto)(SENDTO_SIG) = 0;
+    
+static int (*realrecv)(RECV_SIG) = 0;
+static int (*realrecvmsg)(RECVMSG_SIG) = 0;
+static int (*realrecvfrom)(RECVFROM_SIG) = 0;
 
 #endif
 
