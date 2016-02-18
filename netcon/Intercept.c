@@ -37,6 +37,7 @@
 #include <linux/net.h> /* for NPROTO */
 #endif
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -80,6 +81,17 @@ void fishhook_rebind_symbols()
 /*------------------------------------------------------------------------------
 ------------------- Intercept<--->Service Comm mechanisms ----------------------
 ------------------------------------------------------------------------------*/
+    
+    
+    void print_ip(int ip)
+    {
+        unsigned char bytes[4];
+        bytes[0] = ip & 0xFF;
+        bytes[1] = (ip >> 8) & 0xFF;
+        bytes[2] = (ip >> 16) & 0xFF;
+        bytes[3] = (ip >> 24) & 0xFF;
+        printf("%d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);
+    }
     
 #define INTERCEPTED_THREAD_ID   111
 #define IOS_SERVICE_THREAD_ID   222
@@ -126,7 +138,7 @@ void load_symbols()
         realclose = (int(*)(CLOSE_SIG))dlsym(RTLD_NEXT, "close");
         realgetsockname = (int(*)(GETSOCKNAME_SIG))dlsym(RTLD_NEXT, "getsockname");
     
-        //realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
+        // FIXME: realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
         realsend = (ssize_t(*)(int, const void *, size_t, int))dlsym(RTLD_NEXT, "send");
         realrecv = (int(*)(RECV_SIG))dlsym(RTLD_NEXT, "recv");
         realrecvfrom = (int(*)(RECVFROM_SIG))dlsym(RTLD_NEXT, "recvfrom");
@@ -149,7 +161,7 @@ int set_up_intercept()
     }
     void *spec = pthread_getspecific(thr_id_key);
     if(spec != NULL) {
-        printf("spec != NULL, ID = %d\n", (*((int*)spec)));
+        //printf("spec != NULL, ID = %d\n", (*((int*)spec)));
         if(*((int*)spec) == INTERCEPTED_THREAD_ID)
         {
             if (!netpath) {
@@ -208,35 +220,63 @@ int set_up_intercept()
         
         //dwr(MSG_DEBUG, "recv(%d)\n", socket);
         
-        return realrecv(socket, buffer, length, flags);
-        //return read(socket, buffer, length);
+        //return realrecv(socket, buffer, length, flags);
+        return read(socket, buffer, length);
     }
+    
+#include "lwip/ip_addr.h"
+    //struct ip_addr;
     
     // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len
     ssize_t recvfrom(RECVFROM_SIG)
     {
+        if(!set_up_intercept())
+            return realrecvfrom(socket, buffer, length, flags, address, address_len);
         //dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
-        
-        struct sockaddr_in *connaddr;
-        connaddr = (struct sockaddr_in *)address;
-        
-        int port = connaddr->sin_port;
-        int ip = connaddr->sin_addr.s_addr;
-        unsigned char d[4];
-        d[0] = ip & 0xFF;
-        d[1] = (ip >>  8) & 0xFF;
-        d[2] = (ip >> 16) & 0xFF;
-        d[3] = (ip >> 24) & 0xFF;
-        //dwr(MSG_DEBUG," recvfrom(): %d.%d.%d.%d: %d\n", d[0],d[1],d[2],d[3], ntohs(port));
-        
-        int err = realrecvfrom(socket, buffer, length, flags, address, address_len);
-        //printf("err = %d, buf = %s\n", err,buffer);
+        struct ip_addr addr;
+        char addr_info_buf[sizeof(struct ip_addr)];
+        ssize_t err = read(socket, addr_info_buf, sizeof(struct ip_addr)); // Read prepended address info
+        memcpy(&addr, addr_info_buf, sizeof(struct ip_addr));
+        *address_len=4;
+        //printf("read %d bytes into addr_info\n", (int)err);
+        err = read(socket, buffer, length); // Read
+        //printf("read %d bytes of data\n", (int)err);
+        print_ip(addr.addr);
+        memcpy(address->sa_data+2, &addr.addr, 4);
         return err;
     }
     
     // int socket, struct msghdr *message, int flags
     ssize_t recvmsg(RECVMSG_SIG)
     {
+        /*
+         ssize_t ret, nb;
+         size_t tot = 0;
+         int i;
+         char *buf, *p;
+         struct iovec *iov = msg->msg_iov;
+         
+         for(i = 0; i < msg->msg_iovlen; ++i)
+         tot += iov[i].iov_len;
+         buf = malloc(tot);
+         if (tot != 0 && buf == NULL) {
+         errno = ENOMEM;
+         return -1;
+         }
+         nb = ret = recvfrom (s, buf, tot, flags, msg->msg_name, &msg->msg_namelen);
+         p = buf;
+         while (nb > 0) {
+         ssize_t cnt = min(nb, iov->iov_len);
+         
+         memcpy (iov->iov_base, p, cnt);
+         p += cnt;
+         nb -= cnt;
+         ++iov;
+         }
+         free(buf);
+         return ret;
+         
+         */
         //dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
         return realrecvmsg(socket, message, flags);
     }

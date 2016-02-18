@@ -700,10 +700,21 @@ err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
   	return -1;
 }
 
+    void print_ip(int ip)
+    {
+        unsigned char bytes[4];
+        bytes[0] = ip & 0xFF;
+        bytes[1] = (ip >> 8) & 0xFF;
+        bytes[2] = (ip >> 16) & 0xFF;
+        bytes[3] = (ip >> 24) & 0xFF;
+        printf("%d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);
+    }
     
 void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port)
 {
-    //dwr(MSG_DEBUG, "nc_udp_recved(): port = %d", port);
+    dwr(MSG_DEBUG, "nc_udp_recved(): port = %d", port);
+    print_ip(addr->addr);
+
     Larg *l = (Larg*)arg;
 
     int tot = 0;
@@ -719,6 +730,10 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
         int len = p->len;
         if(avail < len)
             dwr(MSG_ERROR," nc_udp_recved(): not enough room (%d bytes) on RX buffer\n", avail);
+        // copy address info onto buffer for use in intercepted recvfrom()
+        memcpy(l->conn->rxbuf + (l->conn->rxsz), addr, sizeof(struct ip_addr));
+        l->conn->rxsz += sizeof(struct ip_addr);
+        // payload
         memcpy(l->conn->rxbuf + (l->conn->rxsz), p->payload, len);
         l->conn->rxsz += len;
         p = p->next;

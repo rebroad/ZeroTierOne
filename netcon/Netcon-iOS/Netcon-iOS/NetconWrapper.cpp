@@ -69,11 +69,16 @@ extern "C" char * cpp_udp_socket_server_test(const char * addr_str, int port)
      */
     printf("The server UDP port number is %d\n",ntohs(server.sin_port));
 
-    
     printf("Watching for UDP traffic on sock = %d...\n", sock);
+    
+    // Reset remote address info for RX
+    //server.sin_addr.s_addr = htonl(INADDR_ANY);
+    server.sin_addr.s_addr = inet_addr("");
+    server.sin_port = htons(0);
+    
     while (1) {
-        //n_sent=recvfrom(sock,buf,sizeof(buf),0,(struct sockaddr *)&server,&recv_addr_len);
-        n_sent = recv(sock,buf,sizeof(buf),0);
+        n_sent=recvfrom(sock,buf,sizeof(buf),0,(struct sockaddr *)&server,&recv_addr_len);
+        //n_sent = recv(sock,buf,sizeof(buf),0);
         if (n_sent<0)
             perror("Error receiving data");
         else
@@ -100,8 +105,8 @@ extern "C" char * cpp_udp_socket_client_test(const char * addr_str, int port)
     server.sin_family = AF_INET;
     server.sin_port = htons(port);
     
-    char *buf = "Testing UDP\n";
-    printf("sizeof(buf) = %d\n", sizeof(buf));
+    char *buf = (char*)"Testing UDP\n";
+    //printf("sizeof(buf) = %d\n", sizeof(buf));
     
     if (connect(sock , (struct sockaddr *)&server , sizeof(server)) < 0) {
         printf("api_test: error while connecting.\n");
@@ -140,7 +145,7 @@ extern "C" char * cpp_udp_socket_client_test(const char * addr_str, int port)
 extern "C" char * cpp_tcp_socket_server_test(const char * addr_str, int port)
 {
     printf("cpp_tcp_socket_server_test():\n");
-    return "nothing";
+    return (char*)"nothing";
 }
 
 extern "C" char * cpp_tcp_socket_client_test(const char * addr_str, int port)
