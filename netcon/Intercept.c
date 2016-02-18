@@ -139,7 +139,7 @@ void set_thr_key(pthread_key_t key) {
     
 int set_up_intercept()
 {
-    printf("set_up_intercept(): netpath = %s\n", netpath);
+    //printf("set_up_intercept(): netpath = %s\n", netpath);
     
     if(!realconnect) {
         load_symbols();
@@ -206,16 +206,16 @@ int set_up_intercept()
         // MSG_TRUNC (since Linux 2.2)
         // MSG_WAITALL (since Linux 2.2)
         
-        dwr(MSG_DEBUG, "recv(%d)\n", socket);
+        //dwr(MSG_DEBUG, "recv(%d)\n", socket);
         
-        //return realrecv(socket, buffer, length, flags);
-        return read(socket, buffer, length);
+        return realrecv(socket, buffer, length, flags);
+        //return read(socket, buffer, length);
     }
     
     // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len
     ssize_t recvfrom(RECVFROM_SIG)
     {
-        dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
+        //dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
         
         struct sockaddr_in *connaddr;
         connaddr = (struct sockaddr_in *)address;
@@ -227,7 +227,7 @@ int set_up_intercept()
         d[1] = (ip >>  8) & 0xFF;
         d[2] = (ip >> 16) & 0xFF;
         d[3] = (ip >> 24) & 0xFF;
-        dwr(MSG_DEBUG," recvfrom(): %d.%d.%d.%d: %d\n", d[0],d[1],d[2],d[3], ntohs(port));
+        //dwr(MSG_DEBUG," recvfrom(): %d.%d.%d.%d: %d\n", d[0],d[1],d[2],d[3], ntohs(port));
         
         int err = realrecvfrom(socket, buffer, length, flags, address, address_len);
         //printf("err = %d, buf = %s\n", err,buffer);
@@ -237,7 +237,7 @@ int set_up_intercept()
     // int socket, struct msghdr *message, int flags
     ssize_t recvmsg(RECVMSG_SIG)
     {
-        dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
+        //dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
         return realrecvmsg(socket, message, flags);
     }
     

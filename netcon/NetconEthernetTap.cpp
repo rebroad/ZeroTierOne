@@ -302,8 +302,7 @@ void NetconEthernetTap::scanMulticastGroups(std::vector<MulticastGroup> &added,s
 void NetconEthernetTap::threadMain()
 	throw()
 {
-    fprintf(stderr, "threadMain(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-
+    //dwr(MSG_DEBUG, "threadMain(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
 	uint64_t prev_tcp_time = 0, prev_status_time = 0, prev_etharp_time = 0;
 
 	// Main timer loop
@@ -398,6 +397,8 @@ void NetconEthernetTap::closeConnection(PhySocket *sock)
 	Connection *conn = getConnection(sock);
 	if(!conn)
 		return;
+    if(conn->type==SOCK_DGRAM)
+        return;
 	if(conn->TCP_pcb && conn->TCP_pcb->state != CLOSED) {
 		dwr(MSG_DEBUG," closeConnection(%x): PCB->state = %d\n", sock, conn->TCP_pcb->state);
 		if(conn->TCP_pcb->state == SYN_SENT) {
@@ -454,14 +455,12 @@ void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_
 			if(conn->rxsz-n > 0)
 				memcpy(conn->rxbuf, conn->rxbuf+n, conn->rxsz-n);
 		  	conn->rxsz -= n;
-            fprintf(stderr, "phyOnUnixWritable(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-		  	
-            if(conn->type==SOCK_STREAM)
+            //dwr(MSG_DEBUG, "phyOnUnixWritable(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+            if(conn->type==SOCK_STREAM) // Only acknolwedge receipt of TCP packets
                 lwipstack->__tcp_recved(conn->TCP_pcb, n);
-            
             float max = (float)DEFAULT_BUF_SZ;
-            dwr(MSG_TRANSFER," RX <---    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
-                (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, n);
+            //dwr(MSG_TRANSFER," RX <---    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
+            //    (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, n);
             
 		} else {
 			dwr(MSG_DEBUG," phyOnUnixWritable(): errno = %d, rxsz = %d\n", errno, conn->rxsz);
@@ -655,11 +654,14 @@ void NetconEthernetTap::unloadRPC(void *data, pid_t &pid, pid_t &tid,
 err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
 {
 	Larg *l = (Larg*)arg;
-	Mutex::Lock _l(l->tap->_tcpconns_m);
-
+    Mutex::Lock _l(l->tap->_tcpconns_m);
 	Connection *conn = l->conn;
 	NetconEthernetTap *tap = l->tap;
 
+    if(!conn)
+        return -1;
+    if(conn->type==SOCK_DGRAM)
+        return -1;
 	if(!conn->sock)
 		return -1;
 	int fd = tap->_phy.getDescriptor(conn->sock);
@@ -701,7 +703,7 @@ err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
     
 void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port)
 {
-    dwr(MSG_DEBUG, "nc_udp_recved(): port = %d", port);
+    //dwr(MSG_DEBUG, "nc_udp_recved(): port = %d", port);
     Larg *l = (Larg*)arg;
 
     int tot = 0;
@@ -723,12 +725,10 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
         tot += len;
     }
     if(tot) {
-        fprintf(stderr, "nc_udp_recved(): tot = %d\n", tot);
         l->tap->phyOnUnixWritable(l->conn->sock, NULL, true);
         l->tap->_phy.setNotifyWritable(l->conn->sock, true);
     }
     l->tap->lwipstack->__pbuf_free(q);
-    // return ERR_OK;
 }
     
 err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err)
@@ -766,7 +766,6 @@ err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *
 		tot += len;
 	}
 	if(tot) {
-        fprintf(stderr, "nc_recved(): tot = %d\n", tot);
 		l->tap->phyOnUnixWritable(l->conn->sock, NULL, true);
 		l->tap->_phy.setNotifyWritable(l->conn->sock, true);
 	}
@@ -776,7 +775,7 @@ err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *
 
 err_t NetconEthernetTap::nc_sent(void* arg, struct tcp_pcb *PCB, u16_t len)
 {
-    fprintf(stderr, "nc_sent():\n");
+    dwr(MSG_DEBUG, "nc_sent():\n");
 	Larg *l = (Larg*)arg;
 	Mutex::Lock _l(l->tap->_tcpconns_m);
 	if(l->conn->probation && l->conn->txsz == 0){
@@ -793,7 +792,7 @@ err_t NetconEthernetTap::nc_sent(void* arg, struct tcp_pcb *PCB, u16_t len)
 
 err_t NetconEthernetTap::nc_connected(void *arg, struct tcp_pcb *PCB, err_t err)
 {
-    fprintf(stderr, "nc_connected():\n");
+    dwr(MSG_DEBUG, "nc_connected():\n");
 	Larg *l = (Larg*)arg;
 	if(l && l->conn)
 		l->tap->sendReturnValue(l->tap->_phy.getDescriptor(l->conn->rpcSock), ERR_OK);
@@ -908,7 +907,7 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
     dwr(MSG_DEBUG," handleBind(%d)\n", bind_rpc->sockfd);
     if(conn) {
         if(conn->type == SOCK_DGRAM) {
-            lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, 9997);
+            lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, port);
             lwipstack->__udp_recv(conn->UDP_pcb, nc_udp_recved, new Larg(this, conn));
             conn->addr = (struct sockaddr_storage *) &bind_rpc->addr; // Required for getsockname RPCs
             sendReturnValue(rpcSock, ERR_OK, ERR_OK); // Success
@@ -951,7 +950,10 @@ void NetconEthernetTap::handleListen(PhySocket *sock, PhySocket *rpcSock, void *
 {
 	Mutex::Lock _l(_tcpconns_m);
 	Connection *conn = getConnection(sock);
-	if(!conn){
+    
+    if(conn->type==SOCK_DGRAM)
+        return;
+	if(!conn) {
 		dwr(MSG_ERROR," handleListen(): unable to locate Connection.\n");
 		sendReturnValue(rpcSock, -1, EBADF);
 		return;
@@ -1119,7 +1121,7 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, Conne
 
 void NetconEthernetTap::handleWrite(Connection *conn)
 {
-    dwr(MSG_DEBUG, "handleWrite()\n");
+    //dwr(MSG_DEBUG, "handleWrite()\n");
     
 	if(!conn) {
 		dwr(MSG_ERROR," handleWrite(): invalid connection\n");

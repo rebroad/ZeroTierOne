@@ -48,7 +48,7 @@ extern "C" char * cpp_udp_socket_server_test(const char * addr_str, int port)
     }
     socklen_t recv_addr_len;
     server.sin_addr.s_addr = htonl(INADDR_ANY);
-    server.sin_port = htons(0);
+    server.sin_port = htons(9997);
     
     printf("The server UDP port number is %d\n",ntohs(server.sin_port));
 
@@ -73,17 +73,11 @@ extern "C" char * cpp_udp_socket_server_test(const char * addr_str, int port)
     printf("Watching for UDP traffic on sock = %d...\n", sock);
     while (1) {
         //n_sent=recvfrom(sock,buf,sizeof(buf),0,(struct sockaddr *)&server,&recv_addr_len);
-        
-        
         n_sent = recv(sock,buf,sizeof(buf),0);
-        printf(" err = %d\n", n_sent);
-        printf("Got a datagram from %s port %d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
-        if (n_sent<0) {
+        if (n_sent<0)
             perror("Error receiving data");
-        }
-        else {
-            printf("RXed: %s\n", buf);
-        }
+        else
+            printf("<%s : %d> --- %s\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port), buf);
     }
     return (char*)"nothing";
 }
