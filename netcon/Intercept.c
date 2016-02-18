@@ -237,12 +237,12 @@ int set_up_intercept()
         char addr_info_buf[sizeof(struct ip_addr)];
         ssize_t err = read(socket, addr_info_buf, sizeof(struct ip_addr)); // Read prepended address info
         memcpy(&addr, addr_info_buf, sizeof(struct ip_addr));
-        *address_len=4;
+        *address_len=sizeof(addr.addr);
         //printf("read %d bytes into addr_info\n", (int)err);
         err = read(socket, buffer, length); // Read
         //printf("read %d bytes of data\n", (int)err);
         print_ip(addr.addr);
-        memcpy(address->sa_data+2, &addr.addr, 4);
+        memcpy(address->sa_data+2, &addr.addr, sizeof(addr.addr));
         return err;
     }
     
@@ -277,8 +277,37 @@ int set_up_intercept()
          return ret;
          
          */
-        //dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
-        return realrecvmsg(socket, message, flags);
+        
+        /*
+
+         MSG_EOR
+         indicates end-of-record; the data returned completed a record (generally used with sockets of type SOCK_SEQPACKET).
+         MSG_TRUNC
+         indicates that the trailing portion of a datagram was discarded because the datagram was larger than the buffer supplied.
+         MSG_CTRUNC
+         indicates that some control data were discarded due to lack of space in the buffer for ancillary data.
+         MSG_OOB
+         is returned to indicate that expedited or out-of-band data were received.
+         MSG_ERRQUEUE
+         indicates that no data was received but an extended error from the socket error queue.
+
+        */
+        
+        if(!set_up_intercept())
+            return realrecvmsg(socket, message, flags);
+        dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
+
+        struct sockaddr addr;
+        socklen_t addrlen;
+        // Read data and copy buffer and length into msg
+        ssize_t err = recvfrom(socket, message->msg_control,message->msg_controllen, flags, &addr, &addrlen);
+        printf("recvmsg(): read %d\n", (int)err);
+        
+        // if unconnected (?), copy address info into msg
+        memcpy(message->msg_name, &addr, sizeof(struct sockaddr));
+        message->msg_namelen = addrlen;
+        
+        return err;
     }
     
     /*------------------------------------------------------------------------------
