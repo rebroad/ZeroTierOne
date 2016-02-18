@@ -1031,17 +1031,14 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, Conne
 	struct sockaddr_in *rawAddr = (struct sockaddr_in *) &connect_rpc->__addr;
 	int port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
 	ip_addr_t connAddr = convert_ip(rawAddr);
-
     int err = 0;
     
     if(conn->type == SOCK_DGRAM) {
-        dwr(MSG_DEBUG, "handleConnect(): SOCK_DGRAM\n");
         // Generates no network traffic
         if((err = lwipstack->__udp_connect(conn->UDP_pcb,&connAddr,port)) < 0) {
             dwr(MSG_DEBUG, "handleConnect(): Error while connecting to with UDP\n");
         }
         lwipstack->__udp_recv(conn->UDP_pcb, nc_udp_recved, new Larg(this, conn));
-        //lwipstack->__tcp_arg(conn->UDP_pcb, new Larg(this, conn));
         sendReturnValue(rpcSock, 0, ERR_OK);
         return;
     }
@@ -1122,7 +1119,6 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, Conne
 void NetconEthernetTap::handleWrite(Connection *conn)
 {
     //dwr(MSG_DEBUG, "handleWrite()\n");
-    
 	if(!conn) {
 		dwr(MSG_ERROR," handleWrite(): invalid connection\n");
 		return;
