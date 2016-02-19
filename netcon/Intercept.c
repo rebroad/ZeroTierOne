@@ -232,12 +232,24 @@ int set_up_intercept()
     {
         if(!set_up_intercept())
             return realrecvfrom(socket, buffer, length, flags, address, address_len);
+        
+        ssize_t err;
+        int sock_type;
+        socklen_t type_len;
+        getsockopt(socket, SOL_SOCKET, SO_TYPE, (void *) &sock_type, &type_len);
+
         //dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
         struct ip_addr addr;
         char addr_info_buf[sizeof(struct ip_addr)];
-        ssize_t err = read(socket, addr_info_buf, sizeof(struct ip_addr)); // Read prepended address info
-        memcpy(&addr, addr_info_buf, sizeof(struct ip_addr));
-        *address_len=sizeof(addr.addr);
+        
+        // Since this can be called for connection-oriented sockets,
+        // we need to check the type before we try to read the address info
+        if(sock_type == SOCK_DGRAM) {
+            err = read(socket, addr_info_buf, sizeof(struct ip_addr)); // Read prepended address info
+            memcpy(&addr, addr_info_buf, sizeof(struct ip_addr));
+            *address_len=sizeof(addr.addr);
+        }
+        
         //printf("read %d bytes into addr_info\n", (int)err);
         err = read(socket, buffer, length); // Read
         //printf("read %d bytes of data\n", (int)err);
@@ -293,6 +305,12 @@ int set_up_intercept()
 
         */
         
+        /*
+         
+         These two receive calls also accept a flag as a parameter. The flag field helps us fine-tune the behavior of these calls. Two of these flags are: MSG_DONTWAIT and MSG_PEEK. MSG_DONTWAIT specifies that if the underlying UDP has no data, then the calls should return immediately -- in that case, the returned value would be -1. With MSG_PEEK, these calls would return the data requested, but would not delete the data from the receive buffer since the goal is only to peek; we would need a subsequent recvfrom()/recvmsg() call with no MSG_PEEK flag to drain the data from the UDP receive buffer.
+         
+         */
+        
         if(!set_up_intercept())
             return realrecvmsg(socket, message, flags);
         dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
@@ -300,12 +318,22 @@ int set_up_intercept()
         struct sockaddr addr;
         socklen_t addrlen;
         // Read data and copy buffer and length into msg
-        ssize_t err = recvfrom(socket, message->msg_control,message->msg_controllen, flags, &addr, &addrlen);
+        ssize_t err = recvfrom(socket, message->msg_control,message->msg_controllen, flags, message->msg_name, &message->msg_namelen);
+        
+        // According to: http://pubs.opengroup.org/onlinepubs/009695399/functions/recvmsg.html
+        if(err > message->msg_controllen && !( message->msg_flags & MSG_PEEK)) {
+            // excess data should be disgarded
+            message->msg_flags &= MSG_TRUNC; // Indicate that the buffer has been truncated
+        }
+        
+        // if !MSG_WAITALL
+        // then data shall be returned only up to the end of the first message
+        
         printf("recvmsg(): read %d\n", (int)err);
         
         // if unconnected (?), copy address info into msg
-        memcpy(message->msg_name, &addr, sizeof(struct sockaddr));
-        message->msg_namelen = addrlen;
+        // memcpy(message->msg_name, &addr, sizeof(struct sockaddr));
+        // message->msg_namelen = addrlen;
         
         return err;
     }
