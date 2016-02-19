@@ -108,13 +108,17 @@ extern "C" char * cpp_udp_socket_client_test(const char * addr_str, int port)
     char *buf = (char*)"Testing UDP\n";
     //printf("sizeof(buf) = %d\n", sizeof(buf));
     
+    /*
     if (connect(sock , (struct sockaddr *)&server , sizeof(server)) < 0) {
         printf("api_test: error while connecting.\n");
         return (char*)"nothing";
     }
+     */
+    
+    //n_sent = send(sock,buf,sizeof(buf),0);
 
-    n_sent = send(sock,buf,sizeof(buf),0);
-
+    n_sent = sendto(sock,buf,sizeof(buf),0, (struct sockaddr *)&server,sizeof(server));
+    
     if (n_sent<0) {
         perror("Problem sending data");
         return (char*)"nothing";

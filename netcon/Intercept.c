@@ -137,8 +137,7 @@ void load_symbols()
         reallisten = (int(*)(LISTEN_SIG))dlsym(RTLD_NEXT, "listen");
         realclose = (int(*)(CLOSE_SIG))dlsym(RTLD_NEXT, "close");
         realgetsockname = (int(*)(GETSOCKNAME_SIG))dlsym(RTLD_NEXT, "getsockname");
-    
-        // FIXME: realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
+        realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
         realsend = (ssize_t(*)(int, const void *, size_t, int))dlsym(RTLD_NEXT, "send");
         realrecv = (int(*)(RECV_SIG))dlsym(RTLD_NEXT, "recv");
         realrecvfrom = (int(*)(RECVFROM_SIG))dlsym(RTLD_NEXT, "recvfrom");
@@ -193,20 +192,50 @@ int set_up_intercept()
         return write(socket, buffer, length);
     }
     
+    // int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *addr, socklen_t addr_len
+    ssize_t sendto(SENDTO_SIG)
+    {
+        if (!set_up_intercept())
+            return realsendto(sockfd, buf, len, flags, addr, addr_len);
+        
+        int socktype = 0;
+        socklen_t socktype_len;
+        getsockopt(sockfd,SOL_SOCKET, SO_TYPE, (void*)&socktype, &socktype_len);
+        
+        if(socktype & SOCK_STREAM)
+            printf("sendto: SOCK_STREAM\n");
+        if(socktype & SOCK_DGRAM)
+            printf("sendto: SOCK_DGRAM\n");
+        
+        if((socktype & SOCK_STREAM) || (socktype & SOCK_SEQPACKET)) {
+            if(addr == NULL || flags != 0) {
+                errno = EISCONN;
+                return -1;
+            }
+        }
+        
+        // ENOTCONN should be returned if the socket isn't connected
+        
+        // EMSGSIZE should be returned if the message is too long to be passed atomically through
+        // the underlying protocol, in our case MTU?
+        
+        // FIXME: More efficient solution?
+        // This connect call is used to get the address info to the stack for sending the packet
+        int err;
+        if((err = connect(sockfd, addr, addr_len)) < 0) {
+            dwr(MSG_DEBUG, "sendto(): unknown problem passing address info to stack\n");
+            errno = EISCONN; // double-check this is correct
+            return -1;
+        }
+        dwr(MSG_DEBUG, "sendto(%d, ..., len = %d, ... )\n", sockfd, len);
+        return write(sockfd, buf, len);
+    }
+    
     // int socket, const struct msghdr *message, int flags
     ssize_t sendmsg(SENDMSG_SIG)
     {
         return 1;
     }
-    
-    // int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen
-    //ssize_t sendto(SENDTO_SIG)
-    //{
-        //if (!set_up_intercept())
-        //    return realsendto(sockfd, buf, len, flags, addr, addr_len);
-    //    dwr(MSG_DEBUG, "sendto(%d, ..., len = %d, ... )\n", sockfd, len);
-    //    return write(sockfd, buf, len);
-    //}
     
     // int socket, void *buffer, size_t length, int flags);
     ssize_t recv(RECV_SIG)
