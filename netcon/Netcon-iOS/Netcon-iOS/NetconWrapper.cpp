@@ -117,7 +117,7 @@ extern "C" char * cpp_udp_socket_client_test(const char * addr_str, int port)
     
     //n_sent = send(sock,buf,sizeof(buf),0);
 
-    n_sent = sendto(sock,buf,sizeof(buf),0, (struct sockaddr *)&server,sizeof(server));
+    n_sent = sendto(sock,buf,strlen(buf),0, (struct sockaddr *)&server,sizeof(server));
     
     if (n_sent<0) {
         perror("Problem sending data");

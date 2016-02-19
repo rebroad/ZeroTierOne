@@ -74,7 +74,7 @@ void fishhook_rebind_symbols()
     rebind_symbols((struct rebinding[1]){{"bind", (int(*)(BIND_SIG))&bind, (void *)&realbind}}, 1);
     rebind_symbols((struct rebinding[1]){{"accept", (int(*)(ACCEPT_SIG))&accept, (void *)&realaccept}}, 1);
     rebind_symbols((struct rebinding[1]){{"listen", (int(*)(LISTEN_SIG))&listen, (void *)&reallisten}}, 1);
-    //rebind_symbols((struct rebinding[1]){{"close", (int(*)(CLOSE_SIG))&close, (void *)&realclose}}, 1);
+    rebind_symbols((struct rebinding[1]){{"close", (int(*)(CLOSE_SIG))&close, (void *)&realclose}}, 1);
     rebind_symbols((struct rebinding[1]){{"getsockname", (int(*)(GETSOCKNAME_SIG))&getsockname, (void *)&realgetsockname}}, 1);
 }
     
@@ -726,14 +726,11 @@ int set_up_intercept()
      ------------------------------------------------------------------------------*/
     
     /* int fd */
-    /*
-     int close(CLOSE_SIG)
-     {
-     dwr(MSG_DEBUG, "close(%d)\n", fd);
-     set_up_intercept();
-     return realclose(fd);
+     int close(CLOSE_SIG) {
+         dwr(MSG_DEBUG, "close(%d)\n", fd);
+         set_up_intercept();
+         return realclose(fd);
      }
-     */
     
     /*------------------------------------------------------------------------------
      -------------------------------- getsockname() --------------------------------

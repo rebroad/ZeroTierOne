@@ -915,21 +915,26 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
 {
 	Mutex::Lock _l(_tcpconns_m);
 	struct sockaddr_in *rawAddr = (struct sockaddr_in *) &bind_rpc->addr;
-	int port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
+	int err, port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
 	ip_addr_t connAddr;
 	connAddr.addr = *((u32_t *)_ips[0].rawIpData());
 	Connection *conn = getConnection(sock);
     dwr(MSG_DEBUG," handleBind(%d)\n", bind_rpc->sockfd);
     if(conn) {
         if(conn->type == SOCK_DGRAM) {
-            lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, port);
-            lwipstack->__udp_recv(conn->UDP_pcb, nc_udp_recved, new Larg(this, conn));
-            conn->addr = (struct sockaddr_storage *) &bind_rpc->addr; // Required for getsockname RPCs
-            sendReturnValue(rpcSock, ERR_OK, ERR_OK); // Success
+            err = lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, port);
+            if(err == ERR_USE)
+                sendReturnValue(rpcSock, -1, EADDRINUSE);
+            else {
+                lwipstack->__udp_recv(conn->UDP_pcb, nc_udp_recved, new Larg(this, conn));
+                conn->addr = (struct sockaddr_storage *) &bind_rpc->addr; // Required for getsockname RPCs
+                sendReturnValue(rpcSock, ERR_OK, ERR_OK); // Success
+            }
+            return;
         }
         else if (conn->type == SOCK_STREAM) {
             if(conn->TCP_pcb->state == CLOSED){
-                int err = lwipstack->__tcp_bind(conn->TCP_pcb, &connAddr, port);
+                err = lwipstack->__tcp_bind(conn->TCP_pcb, &connAddr, port);
                 int ip = rawAddr->sin_addr.s_addr;
                 unsigned char d[4];
                 d[0] = ip & 0xFF;
