@@ -24,7 +24,6 @@
 		7CDB50231C70A0BA00CC09EC /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7CDB50211C70A0BA00CC09EC /* LaunchScreen.storyboard */; };
 		7CDB502E1C70A0BA00CC09EC /* Netcon_iOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB502D1C70A0BA00CC09EC /* Netcon_iOSTests.swift */; };
 		7CDB50391C70A0BA00CC09EC /* Netcon_iOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB50381C70A0BA00CC09EC /* Netcon_iOSUITests.swift */; };
-		7CDB504E1C70A21100CC09EC /* ZeroTierNetcon.h in Headers */ = {isa = PBXBuildFile; fileRef = 7CDB504D1C70A21100CC09EC /* ZeroTierNetcon.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CDB50551C70A21100CC09EC /* ZeroTierNetcon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CDB504B1C70A21100CC09EC /* ZeroTierNetcon.framework */; };
 		7CDB505C1C70A21100CC09EC /* ZeroTierNetconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB505B1C70A21100CC09EC /* ZeroTierNetconTests.swift */; };
 		7CDB50601C70A21100CC09EC /* ZeroTierNetcon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CDB504B1C70A21100CC09EC /* ZeroTierNetcon.framework */; };
@@ -288,7 +287,6 @@
 		7CDB50381C70A0BA00CC09EC /* Netcon_iOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Netcon_iOSUITests.swift; sourceTree = "<group>"; };
 		7CDB503A1C70A0BA00CC09EC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7CDB504B1C70A21100CC09EC /* ZeroTierNetcon.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = ZeroTierNetcon.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		7CDB504D1C70A21100CC09EC /* ZeroTierNetcon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZeroTierNetcon.h; sourceTree = "<group>"; };
 		7CDB504F1C70A21100CC09EC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7CDB50541C70A21100CC09EC /* ZeroTierNetconTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZeroTierNetconTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CDB505B1C70A21100CC09EC /* ZeroTierNetconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeroTierNetconTests.swift; sourceTree = "<group>"; };
@@ -781,7 +779,6 @@
 				7C856DC31C70B42F00F34C96 /* RPC.c */,
 				7C856DBD1C70B3EC00F34C96 /* Intercept.h */,
 				7C856DBE1C70B3EC00F34C96 /* RPC.h */,
-				7CDB504D1C70A21100CC09EC /* ZeroTierNetcon.h */,
 			);
 			name = Intercept;
 			sourceTree = "<group>";
@@ -849,7 +846,6 @@
 				7C856DBF1C70B3EC00F34C96 /* Intercept.h in Headers */,
 				7C856DCA1C70B5B800F34C96 /* fishhook.h in Headers */,
 				7C856DC01C70B3EC00F34C96 /* RPC.h in Headers */,
-				7CDB504E1C70A21100CC09EC /* ZeroTierNetcon.h in Headers */,
 				7CE6B3801C70D14F00BEA5A3 /* ZeroTierOne.h in Headers */,
 				7CE6B4121C70D30C00BEA5A3 /* auth.h in Headers */,
 				7CE6B4131C70D30C00BEA5A3 /* chap.h in Headers */,
@@ -1505,7 +1501,10 @@
 				INFOPLIST_FILE = ZeroTierNetcon/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
-				OTHER_CFLAGS = "";
+				OTHER_CFLAGS = (
+					"-DLWIP_DEBUG",
+					"-D__IOS__",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DZT_SERVICE_NETCON",
@@ -1540,7 +1539,10 @@
 				INFOPLIST_FILE = ZeroTierNetcon/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
-				OTHER_CFLAGS = "";
+				OTHER_CFLAGS = (
+					"-DLWIP_DEBUG",
+					"-D__IOS__",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-DZT_SERVICE_NETCON",

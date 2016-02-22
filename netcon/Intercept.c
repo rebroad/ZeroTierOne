@@ -51,11 +51,13 @@ extern "C" {
 #include "RPC.h"
 #include "common.inc.c"
     
-#include "fishhook.h"
+#ifdef __IOS__
+    #include "fishhook.h"
+#endif
     
-#include "lwip/ip_addr.h"
+//#include "lwip/ip_addr.h"
     
-#include "Constants.hpp"
+#include "../node/Constants.hpp" // For Tap's MTU
     
 void print_addr(struct sockaddr *addr);
 void dwr(int level, const char *fmt, ... );
@@ -63,23 +65,30 @@ int set_up_intercept();
 
 static char *netpath = (char *)0;
     
+#define INTERCEPTED_THREAD_ID   111
+#define IOS_SERVICE_THREAD_ID   222
+    
+pthread_key_t thr_id_key;
+    
 /*------------------------------------------------------------------------------
 ------------------- Symbol Rebinding via Fishhook mechanism --------------------
 ------------------------------------------------------------------------------*/
  
-/* Use Fishhook to rebind symbols */
-void fishhook_rebind_symbols()
-{
-    dwr(MSG_DEBUG, "fishhook_rebind_symbols()\n");
-    rebind_symbols((struct rebinding[1]){{"setsockopt", (int(*)(SETSOCKOPT_SIG))&setsockopt, (void *)&realsetsockopt}}, 1);
-    rebind_symbols((struct rebinding[1]){{"getsockopt", (int(*)(GETSOCKOPT_SIG))&getsockopt, (void *)&realgetsockopt}}, 1);
-    rebind_symbols((struct rebinding[1]){{"socket", (int(*)(SOCKET_SIG))&socket, (void *)&realsocket}}, 1);
-    rebind_symbols((struct rebinding[1]){{"connect", (int(*)(CONNECT_SIG))&connect, (void *)&realconnect}}, 1);
-    rebind_symbols((struct rebinding[1]){{"bind", (int(*)(BIND_SIG))&bind, (void *)&realbind}}, 1);
-    rebind_symbols((struct rebinding[1]){{"accept", (int(*)(ACCEPT_SIG))&accept, (void *)&realaccept}}, 1);
-    rebind_symbols((struct rebinding[1]){{"listen", (int(*)(LISTEN_SIG))&listen, (void *)&reallisten}}, 1);
-    rebind_symbols((struct rebinding[1]){{"close", (int(*)(CLOSE_SIG))&close, (void *)&realclose}}, 1);
-    rebind_symbols((struct rebinding[1]){{"getsockname", (int(*)(GETSOCKNAME_SIG))&getsockname, (void *)&realgetsockname}}, 1);
+    /* Use Fishhook to rebind symbols */
+    void fishhook_rebind_symbols()
+    {
+#ifdef __IOS__
+        dwr(MSG_DEBUG, "fishhook_rebind_symbols()\n");
+        rebind_symbols((struct rebinding[1]){{"setsockopt", (int(*)(SETSOCKOPT_SIG))&setsockopt, (void *)&realsetsockopt}}, 1);
+        rebind_symbols((struct rebinding[1]){{"getsockopt", (int(*)(GETSOCKOPT_SIG))&getsockopt, (void *)&realgetsockopt}}, 1);
+        rebind_symbols((struct rebinding[1]){{"socket", (int(*)(SOCKET_SIG))&socket, (void *)&realsocket}}, 1);
+        rebind_symbols((struct rebinding[1]){{"connect", (int(*)(CONNECT_SIG))&connect, (void *)&realconnect}}, 1);
+        rebind_symbols((struct rebinding[1]){{"bind", (int(*)(BIND_SIG))&bind, (void *)&realbind}}, 1);
+        rebind_symbols((struct rebinding[1]){{"accept", (int(*)(ACCEPT_SIG))&accept, (void *)&realaccept}}, 1);
+        rebind_symbols((struct rebinding[1]){{"listen", (int(*)(LISTEN_SIG))&listen, (void *)&reallisten}}, 1);
+        rebind_symbols((struct rebinding[1]){{"close", (int(*)(CLOSE_SIG))&close, (void *)&realclose}}, 1);
+        rebind_symbols((struct rebinding[1]){{"getsockname", (int(*)(GETSOCKNAME_SIG))&getsockname, (void *)&realgetsockname}}, 1);
+    #endif
 }
     
 /*------------------------------------------------------------------------------
@@ -96,96 +105,88 @@ void fishhook_rebind_symbols()
         bytes[3] = (ip >> 24) & 0xFF;
         printf("%d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);
     }
-    
-#define INTERCEPTED_THREAD_ID   111
-#define IOS_SERVICE_THREAD_ID   222
 
-pthread_key_t thr_id_key;
-
-/* Check whether the socket is mapped to the service or not. We
-need to know if this is a regular AF_LOCAL socket or an end of a socketpair
-that the service uses. We don't want to keep state in the intercept, so
-we simply ask the service via an RPC */
-    
-int connected_to_service(int sockfd)
-{
-    dwr(MSG_DEBUG,"connected_to_service():\n");
-    socklen_t len;
-    struct sockaddr_storage addr;
-    len = sizeof addr;
-    struct sockaddr_un * addr_un;
-    getpeername(sockfd, (struct sockaddr*)&addr, &len);
-    if (addr.ss_family == AF_LOCAL || addr.ss_family == AF_LOCAL) {
-        addr_un = (struct sockaddr_un*)&addr;
-        if(strcmp(addr_un->sun_path, netpath) == 0) {
-            dwr(MSG_DEBUG,"connected_to_service(): Yes, %s\n", addr_un->sun_path);
-            return 1;
-        }
-    }
-    dwr(MSG_DEBUG,"connected_to_service(): Not connected to service\n");
-    return 0;
-}
-    
-void load_symbols()
-{
-#if defined(__linux__)
-        realaccept4 = dlsym(RTLD_NEXT, "accept4");
-        realsyscall = dlsym(RTLD_NEXT, "syscall");
-#endif
-        realsetsockopt = (int(*)(SETSOCKOPT_SIG))dlsym(RTLD_NEXT, "setsockopt");
-        realgetsockopt = (int(*)(GETSOCKOPT_SIG))dlsym(RTLD_NEXT, "getsockopt");
-        realsocket = (int(*)(SOCKET_SIG))dlsym(RTLD_NEXT, "socket");
-        realconnect = (int(*)(CONNECT_SIG))dlsym(RTLD_NEXT, "connect");
-        realbind = (int(*)(BIND_SIG))dlsym(RTLD_NEXT, "bind");
-        realaccept = (int(*)(ACCEPT_SIG))dlsym(RTLD_NEXT, "accept");
-        reallisten = (int(*)(LISTEN_SIG))dlsym(RTLD_NEXT, "listen");
-        realclose = (int(*)(CLOSE_SIG))dlsym(RTLD_NEXT, "close");
-        realgetsockname = (int(*)(GETSOCKNAME_SIG))dlsym(RTLD_NEXT, "getsockname");
-        realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
-        realsend = (ssize_t(*)(int, const void *, size_t, int))dlsym(RTLD_NEXT, "send");
-        realrecv = (int(*)(RECV_SIG))dlsym(RTLD_NEXT, "recv");
-        realrecvfrom = (int(*)(RECVFROM_SIG))dlsym(RTLD_NEXT, "recvfrom");
-        realrecvmsg = (int(*)(RECVMSG_SIG))dlsym(RTLD_NEXT, "recvmsg");
-}
-    
-void set_thr_key(pthread_key_t key) {
-    thr_id_key = key;
-}
-    
-int set_up_intercept()
-{
-    //printf("set_up_intercept(): netpath = %s\n", netpath);
-    
-    if(!realconnect) {
-        load_symbols();
-//#ifdef NETCON_MOBILE
-        //fishhook_rebind_symbols();
-//#endif
-    }
-    void *spec = pthread_getspecific(thr_id_key);
-    if(spec != NULL) {
-        //printf("spec != NULL, ID = %d\n", (*((int*)spec)));
-        if(*((int*)spec) == INTERCEPTED_THREAD_ID)
-        {
-            if (!netpath) {
-                //netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
-                netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace";
-                dwr(MSG_DEBUG,"Connecting to service at: %s\n", netpath);
-                rpc_mutex_init();
+    /* Check whether the socket is mapped to the service or not. We
+    need to know if this is a regular AF_LOCAL socket or an end of a socketpair
+    that the service uses. We don't want to keep state in the intercept, so
+    we simply ask the service via an RPC */
+        
+    int connected_to_service(int sockfd)
+    {
+        dwr(MSG_DEBUG,"connected_to_service():\n");
+        socklen_t len;
+        struct sockaddr_storage addr;
+        len = sizeof addr;
+        struct sockaddr_un * addr_un;
+        getpeername(sockfd, (struct sockaddr*)&addr, &len);
+        if (addr.ss_family == AF_LOCAL || addr.ss_family == AF_LOCAL) {
+            addr_un = (struct sockaddr_un*)&addr;
+            if(strcmp(addr_un->sun_path, netpath) == 0) {
+                dwr(MSG_DEBUG,"connected_to_service(): Yes, %s\n", addr_un->sun_path);
+                return 1;
             }
-            return 1;
         }
+        dwr(MSG_DEBUG,"connected_to_service(): Not connected to service\n");
+        return 0;
     }
-    return 0;
-}
+    
+    void load_symbols()
+    {
+#if defined(__linux__)
+            realaccept4 = dlsym(RTLD_NEXT, "accept4");
+            realsyscall = dlsym(RTLD_NEXT, "syscall");
+#endif
+            realsetsockopt = (int(*)(SETSOCKOPT_SIG))dlsym(RTLD_NEXT, "setsockopt");
+            realgetsockopt = (int(*)(GETSOCKOPT_SIG))dlsym(RTLD_NEXT, "getsockopt");
+            realsocket = (int(*)(SOCKET_SIG))dlsym(RTLD_NEXT, "socket");
+            realconnect = (int(*)(CONNECT_SIG))dlsym(RTLD_NEXT, "connect");
+            realbind = (int(*)(BIND_SIG))dlsym(RTLD_NEXT, "bind");
+            realaccept = (int(*)(ACCEPT_SIG))dlsym(RTLD_NEXT, "accept");
+            reallisten = (int(*)(LISTEN_SIG))dlsym(RTLD_NEXT, "listen");
+            realclose = (int(*)(CLOSE_SIG))dlsym(RTLD_NEXT, "close");
+            realgetsockname = (int(*)(GETSOCKNAME_SIG))dlsym(RTLD_NEXT, "getsockname");
+            realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
+            realsend = (ssize_t(*)(int, const void *, size_t, int))dlsym(RTLD_NEXT, "send");
+            realrecv = (int(*)(RECV_SIG))dlsym(RTLD_NEXT, "recv");
+            realrecvfrom = (int(*)(RECVFROM_SIG))dlsym(RTLD_NEXT, "recvfrom");
+            realrecvmsg = (int(*)(RECVMSG_SIG))dlsym(RTLD_NEXT, "recvmsg");
+    }
+        
+    void set_thr_key(pthread_key_t key) {
+        thr_id_key = key;
+    }
+    
+    int set_up_intercept() {
+        //printf("set_up_intercept(): netpath = %s\n", netpath);
+        if(!realconnect) {
+            load_symbols();
+//#ifdef __IOS__
+            //fishhook_rebind_symbols();
+//#endif __IOS__
+        }
+        void *spec = pthread_getspecific(thr_id_key);
+        if(spec != NULL) {
+            //printf("spec != NULL, ID = %d\n", (*((int*)spec)));
+            if(*((int*)spec) == INTERCEPTED_THREAD_ID)
+            {
+                if (!netpath) {
+                    //netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
+                    netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace";
+                    dwr(MSG_DEBUG,"Connecting to service at: %s\n", netpath);
+                    rpc_mutex_init();
+                }
+                return 1;
+            }
+        }
+        return 0;
+    }
  
     /*------------------------------------------------------------------------------
      ------------------------------------- send() ----------------------------------
      ------------------------------------------------------------------------------*/
     
     // int socket, const void *buffer, size_t length, int flags
-    ssize_t send(SEND_SIG)
-    {
+    ssize_t send(SEND_SIG) {
         //if (!set_up_intercept())
         return realsend(socket, buffer, length, flags);
         //dwr(MSG_DEBUG, "send(%d, ..., len = %d, ... )\n", socket, length);
@@ -303,19 +304,23 @@ int set_up_intercept()
         realgetsockopt(socket, SOL_SOCKET, SO_TYPE, (void *) &sock_type, &type_len);
 
         //dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
-        struct ip_addr addr;
-        char addr_info_buf[sizeof(struct ip_addr)];
+        
+        //struct ip_addr addr;
+        //char addr_info_buf[sizeof(struct ip_addr)];
+        char addr_buf[sizeof(struct sockaddr_in)];
+        struct sockaddr_in addr_in;
         
         // Since this can be called for connection-oriented sockets,
         // we need to check the type before we try to read the address info
         if(sock_type == SOCK_DGRAM && address != NULL && address_len != NULL) {
-            err = read(socket, addr_info_buf, sizeof(struct ip_addr)); // Read prepended address info
-            memcpy(&addr, addr_info_buf, sizeof(struct ip_addr));
-            *address_len=sizeof(addr.addr);
+            err = read(socket, addr_buf, sizeof(addr_buf)); // Read prepended address info
+            memcpy(&addr_in, addr_buf, sizeof(addr_buf));
+            *address_len=sizeof(addr_in);
         }
         err = read(socket, buffer, length); // Read what was placed on buffer from service
         //print_ip(addr.addr);
-        memcpy(address->sa_data+2, &addr.addr, sizeof(addr.addr));
+        //memcpy(address->sa_data+2, &addr_in, sizeof(addr_in));
+        memcpy(address, &addr_in, sizeof(addr_in));
         return err;
     }
     

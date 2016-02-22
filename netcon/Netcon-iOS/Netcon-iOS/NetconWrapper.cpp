@@ -38,7 +38,7 @@ extern "C" char * cpp_udp_socket_server_test(const char * addr_str, int port)
     int sock = -1;
     std::string data, reply;
     struct sockaddr_in server;
-    char buf[80];
+    char buf[1024];
     
     if(sock == -1) {
         sock = socket(AF_INET , SOCK_DGRAM , 0);
@@ -77,8 +77,15 @@ extern "C" char * cpp_udp_socket_server_test(const char * addr_str, int port)
     server.sin_port = htons(0);
     
     while (1) {
+        //usleep(1000);
         n_sent=recvfrom(sock,buf,sizeof(buf),0,(struct sockaddr *)&server,&recv_addr_len);
         //n_sent = recv(sock,buf,sizeof(buf),0);
+        
+        printf("n = %d\n", n_sent);
+
+        if(n_sent < 20)
+            printf("s = %s\n", buf);
+        
         if (n_sent<0)
             perror("Error receiving data");
         else
@@ -105,32 +112,36 @@ extern "C" char * cpp_udp_socket_client_test(const char * addr_str, int port)
     server.sin_family = AF_INET;
     server.sin_port = htons(port);
     
-    char *buf = (char*)"Testing UDP\n";
+    //char *buf = (char*)"Testing UDP\n";
+    char bigbuf[1024];
+    memset(bigbuf, 0, sizeof(bigbuf));
     //printf("sizeof(buf) = %d\n", sizeof(buf));
     
-    /*
+    
     if (connect(sock , (struct sockaddr *)&server , sizeof(server)) < 0) {
         printf("api_test: error while connecting.\n");
         return (char*)"nothing";
     }
-     */
     
-    //n_sent = send(sock,buf,sizeof(buf),0);
-
-    n_sent = sendto(sock,buf,strlen(buf),0, (struct sockaddr *)&server,sizeof(server));
+    while(1){
+        usleep(100);
+        //n_sent = sendto(sock,buf,strlen(buf),0, (struct sockaddr *)&server,sizeof(server));
     
+        n_sent = send(sock,bigbuf,sizeof(bigbuf),0);
+        printf("n_sent = %d\n", n_sent);
+        
     if (n_sent<0) {
         perror("Problem sending data");
-        return (char*)"nothing";
+        //return (char*)"nothing";
     }
-    if (n_sent!=sizeof(buf))
+    if (n_sent!=sizeof(bigbuf))
         printf("Sendto sent %d bytes\n",(int)n_sent);
-    
-    socklen_t recv_addr_len;
+    }
+    //socklen_t recv_addr_len;
     // Clear address info for RX test
-    server.sin_addr.s_addr = inet_addr("");
-    server.sin_port = htons(-1);
-    
+    //server.sin_addr.s_addr = inet_addr("");
+    //server.sin_port = htons(-1);
+    /*
     while (1) {
         n_sent=recvfrom(sock,buf,sizeof(buf),0,(struct sockaddr *)&server,&recv_addr_len);
         printf("Got a datagram from %s port %d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
@@ -141,6 +152,7 @@ extern "C" char * cpp_udp_socket_client_test(const char * addr_str, int port)
             printf("RXed: %s\n", buf);
         }
     }
+     */
     return (char*)"nothing";
 }
 

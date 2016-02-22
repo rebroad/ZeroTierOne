@@ -737,8 +737,13 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
         int len = p->len;
         if(avail < len)
             dwr(MSG_ERROR," nc_udp_recved(): not enough room (%d bytes) on RX buffer\n", avail);
+        
         // copy address info onto buffer for use in intercepted recvfrom()
-        memcpy(l->conn->rxbuf + (l->conn->rxsz), addr, sizeof(struct ip_addr));
+        sockaddr_in addr_in;
+        addr_in.sin_addr.s_addr = addr->addr;
+        printf("sizeof(addr_in) = %d\n", sizeof(addr_in));
+        memcpy(l->conn->rxbuf + (l->conn->rxsz), &addr_in, sizeof(addr->addr));
+        
         l->conn->rxsz += sizeof(struct ip_addr);
         // payload
         memcpy(l->conn->rxbuf + (l->conn->rxsz), p->payload, len);
@@ -1188,9 +1193,11 @@ void NetconEthernetTap::handleWrite(Connection *conn)
             dwr(MSG_TRANSFER," TX --->    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
                 (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, udp_trans_len);
             
-            
-            if(conn->txsz <= DEFAULT_BUF_SOFTMIN && conn->disabled)
-            {
+            // Re-enable previously disabled sockets (disabled for preemptive buffer overflow protection)
+            // The logic here is to allow UDP packets to fill up to about 80% of the buffer then disable,
+            // and then once we get back down to about 20% buffer saturation we'll re-enable the socket
+            // See: DEFAULT_BUF_SOFTMIN, DEFAULT_BUF_SOFTMIN
+            if(conn->txsz <= DEFAULT_BUF_SOFTMIN && conn->disabled) {
                 printf("ENABLED\n");
                 conn->disabled = false;
                 _phy.setNotifyReadable(conn->sock, true);

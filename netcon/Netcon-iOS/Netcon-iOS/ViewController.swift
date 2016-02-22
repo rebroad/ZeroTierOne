@@ -36,6 +36,8 @@ class ViewController: UIViewController {
     
     @IBAction func UdpServerTestAction(sender: AnyObject) {
         print("UdpServerTestAction\n")
+        txtAddr.text = "10.242.142.99"
+        txtPort.text = "9997"
         let addr_string = txtAddr.text
         let port:Int32? = Int32(txtPort.text!);
         cpp_udp_socket_server_test(addr_string!, port!)
@@ -73,8 +75,8 @@ class ViewController: UIViewController {
         //txtPort.keyboardType = UIKeyboardType.NumberPad
         super.viewDidLoad()
         
-        txtAddr.text = "10.242.9.160"
-        txtPort.text = "51771"
+        txtAddr.text = "10.242.211.245"
+        txtPort.text = ""
         
         // Service thread
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), {
