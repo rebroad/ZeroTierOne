@@ -459,8 +459,8 @@ void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_
             if(conn->type==SOCK_STREAM) // Only acknolwedge receipt of TCP packets
                 lwipstack->__tcp_recved(conn->TCP_pcb, n);
             float max = (float)DEFAULT_BUF_SZ;
-            //dwr(MSG_TRANSFER," RX <---    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
-            //    (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, n);
+            dwr(MSG_TRANSFER," RX <---    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
+                (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, n);
             
 		} else {
 			dwr(MSG_DEBUG," phyOnUnixWritable(): errno = %d, rxsz = %d\n", errno, conn->rxsz);
@@ -712,8 +712,8 @@ err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
     
 void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port)
 {
-    dwr(MSG_DEBUG, "nc_udp_recved(): port = %d", port);
-    print_ip(addr->addr);
+    //dwr(MSG_DEBUG, "nc_udp_recved(): port = %d", port);
+    //print_ip(addr->addr);
 
     Larg *l = (Larg*)arg;
 
@@ -740,6 +740,7 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
         tot += len;
     }
     if(tot) {
+        dwr(MSG_DEBUG, "nc_udp_recved(): tot = %d, rxsz = %d\n", tot, l->conn->rxsz);
         l->tap->phyOnUnixWritable(l->conn->sock, NULL, true);
         l->tap->_phy.setNotifyWritable(l->conn->sock, true);
     }
@@ -1152,13 +1153,13 @@ void NetconEthernetTap::handleWrite(Connection *conn)
         // be limited to MTU-sized chunks
         int udp_trans_len = conn->txsz < ZT_UDP_DEFAULT_PAYLOAD_MTU ? conn->txsz : ZT_UDP_DEFAULT_PAYLOAD_MTU; // Should eventually be: conn->txsz
         
-        dwr(MSG_DEBUG, " handleWrite(): Allocating pbuf chain of size (%d) for UDP packet\n", conn->txsz);
-        struct pbuf * pb = lwipstack->__pbuf_alloc(PBUF_TRANSPORT, udp_trans_len, PBUF_RAM);
+        dwr(MSG_DEBUG, " handleWrite(): Allocating pbuf chain of size (%d) for UDP packet, TXSZ = %d\n", udp_trans_len, conn->txsz);
+        struct pbuf * pb = lwipstack->__pbuf_alloc(PBUF_TRANSPORT, udp_trans_len, PBUF_POOL);
         if(!pb){
             dwr(MSG_DEBUG, " handleWrite(): unable to allocate new pbuf of size (%d)\n", conn->txsz);
             return;
         }
-        memcpy(pb->payload, conn->txbuf, conn->txsz);
+        memcpy(pb->payload, conn->txbuf, udp_trans_len);
         int err = lwipstack->__udp_send(conn->UDP_pcb, pb);
         
         if(err == ERR_MEM) {
