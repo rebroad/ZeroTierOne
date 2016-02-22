@@ -241,23 +241,33 @@ int set_up_intercept()
         if(!set_up_intercept())
             return realsendmsg(socket, message, flags);
         
-        // Grab address info from message structure
-    
-        // message.msg_iovlen=1;
-        // message.msg_control=0;
-        // message.msg_controllen=0;
-    
-        struct sockaddr * addr = message->msg_name;
-        socklen_t addr_len = message->msg_namelen;
-        size_t len = message->msg_iov[0].iov_len;
-        char * buf = message->msg_iov[0].iov_base;
+        // TODO
+        // message->msg_control
+        // message->msg_controllen
         
-        // Message is too large to send atomically via underlying protocol, don't send
-        if(len > ZT_UDP_DEFAULT_PAYLOAD_MTU) {
-            errno = EMSGSIZE;
+        char * p, * buf;
+        size_t tot_len = 0;
+        size_t err;
+        struct iovec * iov = message->msg_iov;
+        for(int i=0; i<message->msg_iovlen; ++i)
+            tot_len += iov[i].iov_len;
+        if(tot_len > ZT_UDP_DEFAULT_PAYLOAD_MTU) {
+            errno = EMSGSIZE; // Message is too large to send atomically via underlying protocol, don't send
             return -1;
         }
-        return sendto(socket, buf, len, flags, (struct sockaddr *)&addr, addr_len);
+        buf = malloc(tot_len);
+        if(tot_len != 0 && buf == NULL) {
+            errno = ENOMEM; // Unable to allocate space for message
+            return -1;
+        }
+        p = buf;
+        for(int i=0; i < message->msg_iovlen; ++i) {
+            memcpy(p, iov[i].iov_base, iov[i].iov_len);
+            p += iov[i].iov_len;
+        }
+        err = sendto(socket, buf, tot_len, flags, message->msg_name, message->msg_namelen);
+        free(buf);
+        return err;
     }
     
     // int socket, void *buffer, size_t length, int flags);
