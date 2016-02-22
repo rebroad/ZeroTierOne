@@ -186,18 +186,10 @@ int set_up_intercept()
     // int socket, const void *buffer, size_t length, int flags
     ssize_t send(SEND_SIG)
     {
-        // MSG_CONFIRM (Since Linux 2.3.15)
-        // MSG_DONTROUTE
-        // MSG_DONTWAIT (since Linux 2.2)
-        // MSG_EOR (since Linux 2.2)
-        // MSG_MORE (Since Linux 2.4.4)
-        // MSG_NOSIGNAL (since Linux 2.2)
-        // MSG_OOB
-        
-        if (!set_up_intercept())
-            return realsend(socket, buffer, length, flags);
-        dwr(MSG_DEBUG, "send(%d, ..., len = %d, ... )\n", socket, length);
-        return write(socket, buffer, length);
+        //if (!set_up_intercept())
+        return realsend(socket, buffer, length, flags);
+        //dwr(MSG_DEBUG, "send(%d, ..., len = %d, ... )\n", socket, length);
+        //return write(socket, buffer, length);
     }
     
     /*------------------------------------------------------------------------------
@@ -289,18 +281,10 @@ int set_up_intercept()
     // int socket, void *buffer, size_t length, int flags);
     ssize_t recv(RECV_SIG)
     {
-        if(!set_up_intercept())
-            return realrecv(socket, buffer, length, flags);
-        
-        // MSG_CMSG_CLOEXEC (recvmsg() only; since Linux 2.6.23)
-        // MSG_DONTWAIT (since Linux 2.2)
-        // MSG_OOB
-        // MSG_PEEK
-        // MSG_TRUNC (since Linux 2.2)
-        // MSG_WAITALL (since Linux 2.2)
-        
-        dwr(MSG_DEBUG, "recv(%d)\n", socket);
-        return read(socket, buffer, length);
+        //if(!set_up_intercept())
+        return realrecv(socket, buffer, length, flags);
+        //dwr(MSG_DEBUG, "recv(%d)\n", socket);
+        //return read(socket, buffer, length);
     }
     
     /*------------------------------------------------------------------------------
@@ -316,9 +300,9 @@ int set_up_intercept()
         ssize_t err;
         int sock_type;
         socklen_t type_len;
-        getsockopt(socket, SOL_SOCKET, SO_TYPE, (void *) &sock_type, &type_len);
+        realgetsockopt(socket, SOL_SOCKET, SO_TYPE, (void *) &sock_type, &type_len);
 
-        dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
+        //dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
         struct ip_addr addr;
         char addr_info_buf[sizeof(struct ip_addr)];
         
@@ -330,7 +314,7 @@ int set_up_intercept()
             *address_len=sizeof(addr.addr);
         }
         err = read(socket, buffer, length); // Read what was placed on buffer from service
-        print_ip(addr.addr);
+        //print_ip(addr.addr);
         memcpy(address->sa_data+2, &addr.addr, sizeof(addr.addr));
         return err;
     }
