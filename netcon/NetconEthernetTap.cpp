@@ -572,8 +572,15 @@ void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,uns
 		}
 		// Write data from stream
         if(wlen) {
-            if(conn->txsz > (DEFAULT_BUF_SZ / 2)) {
+            if(conn->txsz > DEFAULT_BUF_SOFTMAX) {
                 _phy.setNotifyReadable(sock, false);
+                conn->disabled = true;
+                printf("DISABLED\n");
+            }
+            else if (conn->disabled) {
+                printf("ENABLED\n");
+                conn->disabled = false;
+                _phy.setNotifyReadable(sock, true);
             }
             conn->txsz += wlen;
             handleWrite(conn);
@@ -1170,13 +1177,24 @@ void NetconEthernetTap::handleWrite(Connection *conn)
             dwr(MSG_DEBUG, " handleWrite(): Error sending packet - %d\n", err);
         } else {
             dwr(MSG_DEBUG," handleWrite(): UDP packet sent\n");
-            int trans_len = (conn->txsz)-udp_trans_len;
-            if(trans_len)
-                memmove(&conn->txbuf, (conn->txbuf+udp_trans_len), trans_len);
+            int buf_remaining = (conn->txsz)-udp_trans_len;
+            if(buf_remaining)
+            {
+                printf("buf_remaining = %d\n", buf_remaining);
+                memmove(&conn->txbuf, (conn->txbuf+udp_trans_len), buf_remaining);
+            }
             conn->txsz -= udp_trans_len;
             float max = (float)DEFAULT_BUF_SZ;
             dwr(MSG_TRANSFER," TX --->    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
                 (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, udp_trans_len);
+            
+            
+            if(conn->txsz <= DEFAULT_BUF_SOFTMIN && conn->disabled)
+            {
+                printf("ENABLED\n");
+                conn->disabled = false;
+                _phy.setNotifyReadable(conn->sock, true);
+            }
         }
         lwipstack->__pbuf_free(pb);
         // udp_remove(conn->UDP_pcb);
