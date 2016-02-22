@@ -923,7 +923,7 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
     if(conn) {
         if(conn->type == SOCK_DGRAM) {
             err = lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, port);
-            if(err == ERR_USE)
+            if(err == ERR_USE) // port in use
                 sendReturnValue(rpcSock, -1, EADDRINUSE);
             else {
                 lwipstack->__udp_recv(conn->UDP_pcb, nc_udp_recved, new Larg(this, conn));
@@ -1150,7 +1150,7 @@ void NetconEthernetTap::handleWrite(Connection *conn)
         }
         // FIXME: Packet re-assembly hasn't yet been tested with lwIP so UDP packets are going to
         // be limited to MTU-sized chunks
-        int udp_trans_len = conn->txsz < 1400 ? conn->txsz : 1400; // Should eventually be: conn->txsz
+        int udp_trans_len = conn->txsz < ZT_UDP_DEFAULT_PAYLOAD_MTU ? conn->txsz : ZT_UDP_DEFAULT_PAYLOAD_MTU; // Should eventually be: conn->txsz
         
         dwr(MSG_DEBUG, " handleWrite(): Allocating pbuf chain of size (%d) for UDP packet\n", conn->txsz);
         struct pbuf * pb = lwipstack->__pbuf_alloc(PBUF_TRANSPORT, udp_trans_len, PBUF_RAM);

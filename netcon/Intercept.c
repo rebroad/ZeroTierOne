@@ -53,6 +53,10 @@ extern "C" {
     
 #include "fishhook.h"
     
+#include "lwip/ip_addr.h"
+    
+#include "Constants.hpp"
+    
 void print_addr(struct sockaddr *addr);
 void dwr(int level, const char *fmt, ... );
 int set_up_intercept();
@@ -230,16 +234,38 @@ int set_up_intercept()
         dwr(MSG_DEBUG, "sendto(%d, ..., len = %d, ... )\n", sockfd, len);
         return write(sockfd, buf, len);
     }
-    
+        
     // int socket, const struct msghdr *message, int flags
     ssize_t sendmsg(SENDMSG_SIG)
     {
-        return 1;
+        if(!set_up_intercept())
+            return realsendmsg(socket, message, flags);
+        
+        // Grab address info from message structure
+    
+        // message.msg_iovlen=1;
+        // message.msg_control=0;
+        // message.msg_controllen=0;
+    
+        struct sockaddr * addr = message->msg_name;
+        socklen_t addr_len = message->msg_namelen;
+        size_t len = message->msg_iov[0].iov_len;
+        char * buf = message->msg_iov[0].iov_base;
+        
+        // Message is too large to send atomically via underlying protocol, don't send
+        if(len > ZT_UDP_DEFAULT_PAYLOAD_MTU) {
+            errno = EMSGSIZE;
+            return -1;
+        }
+        return sendto(socket, buf, len, flags, (struct sockaddr *)&addr, addr_len);
     }
     
     // int socket, void *buffer, size_t length, int flags);
     ssize_t recv(RECV_SIG)
     {
+        if(!set_up_intercept())
+            return realrecv(socket, buffer, length, flags);
+        
         // MSG_CMSG_CLOEXEC (recvmsg() only; since Linux 2.6.23)
         // MSG_DONTWAIT (since Linux 2.2)
         // MSG_OOB
@@ -247,14 +273,9 @@ int set_up_intercept()
         // MSG_TRUNC (since Linux 2.2)
         // MSG_WAITALL (since Linux 2.2)
         
-        //dwr(MSG_DEBUG, "recv(%d)\n", socket);
-        
-        //return realrecv(socket, buffer, length, flags);
+        dwr(MSG_DEBUG, "recv(%d)\n", socket);
         return read(socket, buffer, length);
     }
-    
-#include "lwip/ip_addr.h"
-    //struct ip_addr;
     
     // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len
     ssize_t recvfrom(RECVFROM_SIG)
@@ -267,21 +288,18 @@ int set_up_intercept()
         socklen_t type_len;
         getsockopt(socket, SOL_SOCKET, SO_TYPE, (void *) &sock_type, &type_len);
 
-        //dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
+        dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
         struct ip_addr addr;
         char addr_info_buf[sizeof(struct ip_addr)];
         
         // Since this can be called for connection-oriented sockets,
         // we need to check the type before we try to read the address info
-        if(sock_type == SOCK_DGRAM) {
+        if(sock_type == SOCK_DGRAM && address != NULL && address_len != NULL) {
             err = read(socket, addr_info_buf, sizeof(struct ip_addr)); // Read prepended address info
             memcpy(&addr, addr_info_buf, sizeof(struct ip_addr));
             *address_len=sizeof(addr.addr);
         }
-        
-        //printf("read %d bytes into addr_info\n", (int)err);
-        err = read(socket, buffer, length); // Read
-        //printf("read %d bytes of data\n", (int)err);
+        err = read(socket, buffer, length); // Read what was placed on buffer from service
         print_ip(addr.addr);
         memcpy(address->sa_data+2, &addr.addr, sizeof(addr.addr));
         return err;
