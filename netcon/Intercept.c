@@ -178,6 +178,10 @@ int set_up_intercept()
     }
     return 0;
 }
+ 
+    /*------------------------------------------------------------------------------
+     ------------------------------------- send() ----------------------------------
+     ------------------------------------------------------------------------------*/
     
     // int socket, const void *buffer, size_t length, int flags
     ssize_t send(SEND_SIG)
@@ -195,6 +199,10 @@ int set_up_intercept()
         dwr(MSG_DEBUG, "send(%d, ..., len = %d, ... )\n", socket, length);
         return write(socket, buffer, length);
     }
+    
+    /*------------------------------------------------------------------------------
+     ------------------------------------ sendto() ---------------------------------
+     ------------------------------------------------------------------------------*/
     
     // int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *addr, socklen_t addr_len
     ssize_t sendto(SENDTO_SIG)
@@ -234,7 +242,11 @@ int set_up_intercept()
         dwr(MSG_DEBUG, "sendto(%d, ..., len = %d, ... )\n", sockfd, len);
         return write(sockfd, buf, len);
     }
-        
+    
+    /*------------------------------------------------------------------------------
+     ----------------------------------- sendmsg() ---------------------------------
+     ------------------------------------------------------------------------------*/
+    
     // int socket, const struct msghdr *message, int flags
     ssize_t sendmsg(SENDMSG_SIG)
     {
@@ -270,6 +282,10 @@ int set_up_intercept()
         return err;
     }
     
+    /*------------------------------------------------------------------------------
+     ------------------------------------- recv() ----------------------------------
+     ------------------------------------------------------------------------------*/
+    
     // int socket, void *buffer, size_t length, int flags);
     ssize_t recv(RECV_SIG)
     {
@@ -286,6 +302,10 @@ int set_up_intercept()
         dwr(MSG_DEBUG, "recv(%d)\n", socket);
         return read(socket, buffer, length);
     }
+    
+    /*------------------------------------------------------------------------------
+     ---------------------------------- recvfrom() ---------------------------------
+     ------------------------------------------------------------------------------*/
     
     // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len
     ssize_t recvfrom(RECVFROM_SIG)
@@ -315,83 +335,67 @@ int set_up_intercept()
         return err;
     }
     
+    /*------------------------------------------------------------------------------
+     ----------------------------------- recvmsg() ---------------------------------
+     ------------------------------------------------------------------------------*/
+    
     // int socket, struct msghdr *message, int flags
     ssize_t recvmsg(RECVMSG_SIG)
     {
-        /*
-         ssize_t ret, nb;
-         size_t tot = 0;
-         int i;
-         char *buf, *p;
-         struct iovec *iov = msg->msg_iov;
-         
-         for(i = 0; i < msg->msg_iovlen; ++i)
-         tot += iov[i].iov_len;
-         buf = malloc(tot);
-         if (tot != 0 && buf == NULL) {
-         errno = ENOMEM;
-         return -1;
-         }
-         nb = ret = recvfrom (s, buf, tot, flags, msg->msg_name, &msg->msg_namelen);
-         p = buf;
-         while (nb > 0) {
-         ssize_t cnt = min(nb, iov->iov_len);
-         
-         memcpy (iov->iov_base, p, cnt);
-         p += cnt;
-         nb -= cnt;
-         ++iov;
-         }
-         free(buf);
-         return ret;
-         
-         */
-        
-        /*
-
-         MSG_EOR
-         indicates end-of-record; the data returned completed a record (generally used with sockets of type SOCK_SEQPACKET).
-         MSG_TRUNC
-         indicates that the trailing portion of a datagram was discarded because the datagram was larger than the buffer supplied.
-         MSG_CTRUNC
-         indicates that some control data were discarded due to lack of space in the buffer for ancillary data.
-         MSG_OOB
-         is returned to indicate that expedited or out-of-band data were received.
-         MSG_ERRQUEUE
-         indicates that no data was received but an extended error from the socket error queue.
-
-        */
-        
-        /*
-         
-         These two receive calls also accept a flag as a parameter. The flag field helps us fine-tune the behavior of these calls. Two of these flags are: MSG_DONTWAIT and MSG_PEEK. MSG_DONTWAIT specifies that if the underlying UDP has no data, then the calls should return immediately -- in that case, the returned value would be -1. With MSG_PEEK, these calls would return the data requested, but would not delete the data from the receive buffer since the goal is only to peek; we would need a subsequent recvfrom()/recvmsg() call with no MSG_PEEK flag to drain the data from the UDP receive buffer.
-         
-         */
-        
         if(!set_up_intercept())
             return realrecvmsg(socket, message, flags);
         dwr(MSG_DEBUG, "recvmsg(%d)\n", socket);
-
-        struct sockaddr addr;
-        socklen_t addrlen;
-        // Read data and copy buffer and length into msg
-        ssize_t err = recvfrom(socket, message->msg_control,message->msg_controllen, flags, message->msg_name, &message->msg_namelen);
+        
+        ssize_t err, n, tot_len = 0;
+        char *buf, *p;
+        struct iovec *iov = message->msg_iov;
+        
+        for(int i = 0; i < message->msg_iovlen; ++i)
+            tot_len += iov[i].iov_len;
+        buf = malloc(tot_len);
+        if(tot_len != 0 && buf == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+        n = err = recvfrom(socket, buf, tot_len, flags, message->msg_name, &message->msg_namelen);
+        p = buf;
         
         // According to: http://pubs.opengroup.org/onlinepubs/009695399/functions/recvmsg.html
         if(err > message->msg_controllen && !( message->msg_flags & MSG_PEEK)) {
             // excess data should be disgarded
-            message->msg_flags &= MSG_TRUNC; // Indicate that the buffer has been truncated
+            message->msg_flags |= MSG_TRUNC; // Indicate that the buffer has been truncated
         }
         
-        // if !MSG_WAITALL
-        // then data shall be returned only up to the end of the first message
-        
-        printf("recvmsg(): read %d\n", (int)err);
-        
-        // if unconnected (?), copy address info into msg
-        // memcpy(message->msg_name, &addr, sizeof(struct sockaddr));
-        // message->msg_namelen = addrlen;
-        
+        // API-returned flags (TODO)
+        if(true == false) {
+            message->msg_flags |= MSG_EOR;
+            // indicates end-of-record; the data returned completed a record (generally used with sockets of type SOCK_SEQPACKET).
+        }
+        if(true == false) {
+            message->msg_flags |= MSG_TRUNC;
+            // indicates that the trailing portion of a datagram was discarded because the datagram was larger than the buffer supplied.
+        }
+        if(true == false) {
+            message->msg_flags |= MSG_CTRUNC;
+            // indicates that some control data were discarded due to lack of space in the buffer for ancillary data.
+        }
+        if(true == false) {
+            message->msg_flags |= MSG_OOB;
+            // is returned to indicate that expedited or out-of-band data were received.
+        }
+        if(true == false) {
+            // message->msg_flags |= MSG_ERRQUEUE;
+            // indicates that no data was received but an extended error from the socket error queue.
+        }
+
+        while (n > 0) {
+            ssize_t count = n < iov->iov_len ? n : iov->iov_len;
+            memcpy (iov->iov_base, p, count);
+            p += count;
+            n -= count;
+            ++iov;
+        }
+        free(buf);
         return err;
     }
     
