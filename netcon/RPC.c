@@ -76,7 +76,7 @@ int get_retval(int rpc_sock)
     int sz = sizeof(char) + sizeof(retval) + sizeof(errno);
     char retbuf[BUF_SZ];
     memset(&retbuf, 0, sz);
-    int n_read = read(rpc_sock, &retbuf, sz);
+    long n_read = read(rpc_sock, &retbuf, sz);
     if(n_read > 0) {
       memcpy(&retval, &retbuf[1], sizeof(retval));
       memcpy(&errno, &retbuf[1+sizeof(retval)], sizeof(errno));
@@ -175,7 +175,7 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
   memcpy(&metabuf[IDX_PAYLOAD], cmdbuf, len + 1 + CANARY_SZ);
   
   // Write RPC
-  int n_write = write(rpc_sock, &metabuf, BUF_SZ);
+  long n_write = write(rpc_sock, &metabuf, BUF_SZ);
   if(n_write < 0) {
     fprintf(stderr, "Error writing command to service (CMD = %d)\n", cmdbuf[CMD_ID_IDX]);
     errno = 0;
