@@ -37,9 +37,6 @@ extern "C" {
 void set_thr_key(pthread_key_t key);
 void setpath(const char * given_path);
 int set_up_intercept();
-void init_intercept(int key);
-void init_intercept_no_spawn(int key);
-void *start_new_intercept(void *thread_id);
 
 #if defined(__linux__)
 	#define ACCEPT4_SIG int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags

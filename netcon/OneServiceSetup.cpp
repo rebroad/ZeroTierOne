@@ -35,60 +35,46 @@
 #include "Intercept.h"
 
 std::string service_path;
-
 pthread_t intercept_thread;
 int * intercept_thread_id;
 pthread_key_t thr_id_key;
 
 #define IOS_SERVICE_THREAD_ID   222
 
-void *start_intercept(void *thread_id)
+/*
+ * Starts a service thread and performs basic setup tasks
+ */
+void init_service(int key, const char * path)
 {
-    fprintf(stderr, "start_new_intercept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-    pthread_setspecific(thr_id_key, thread_id);
-    set_up_intercept();
-    int key = *((int*)pthread_getspecific(thr_id_key));
-    
-    if(key == IOS_SERVICE_THREAD_ID){
-        start_OneService();
-    }
-    else {
-        set_thr_key(thr_id_key);
-    }
-    
-    return NULL;
+    service_path = path;
+    fprintf(stderr, "init_service(key=%d): tid = %d\n", key, pthread_mach_thread_np(pthread_self()));
+    pthread_key_create(&thr_id_key, NULL);
+    intercept_thread_id = (int*)malloc(sizeof(int));
+    *intercept_thread_id = key;
+    pthread_create(&intercept_thread, NULL, start_OneService, (void *)(intercept_thread_id));
 }
 
+/*
+ * Loads symbols for intercept and performs basic setup tasks
+ */
 void init_intercept(int key)
 {
-    fprintf(stderr, "init_new_intercept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+    fprintf(stderr, "init_intercept(key=%d): tid = %d\n", key, pthread_mach_thread_np(pthread_self()));
     pthread_key_create(&thr_id_key, NULL);
     intercept_thread_id = (int*)malloc(sizeof(int));
     *intercept_thread_id = key;
-    pthread_create(&intercept_thread, NULL, start_intercept, (void *)(intercept_thread_id));
+    set_up_intercept();
+    pthread_setspecific(thr_id_key, intercept_thread_id);
+    set_thr_key(thr_id_key);
 }
 
-void init_intercept_no_spawn(int key)
-{
-    fprintf(stderr, "init_new_intercept_no_spawn(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-    pthread_key_create(&thr_id_key, NULL);
-    intercept_thread_id = (int*)malloc(sizeof(int));
-    *intercept_thread_id = key;
-    start_intercept(intercept_thread_id);
-}
-
-
-void init_service(const char * path) {
-    fprintf(stderr, "init_new_service(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-    service_path = path;
-    init_intercept(222);
-}
-
-    // Called from new service thread
-    int start_OneService()
+/*
+ * Starts a new service instance
+ */
+void *start_OneService(void *thread_id)
     {
         chdir(service_path.c_str());
-        fprintf(stderr, "\n\n\n\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
+        fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
         static std::string homeDir = "";
         // /Users/Joseph/Library/Developer/CoreSimulator/Devices/0380D5D4-BD2E-4D3D-8930-2E5C3F25C3E1/data/Library/Application Support/ZeroTier/One
@@ -109,7 +95,7 @@ void init_service(const char * path) {
             // homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {
             //fprintf(stderr,"%s: no home path specified and no platform default available" ZT_EOL_S,argv[0]);
-            return -1;
+            return NULL;
         } else {
             std::vector<std::string> hpsp(ZeroTier::Utils::split(homeDir.c_str(),ZT_PATH_SEPARATOR_S,"",""));
             std::string ptmp;
@@ -161,5 +147,5 @@ void init_service(const char * path) {
             }
             break; // terminate loop -- normally we don't keep restarting
         }
-        return 0;
+        return NULL;
     }

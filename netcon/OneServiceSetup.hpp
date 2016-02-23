@@ -9,7 +9,8 @@
 #ifndef ONE_SERVICE_SETUP_HPP
 #define ONE_SERVICE_SETUP_HPP
 
-void init_service(const char * path);
-int start_OneService();
+void init_service(int key, const char * path);
+void init_intercept(int key);
+void *start_OneService(void *thread_id);
 
 #endif

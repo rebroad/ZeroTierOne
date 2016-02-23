@@ -808,7 +808,7 @@ err_t NetconEthernetTap::nc_sent(void* arg, struct tcp_pcb *PCB, u16_t len)
 	if(l && l->conn && len && !l->conn->probation) {
 		if(l->conn->txsz < (float)DEFAULT_BUF_SOFTMAX) {
 			l->tap->_phy.setNotifyReadable(l->conn->sock, true);
-			l->tap->_phy.whack();
+            l->tap->_phy.whack();
 		}
 	}
 	return ERR_OK;
