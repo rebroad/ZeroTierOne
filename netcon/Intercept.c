@@ -71,7 +71,7 @@ static char *netpath = (char *)0;
 pthread_key_t thr_id_key;
     
 /*------------------------------------------------------------------------------
-------------------- Symbol Rebinding via Fishhook mechanism --------------------
+--------------- (optional) Symbol Rebinding via Fishhook mechanism -------------
 ------------------------------------------------------------------------------*/
  
     /* Use Fishhook to rebind symbols */
@@ -89,7 +89,7 @@ pthread_key_t thr_id_key;
         rebind_symbols((struct rebinding[1]){{"close", (int(*)(CLOSE_SIG))&close, (void *)&realclose}}, 1);
         rebind_symbols((struct rebinding[1]){{"getsockname", (int(*)(GETSOCKNAME_SIG))&getsockname, (void *)&realgetsockname}}, 1);
 #endif
-}
+    }
     
 /*------------------------------------------------------------------------------
 ------------------- Intercept<--->Service Comm mechanisms ----------------------
@@ -146,8 +146,8 @@ pthread_key_t thr_id_key;
             realclose = (int(*)(CLOSE_SIG))dlsym(RTLD_NEXT, "close");
             realgetsockname = (int(*)(GETSOCKNAME_SIG))dlsym(RTLD_NEXT, "getsockname");
             realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
-            realsend = (ssize_t(*)(int, const void *, size_t, int))dlsym(RTLD_NEXT, "send");
-            realrecv = (int(*)(RECV_SIG))dlsym(RTLD_NEXT, "recv");
+            // realsend = (ssize_t(*)(int, const void *, size_t, int))dlsym(RTLD_NEXT, "send");
+            // realrecv = (int(*)(RECV_SIG))dlsym(RTLD_NEXT, "recv");
             realrecvfrom = (int(*)(RECVFROM_SIG))dlsym(RTLD_NEXT, "recvfrom");
             realrecvmsg = (int(*)(RECVMSG_SIG))dlsym(RTLD_NEXT, "recvmsg");
     }
@@ -155,50 +155,32 @@ pthread_key_t thr_id_key;
     void set_thr_key(pthread_key_t key) {
         thr_id_key = key;
     }
-    
-    // FIXME: This is a mess
+
+    // Set RPC socket path and initialize RPC mutex
     int set_up_intercept() {
-        if(!realconnect) {
+        if(!realconnect)
             load_symbols();
-//#ifdef __IOS__
-            //fishhook_rebind_symbols();
-//#endif __IOS__
-        }
 #ifdef __IOS__
+        // fishhook_rebind_symbols();
         void *spec = pthread_getspecific(thr_id_key);
         if(spec != NULL) {
-            //printf("spec != NULL, ID = %d\n", (*((int*)spec)));
             if(*((int*)spec) == INTERCEPTED_THREAD_ID)
             {
-#endif
                 if (!netpath) {
-                    //netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
-#ifdef __IOS__
+                    // netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
                     netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace"; // Path allowed on iOS devices
-#else
-                    netpath = getenv("ZT_NC_NETWORK");
-#endif
-                    dwr(MSG_DEBUG,"Connecting to service at: %s\n", netpath);
                     rpc_mutex_init();
                 }
                 return 1;
-#ifdef __IOS__
             }
         }
-        return 0;
+#else
+        if (!netpath) {
+            netpath = getenv("ZT_NC_NETWORK");
+            rpc_mutex_init();
+        }
 #endif
-    }
- 
-    /*------------------------------------------------------------------------------
-     ------------------------------------- send() ----------------------------------
-     ------------------------------------------------------------------------------*/
-    
-    // int socket, const void *buffer, size_t length, int flags
-    ssize_t send(SEND_SIG) {
-        //if (!set_up_intercept())
-        return realsend(socket, buffer, length, flags);
-        //dwr(MSG_DEBUG, "send(%d, ..., len = %d, ... )\n", socket, length);
-        //return write(socket, buffer, length);
+        return 0;
     }
     
     /*------------------------------------------------------------------------------
@@ -215,10 +197,12 @@ pthread_key_t thr_id_key;
         socklen_t socktype_len;
         getsockopt(sockfd,SOL_SOCKET, SO_TYPE, (void*)&socktype, &socktype_len);
         
+        /*
         if(socktype & SOCK_STREAM)
             printf("sendto: SOCK_STREAM\n");
         if(socktype & SOCK_DGRAM)
             printf("sendto: SOCK_DGRAM\n");
+        */
         
         if((socktype & SOCK_STREAM) || (socktype & SOCK_SEQPACKET)) {
             if(addr == NULL || flags != 0) {
@@ -232,7 +216,7 @@ pthread_key_t thr_id_key;
         // EMSGSIZE should be returned if the message is too long to be passed atomically through
         // the underlying protocol, in our case MTU?
         
-        // FIXME: More efficient solution?
+        // TODO: More efficient solution
         // This connect call is used to get the address info to the stack for sending the packet
         int err;
         if((err = connect(sockfd, addr, addr_len)) < 0) {
@@ -241,7 +225,7 @@ pthread_key_t thr_id_key;
             return -1;
         }
         dwr(MSG_DEBUG, "sendto(%d, ..., len = %d, ... )\n", sockfd, len);
-        return write(sockfd, buf, len);
+        return send(sockfd, buf, len, flags);
     }
     
     /*------------------------------------------------------------------------------
@@ -284,51 +268,36 @@ pthread_key_t thr_id_key;
     }
     
     /*------------------------------------------------------------------------------
-     ------------------------------------- recv() ----------------------------------
-     ------------------------------------------------------------------------------*/
-    
-    // int socket, void *buffer, size_t length, int flags);
-    ssize_t recv(RECV_SIG)
-    {
-        //if(!set_up_intercept())
-        return realrecv(socket, buffer, length, flags);
-        //dwr(MSG_DEBUG, "recv(%d)\n", socket);
-        //return read(socket, buffer, length);
-    }
-    
-    /*------------------------------------------------------------------------------
      ---------------------------------- recvfrom() ---------------------------------
      ------------------------------------------------------------------------------*/
     
-    // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr *restrict address, socklen_t *restrict address_len
+    // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr
+    // *restrict address, socklen_t *restrict address_len
     ssize_t recvfrom(RECVFROM_SIG)
     {
         if(!set_up_intercept())
             return realrecvfrom(socket, buffer, length, flags, address, address_len);
-        
+        dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
+
         ssize_t err;
         int sock_type;
         socklen_t type_len;
         realgetsockopt(socket, SOL_SOCKET, SO_TYPE, (void *) &sock_type, &type_len);
-
-        //dwr(MSG_DEBUG, "recvfrom(%d)\n", socket);
-        
-        //struct ip_addr addr;
-        //char addr_info_buf[sizeof(struct ip_addr)];
-        char addr_buf[sizeof(struct sockaddr_in)];
-        struct sockaddr_in addr_in;
-        
+        unsigned int addr;
+        unsigned short port;
+        char addr_buf[sizeof(addr) + sizeof(port)];
         // Since this can be called for connection-oriented sockets,
         // we need to check the type before we try to read the address info
-        if(sock_type == SOCK_DGRAM && address != NULL && address_len != NULL) {
-            err = read(socket, addr_buf, sizeof(addr_buf)); // Read prepended address info
-            memcpy(&addr_in, addr_buf, sizeof(addr_buf));
-            *address_len=sizeof(addr_in);
-        }
+        //if(sock_type == SOCK_DGRAM && address != NULL && address_len != NULL) {
+            err = read(socket, &addr_buf, sizeof(addr_buf)); // Read prepended address info
+            memcpy(&addr, addr_buf, sizeof(addr));
+            memcpy(&port, addr_buf+sizeof(addr), sizeof(port));
+            *address_len=sizeof(addr_buf);
+        //}
         err = read(socket, buffer, length); // Read what was placed on buffer from service
-        //print_ip(addr.addr);
-        //memcpy(address->sa_data+2, &addr_in, sizeof(addr_in));
-        memcpy(address, &addr_in, sizeof(addr_in));
+        port = htons(port);
+        memcpy(address->sa_data, &port, sizeof(port));
+        memcpy(address->sa_data+2, &addr, sizeof(addr));
         return err;
     }
     
@@ -367,23 +336,28 @@ pthread_key_t thr_id_key;
         /*
         if(true == false) {
             message->msg_flags |= MSG_EOR;
-            // indicates end-of-record; the data returned completed a record (generally used with sockets of type SOCK_SEQPACKET).
+            // indicates end-of-record; the data returned completed a record 
+            // (generally used with sockets of type SOCK_SEQPACKET).
         }
         if(true == false) {
             message->msg_flags |= MSG_TRUNC;
-            // indicates that the trailing portion of a datagram was discarded because the datagram was larger than the buffer supplied.
+            // indicates that the trailing portion of a datagram was discarded 
+            // because the datagram was larger than the buffer supplied.
         }
         if(true == false) {
             message->msg_flags |= MSG_CTRUNC;
-            // indicates that some control data were discarded due to lack of space in the buffer for ancillary data.
+            // indicates that some control data were discarded due to lack of 
+            // space in the buffer for ancillary data.
         }
         if(true == false) {
             message->msg_flags |= MSG_OOB;
-            // is returned to indicate that expedited or out-of-band data were received.
+            // is returned to indicate that expedited or out-of-band data were 
+            // received.
         }
         if(true == false) {
             // message->msg_flags |= MSG_ERRQUEUE;
-            // indicates that no data was received but an extended error from the socket error queue.
+            // indicates that no data was received but an extended error from 
+            // the socket error queue.
         }
         */
 
@@ -407,8 +381,6 @@ pthread_key_t thr_id_key;
     {
         if (!set_up_intercept())
             return realsetsockopt(socket, level, option_name, option_value, option_len);
-        
-        dwr(MSG_DEBUG,"setsockopt(%d)\n", socket);
 #if defined(__linux__)
         if(level == SOL_IPV6 && option_name == IPV6_V6ONLY)
             return 0;
@@ -429,7 +401,6 @@ pthread_key_t thr_id_key;
     /* int sockfd, int level, int optname, void *optval, socklen_t *optlen */
     int getsockopt(GETSOCKOPT_SIG)
     {
-        dwr(MSG_DEBUG,"getsockopt(%d)\n", sockfd);
         if (!set_up_intercept() || !connected_to_service(sockfd))
             return realgetsockopt(sockfd, level, optname, optval, optlen);
         if(optname == SO_TYPE) {
@@ -450,8 +421,6 @@ pthread_key_t thr_id_key;
     {
         if (!set_up_intercept())
             return realsocket(socket_family, socket_type, protocol);
-        //fprintf(stderr, "socket(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-
         /* Check that type makes sense */
 #if defined(__linux__)
         int flags = socket_type & ~SOCK_TYPE_MASK;
@@ -504,7 +473,6 @@ pthread_key_t thr_id_key;
     {
         if (!set_up_intercept())
             return realconnect(__fd, __addr, __len);
-        
         struct sockaddr_in *connaddr;
         connaddr = (struct sockaddr_in *)__addr;
         if(__addr->sa_family == AF_LOCAL || __addr->sa_family == AF_UNIX) {
@@ -543,7 +511,6 @@ pthread_key_t thr_id_key;
             return -1;
         }
 #endif
-        // FIXME
         /* make sure we don't touch any standard outputs */
         if(__fd == 0 || __fd == 1 || __fd == 2)
             return(realconnect(__fd, __addr, __len));

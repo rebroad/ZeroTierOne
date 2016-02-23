@@ -91,8 +91,7 @@ int load_symbols_rpc()
 #if defined(NETCON_INTERCEPT) || defined(__IOS__)
   realsocket = dlsym(RTLD_NEXT, "socket");
   realconnect = dlsym(RTLD_NEXT, "connect");
-  realsend = dlsym(RTLD_NEXT, "send");
-  if(!realconnect || !realsocket || !realsend)
+  if(!realconnect || !realsocket)
     return -1;
 #endif
   return 1;
@@ -186,7 +185,7 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
     return -1;
   }
   if(c == 'z' && n_write > 0 && forfd > -1){
-    if(realsend(forfd, &CANARY, CANARY_SZ+PADDING_SZ, 0) < 0) {
+    if(send(forfd, &CANARY, CANARY_SZ+PADDING_SZ, 0) < 0) {
       fprintf(stderr,"unable to write canary to stream\n");
       return -1;
     }

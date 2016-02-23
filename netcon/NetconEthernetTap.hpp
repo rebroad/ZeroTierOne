@@ -82,6 +82,7 @@ struct Connection
   struct tcp_pcb *TCP_pcb;
   struct udp_pcb *UDP_pcb;
   struct sockaddr_storage *addr;
+  unsigned short port;
   unsigned char txbuf[DEFAULT_BUF_SZ];
   unsigned char rxbuf[DEFAULT_BUF_SZ];
 };

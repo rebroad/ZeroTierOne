@@ -37,7 +37,7 @@ class ViewController: UIViewController {
     @IBAction func UdpServerTestAction(sender: AnyObject) {
         print("UdpServerTestAction\n")
         txtAddr.text = "10.242.142.99"
-        txtPort.text = "9997"
+        txtPort.text = "9995"
         let addr_string = txtAddr.text
         let port:Int32? = Int32(txtPort.text!);
         cpp_udp_socket_server_test(addr_string!, port!)

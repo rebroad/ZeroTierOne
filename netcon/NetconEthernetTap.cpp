@@ -721,9 +721,7 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
 {
     //dwr(MSG_DEBUG, "nc_udp_recved(): port = %d", port);
     //print_ip(addr->addr);
-
     Larg *l = (Larg*)arg;
-
     int tot = 0;
     struct pbuf* q = p;
     
@@ -739,12 +737,10 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
             dwr(MSG_ERROR," nc_udp_recved(): not enough room (%d bytes) on RX buffer\n", avail);
         
         // copy address info onto buffer for use in intercepted recvfrom()
-        sockaddr_in addr_in;
-        addr_in.sin_addr.s_addr = addr->addr;
-        printf("sizeof(addr_in) = %d\n", sizeof(addr_in));
-        memcpy(l->conn->rxbuf + (l->conn->rxsz), &addr_in, sizeof(addr->addr));
-        
-        l->conn->rxsz += sizeof(struct ip_addr);
+        memcpy(l->conn->rxbuf + (l->conn->rxsz), &(addr->addr), sizeof(u32_t));
+        l->conn->rxsz += (sizeof(u32_t));
+        memcpy(l->conn->rxbuf + (l->conn->rxsz), &l->conn->port, sizeof(u16_t));
+        l->conn->rxsz += (sizeof(u16_t));
         // payload
         memcpy(l->conn->rxbuf + (l->conn->rxsz), p->payload, len);
         l->conn->rxsz += len;
@@ -941,6 +937,7 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
             else {
                 lwipstack->__udp_recv(conn->UDP_pcb, nc_udp_recved, new Larg(this, conn));
                 conn->addr = (struct sockaddr_storage *) &bind_rpc->addr; // Required for getsockname RPCs
+                conn->port = port;
                 sendReturnValue(rpcSock, ERR_OK, ERR_OK); // Success
             }
             return;
@@ -1030,7 +1027,7 @@ Connection * NetconEthernetTap::handleSocket(PhySocket *sock, void **uptr, struc
             dwr(MSG_DEBUG, "handleSocket(): created new udp_pcb\n");
             Connection * newConn = new Connection();
             *uptr = newConn;
-            newConn->type = socket_rpc->socket_type ;
+            newConn->type = socket_rpc->socket_type;
             newConn->sock = sock;
             newConn->UDP_pcb = newPCB;
             _Connections.push_back(newConn);
@@ -1044,7 +1041,7 @@ Connection * NetconEthernetTap::handleSocket(PhySocket *sock, void **uptr, struc
         if(newPCB != NULL) {
             Connection *newConn = new Connection();
             *uptr = newConn;
-            newConn->type = socket_rpc->socket_type ;
+            newConn->type = socket_rpc->socket_type;
             newConn->sock = sock;
             newConn->TCP_pcb = newPCB;
             _Connections.push_back(newConn);
@@ -1059,7 +1056,6 @@ Connection * NetconEthernetTap::handleSocket(PhySocket *sock, void **uptr, struc
 void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, Connection *conn, struct connect_st* connect_rpc)
 {
     dwr(MSG_DEBUG, "handleConnect()\n");
-    
     Mutex::Lock _l(_tcpconns_m);
 	struct sockaddr_in *rawAddr = (struct sockaddr_in *) &connect_rpc->__addr;
 	int port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
@@ -1075,7 +1071,6 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, Conne
         sendReturnValue(rpcSock, 0, ERR_OK);
         return;
     }
-    
 	if(conn != NULL) {
 		lwipstack->__tcp_sent(conn->TCP_pcb, nc_sent);
 		lwipstack->__tcp_recv(conn->TCP_pcb, nc_recved);
@@ -1161,11 +1156,10 @@ void NetconEthernetTap::handleWrite(Connection *conn)
             dwr(MSG_DEBUG, " handleWrite(): type = SOCK_DGRAM, invalid UDP_pcb\n");
             return;
         }
-        // FIXME: Packet re-assembly hasn't yet been tested with lwIP so UDP packets are going to
-        // be limited to MTU-sized chunks
-        int udp_trans_len = conn->txsz < ZT_UDP_DEFAULT_PAYLOAD_MTU ? conn->txsz : ZT_UDP_DEFAULT_PAYLOAD_MTU; // Should eventually be: conn->txsz
+        // TODO: Packet re-assembly hasn't yet been tested with lwIP so UDP packets are limited to MTU-sized chunks
+        int udp_trans_len = conn->txsz < ZT_UDP_DEFAULT_PAYLOAD_MTU ? conn->txsz : ZT_UDP_DEFAULT_PAYLOAD_MTU;
         
-        dwr(MSG_DEBUG, " handleWrite(): Allocating pbuf chain of size (%d) for UDP packet, TXSZ = %d\n", udp_trans_len, conn->txsz);
+        dwr(MSG_DEBUG_EXTRA, " handleWrite(): Allocating pbuf chain of size (%d) for UDP packet, TXSZ = %d\n", udp_trans_len, conn->txsz);
         struct pbuf * pb = lwipstack->__pbuf_alloc(PBUF_TRANSPORT, udp_trans_len, PBUF_POOL);
         if(!pb){
             dwr(MSG_DEBUG, " handleWrite(): unable to allocate new pbuf of size (%d)\n", conn->txsz);
@@ -1181,13 +1175,9 @@ void NetconEthernetTap::handleWrite(Connection *conn)
         } else if(err != ERR_OK) {
             dwr(MSG_DEBUG, " handleWrite(): Error sending packet - %d\n", err);
         } else {
-            dwr(MSG_DEBUG," handleWrite(): UDP packet sent\n");
             int buf_remaining = (conn->txsz)-udp_trans_len;
             if(buf_remaining)
-            {
-                printf("buf_remaining = %d\n", buf_remaining);
                 memmove(&conn->txbuf, (conn->txbuf+udp_trans_len), buf_remaining);
-            }
             conn->txsz -= udp_trans_len;
             float max = (float)DEFAULT_BUF_SZ;
             dwr(MSG_TRANSFER," TX --->    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
@@ -1196,9 +1186,8 @@ void NetconEthernetTap::handleWrite(Connection *conn)
             // Re-enable previously disabled sockets (disabled for preemptive buffer overflow protection)
             // The logic here is to allow UDP packets to fill up to about 80% of the buffer then disable,
             // and then once we get back down to about 20% buffer saturation we'll re-enable the socket
-            // See: DEFAULT_BUF_SOFTMIN, DEFAULT_BUF_SOFTMIN
+            // See: DEFAULT_BUF_SOFTMAX, DEFAULT_BUF_SOFTMIN
             if(conn->txsz <= DEFAULT_BUF_SOFTMIN && conn->disabled) {
-                printf("ENABLED\n");
                 conn->disabled = false;
                 _phy.setNotifyReadable(conn->sock, true);
             }

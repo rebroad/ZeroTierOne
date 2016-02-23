@@ -92,10 +92,10 @@ int dup2(DUP2_SIG);
 int dup3(DUP3_SIG);
 int getsockname(GETSOCKNAME_SIG);
     
-ssize_t send(SEND_SIG);
+//ssize_t send(SEND_SIG);
 ssize_t sendmsg(SENDMSG_SIG);
 ssize_t sendto(SENDTO_SIG);
-ssize_t recv(RECV_SIG);
+//ssize_t recv(RECV_SIG);
 ssize_t recvfrom(RECVFROM_SIG);
 ssize_t recvmsg(RECVMSG_SIG);
 
@@ -114,10 +114,10 @@ static int (*realgetsockopt)(GETSOCKOPT_SIG) = 0;
 static int (*realclose)(CLOSE_SIG) = 0;
 static int (*realgetsockname)(GETSOCKNAME_SIG) = 0;
     
-static ssize_t (*realsend)(SEND_SIG) = 0;
+//static ssize_t (*realsend)(SEND_SIG) = 0;
 static int (*realsendmsg)(SENDMSG_SIG) = 0;
 static ssize_t (*realsendto)(SENDTO_SIG) = 0;
-static int (*realrecv)(RECV_SIG) = 0;
+//static int (*realrecv)(RECV_SIG) = 0;
 static int (*realrecvmsg)(RECVMSG_SIG) = 0;
 static int (*realrecvfrom)(RECVFROM_SIG) = 0;
 
