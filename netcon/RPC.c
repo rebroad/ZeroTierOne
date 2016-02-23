@@ -88,13 +88,13 @@ int get_retval(int rpc_sock)
 
 int load_symbols_rpc()
 {
-//#ifdef NETCON_INTERCEPT || __IOS__
+#if defined(NETCON_INTERCEPT) || defined(__IOS__)
   realsocket = dlsym(RTLD_NEXT, "socket");
   realconnect = dlsym(RTLD_NEXT, "connect");
   realsend = dlsym(RTLD_NEXT, "send");
   if(!realconnect || !realsocket || !realsend)
     return -1;
-//#endif
+#endif
   return 1;
 }
 

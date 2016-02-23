@@ -173,9 +173,8 @@ pthread_key_t thr_id_key;
 #endif
                 if (!netpath) {
                     //netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
-                    
 #ifdef __IOS__
-                    netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace";
+                    netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace"; // Path allowed on iOS devices
 #else
                     netpath = getenv("ZT_NC_NETWORK");
 #endif
