@@ -88,7 +88,7 @@ pthread_key_t thr_id_key;
         rebind_symbols((struct rebinding[1]){{"listen", (int(*)(LISTEN_SIG))&listen, (void *)&reallisten}}, 1);
         rebind_symbols((struct rebinding[1]){{"close", (int(*)(CLOSE_SIG))&close, (void *)&realclose}}, 1);
         rebind_symbols((struct rebinding[1]){{"getsockname", (int(*)(GETSOCKNAME_SIG))&getsockname, (void *)&realgetsockname}}, 1);
-    #endif
+#endif
 }
     
 /*------------------------------------------------------------------------------
@@ -156,29 +156,38 @@ pthread_key_t thr_id_key;
         thr_id_key = key;
     }
     
+    // FIXME: This is a mess
     int set_up_intercept() {
-        //printf("set_up_intercept(): netpath = %s\n", netpath);
         if(!realconnect) {
             load_symbols();
 //#ifdef __IOS__
             //fishhook_rebind_symbols();
 //#endif __IOS__
         }
+#ifdef __IOS__
         void *spec = pthread_getspecific(thr_id_key);
         if(spec != NULL) {
             //printf("spec != NULL, ID = %d\n", (*((int*)spec)));
             if(*((int*)spec) == INTERCEPTED_THREAD_ID)
             {
+#endif
                 if (!netpath) {
                     //netpath = (char*)"/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace";
+                    
+#ifdef __IOS__
                     netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace";
+#else
+                    netpath = getenv("ZT_NC_NETWORK");
+#endif
                     dwr(MSG_DEBUG,"Connecting to service at: %s\n", netpath);
                     rpc_mutex_init();
                 }
                 return 1;
+#ifdef __IOS__
             }
         }
         return 0;
+#endif
     }
  
     /*------------------------------------------------------------------------------
@@ -356,6 +365,7 @@ pthread_key_t thr_id_key;
         }
         
         // API-returned flags (TODO)
+        /*
         if(true == false) {
             message->msg_flags |= MSG_EOR;
             // indicates end-of-record; the data returned completed a record (generally used with sockets of type SOCK_SEQPACKET).
@@ -376,6 +386,7 @@ pthread_key_t thr_id_key;
             // message->msg_flags |= MSG_ERRQUEUE;
             // indicates that no data was received but an extended error from the socket error queue.
         }
+        */
 
         while (n > 0) {
             ssize_t count = n < iov->iov_len ? n : iov->iov_len;
@@ -440,7 +451,7 @@ pthread_key_t thr_id_key;
     {
         if (!set_up_intercept())
             return realsocket(socket_family, socket_type, protocol);
-        fprintf(stderr, "socket(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+        //fprintf(stderr, "socket(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
 
         /* Check that type makes sense */
 #if defined(__linux__)
@@ -643,7 +654,7 @@ pthread_key_t thr_id_key;
     {
         if (!set_up_intercept())
             return realaccept(sockfd, addr, addrlen);
-        fprintf(stderr, "accept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+        //fprintf(stderr, "accept(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
         /* Check that this is a valid fd */
         if(fcntl(sockfd, F_GETFD) < 0) {
             return -1;

@@ -1,3 +1,8 @@
+
+#ifdef USE_GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/un.h>
@@ -83,7 +88,7 @@ int get_retval(int rpc_sock)
 
 int load_symbols_rpc()
 {
-//#ifdef NETCON_INTERCEPT
+//#ifdef NETCON_INTERCEPT || __IOS__
   realsocket = dlsym(RTLD_NEXT, "socket");
   realconnect = dlsym(RTLD_NEXT, "connect");
   realsend = dlsym(RTLD_NEXT, "send");

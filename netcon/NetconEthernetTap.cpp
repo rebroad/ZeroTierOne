@@ -932,7 +932,7 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
 	ip_addr_t connAddr;
 	connAddr.addr = *((u32_t *)_ips[0].rawIpData());
 	Connection *conn = getConnection(sock);
-    dwr(MSG_DEBUG," handleBind(%d)\n", bind_rpc->sockfd);
+    dwr(MSG_DEBUG," handleBind(%d): port = %d\n", bind_rpc->sockfd, port);
     if(conn) {
         if(conn->type == SOCK_DGRAM) {
             err = lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, port);
