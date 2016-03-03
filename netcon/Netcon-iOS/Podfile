@@ -13,13 +13,3 @@ pod 'ProxyKit/Server' # Just the server code
 # pod 'ProxyKit/Client' # Just the client code
 
 use_frameworks!
-
-
-target 'Netcon-iOS' do
-
-end
-
-target 'Netcon-iOS' do
-
-end
-
