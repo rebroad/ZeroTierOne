@@ -22,9 +22,9 @@
     self.proxy.callbackQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
     BOOL success = [self.proxy startProxyOnPort:1337 error:&error];
     
-    if(success)
-        printf("success = %d\n", success);
-    else
+    //if(success)
+    //    printf("success = %d\n", success);
+    if(!success)
         NSLog(@" error => %@ ", [error localizedDescription]);
 }
 
@@ -48,9 +48,9 @@
     NSData *data = [getRequest dataUsingEncoding:NSUTF8StringEncoding];
     [self.clientSocket writeData:data withTimeout:-1 tag:111222];
     
-    if(success)
-        printf("success = %d\n", success);
-    else
+    //if(success)
+    //    printf("success = %d\n", success);
+    if(!success)
         NSLog(@" error => %@ ", [error localizedDescription]);
 }
 

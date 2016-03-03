@@ -14,11 +14,6 @@
 // Performs initial symbol interposing
 #include "OneServiceSetup.hpp"
 
-extern "C" int start_intercept() {
-    init_intercept(INTERCEPT_ENABLED);
-    return 1;
-}
-
 // Starts a service at the specified path
 extern "C" int start_service(const char * path) {
     init_service(INTERCEPT_DISABLED, path);
