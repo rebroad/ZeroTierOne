@@ -69,6 +69,68 @@ class ViewController: UIViewController {
     @IBOutlet weak var urlTextField: UITextField!
     
     
+    
+    
+    /*
+    Test HTTP GET request using Intercepted-Proxified NSStreams Serviced by Network Containers, damn that's a mouthful
+    
+    To summarize what's happening:
+    
+                    (-2) Start ZeroTierOne service thread
+                    (-1) Start SOCKS Proxy service thread
+    YOU ARE HERE --> (0) Create your streams
+                     (1) Create your SOCKS Proxy config dictionary
+                     (2) Pass config dictionary to streams
+                     (3) Use your streams
+    
+    For this early integration we are using port 1337 as a sort of "magic port" that will allow the intercept
+    code to filter socket API calls. For instance, when we intercept the SOCKS proxy we only want to intercept
+    the calls outbound to the network and not the calls to connect to the proxy service itself.
+    */
+    func test_intercepted_proxy_streams()
+    {
+        // For HTTP request
+        var buffer = [UInt8](count: 100, repeatedValue: 0)
+        let str = "GET / HTTP/1.0\r\n\r\n"
+        let encodedDataArray = [UInt8](str.utf8)
+        
+        var inputStream:NSInputStream?
+        var outputStream:NSOutputStream?
+        
+        // As usual, get our streams to our desired "local" address
+        NSStream.getStreamsToHostWithName("10.242.211.245", port: Int(80), inputStream: &inputStream, outputStream: &outputStream)
+        
+        // SOCKS Proxy config dictionary
+        let myDict:NSDictionary = [NSStreamSOCKSProxyHostKey : "localhost",
+            NSStreamSOCKSProxyPortKey : 1337,
+            NSStreamSOCKSProxyVersionKey : NSStreamSOCKSProxyVersion5]
+        
+        // Give configuration to NSStreams
+        inputStream!.setProperty(myDict, forKey: NSStreamSOCKSProxyConfigurationKey)
+        outputStream!.setProperty(myDict, forKey: NSStreamSOCKSProxyConfigurationKey)
+        
+        /* If you're interested in what happens next:
+        
+        NSStream objects will generate native sockets internally which then connect to
+        the SOCKS proxy on 'localhost'. Once this connection is established the Proxy server
+        will handle a connection request to the "local address" of your choice. The subsequent
+        socket(), and connect() calls will be intercepted and sent to the Netcon service via
+        an RPC mechanism mediated by unix domain sockets. These RPC calls are dissected and
+        sent to the lwIP stack and finally to the ZeroTierOne service
+        */
+        
+        inputStream!.open()
+        outputStream!.open()
+        
+        outputStream?.write(encodedDataArray, maxLength: encodedDataArray.count)
+        sleep(5)
+        inputStream?.read(&buffer, maxLength: 100)
+        print("buffer = \(buffer)\n")
+    }
+    
+    
+    
+    
     // -------- BEGIN ZEROTIER SERVICE AND PROXY THREAD DEFINITIONS
     
     var service_thread : NSThread!
