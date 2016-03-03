@@ -24,14 +24,14 @@ class ViewController: UIViewController {
         print("TcpServerTestAction\n")
         let addr_string = txtAddr.text
         let port:Int32? = Int32(txtPort.text!);
-        cpp_tcp_socket_server_test(addr_string!, port!)
+        //cpp_tcp_socket_server_test(addr_string!, port!)
     }
     
     @IBAction func TcpClientTestAction(sender: AnyObject) {
         print("TcpClientTestAction\n")
         let addr_string = txtAddr.text
         let port:Int32? = Int32(txtPort.text!);
-        cpp_tcp_socket_client_test(addr_string!, port!)
+        //cpp_tcp_socket_client_test(addr_string!, port!)
     }
     
     @IBAction func UdpServerTestAction(sender: AnyObject) {
@@ -40,16 +40,25 @@ class ViewController: UIViewController {
         txtPort.text = "9995"
         let addr_string = txtAddr.text
         let port:Int32? = Int32(txtPort.text!);
-        cpp_udp_socket_server_test(addr_string!, port!)
+        //cpp_udp_socket_server_test(addr_string!, port!)
     }
     
     @IBAction func UdpClientTestAction(sender: AnyObject) {
         print("UdpClientTestAction\n")
         let addr_string = txtAddr.text
         let port:Int32? = Int32(txtPort.text!);
-        cpp_udp_socket_client_test(addr_string!, port!)
+        //cpp_udp_socket_client_test(addr_string!, port!)
     }
+    
 
+    @IBOutlet weak var btnSockTest: UIButton!
+
+    @IBAction func SocksTestAction(sender: AnyObject) {
+        print("start_proxy_server()\n")
+        //start_intercept()
+        //start_proxy_server()
+    }
+    
     @IBOutlet weak var WebRequest: UIButton!
     @IBAction func WebRequestAction(sender: AnyObject) {
         let url_str = "http://" + txtAddr.text! + "/"
@@ -75,6 +84,9 @@ class ViewController: UIViewController {
         //txtPort.keyboardType = UIKeyboardType.NumberPad
         super.viewDidLoad()
         
+        
+        
+        
         txtAddr.text = "10.242.211.245"
         txtPort.text = ""
         
@@ -83,7 +95,7 @@ class ViewController: UIViewController {
         self.service_thread = NSThread(target:self, selector:"ztnc_start_service", object:nil)
         self.service_thread.start()
         });
-        
+
         start_intercept()
     }
 

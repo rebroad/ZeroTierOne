@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="9531" systemVersion="15D21" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" initialViewController="BYZ-38-t0r">
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="9532" systemVersion="15D21" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" initialViewController="BYZ-38-t0r">
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="9529"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="9530"/>
     </dependencies>
     <scenes>
         <!--View Controller-->
@@ -78,11 +78,19 @@
                                     <action selector="TcpServerTestAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="vbp-jr-dcM"/>
                                 </connections>
                             </button>
+                            <button opaque="NO" contentMode="scaleToFill" fixedFrame="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="roundedRect" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="itb-az-Ip4">
+                                <rect key="frame" x="178" y="169" width="126" height="30"/>
+                                <state key="normal" title="SOCKS Proxy Test"/>
+                                <connections>
+                                    <action selector="SocksTestAction:" destination="BYZ-38-t0r" eventType="touchUpInside" id="dYQ-Cu-KBl"/>
+                                </connections>
+                            </button>
                         </subviews>
                         <color key="backgroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="calibratedWhite"/>
                     </view>
                     <connections>
                         <outlet property="WebRequest" destination="Vtb-3B-ko5" id="IvH-hT-sJd"/>
+                        <outlet property="btnSockTest" destination="itb-az-Ip4" id="UUy-ye-IYa"/>
                         <outlet property="btnTcpClientTest" destination="eLr-6e-bRN" id="Ae7-XE-wdb"/>
                         <outlet property="btnTcpServerTest" destination="p9z-8e-fX4" id="cXE-He-6u8"/>
                         <outlet property="btnUdpClientTest" destination="aRx-z3-hJr" id="XXa-ol-AMp"/>

@@ -60,11 +60,21 @@ struct accept_st;
 
 #define APPLICATION_POLL_FREQ           2
 #define ZT_LWIP_TCP_TIMER_INTERVAL      10
-#define STATUS_TMR_INTERVAL             250 // How often we check connection statuses (in ms)
-#define DEFAULT_BUF_SZ                  1024 * 1024 * 3
-#define DEFAULT_BUF_SOFTMAX				DEFAULT_BUF_SZ * 0.80
-#define DEFAULT_BUF_SOFTMIN				DEFAULT_BUF_SZ * 0.20
+#define STATUS_TMR_INTERVAL             500 // How often we check connection statuses (in ms)
 
+// TCP Buffer sizes
+#define DEFAULT_TCP_TX_BUF_SZ           1024 * 100 * 1
+#define DEFAULT_TCP_RX_BUF_SZ           1024 * 100 * 1
+
+// TCP RX/TX buffer soft boundaries
+#define DEFAULT_TCP_TX_BUF_SOFTMAX      DEFAULT_TCP_TX_BUF_SZ * 0.80
+#define DEFAULT_TCP_TX_BUF_SOFTMIN      DEFAULT_TCP_TX_BUF_SZ * 0.20
+#define DEFAULT_TCP_RX_BUF_SOFTMAX      DEFAULT_TCP_RX_BUF_SZ * 0.80
+#define DEFAULT_TCP_RX_BUF_SOFTMIN      DEFAULT_TCP_RX_BUF_SZ * 0.20
+
+// UDP Buffer sizes (should be about the size of your MTU)
+#define DEFAULT_UDP_TX_BUF_SZ           1500
+#define DEFAULT_UDP_RX_BUF_SZ           1500
 
 namespace ZeroTier {
 
@@ -83,8 +93,10 @@ struct Connection
   struct udp_pcb *UDP_pcb;
   struct sockaddr_storage *addr;
   unsigned short port;
-  unsigned char txbuf[DEFAULT_BUF_SZ];
-  unsigned char rxbuf[DEFAULT_BUF_SZ];
+  unsigned char txbuf[DEFAULT_UDP_TX_BUF_SZ];
+  unsigned char rxbuf[DEFAULT_UDP_RX_BUF_SZ];
+    
+    bool unread_udp_packet;
 };
 
 /*

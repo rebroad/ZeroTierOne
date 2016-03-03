@@ -25,15 +25,21 @@
  * LLC. Start here: http://www.zerotier.com/
  */
 
-#ifndef ONE_SERVICE_SETUP_HPP
-#define ONE_SERVICE_SETUP_HPP
+#ifndef ProxyKitTest_h
+#define ProxyKitTest_h
 
-#define INTERCEPT_ENABLED   111
-#define INTERCEPT_DISABLED  222
+@import ProxyKit;
 
-void init_service(int key, const char * path);
-void init_intercept(int key);
-void *start_OneService(void *thread_id);
-void set_intercept_status(int mode);
+@interface ProxyKitTest : NSObject
 
-#endif
+@property (nonatomic, strong) SOCKSProxy *proxy;
+@property (nonatomic, strong) GCDAsyncProxySocket *clientSocket;
+@property (nonatomic) uint16_t portNumber;
+
+- (void) start_proxy_server;
+- (void) tearDown;
+- (void) testClientInitialization;
+
+@end
+
+#endif /* ProxyKitTest_h */

@@ -1,19 +1,29 @@
-//
-//  Mock.cpp
-//  ZTNC
-//
-//  Created by Joseph Henry on 2/1/16.
-//  Copyright © 2016 ZeroTier. All rights reserved.
-//
-
-#include "lwip/init.h"
-#include "lwip/tcp_impl.h"
-#include "netif/etharp.h"
-#include "lwip/api.h"
-#include "lwip/ip.h"
-#include "lwip/ip_addr.h"
-#include "lwip/ip_frag.h"
-#include "lwip/tcp.h"
+/*
+ * ZeroTier One - Network Virtualization Everywhere
+ * Copyright (C) 2011-2015  ZeroTier, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * --
+ *
+ * ZeroTier may be used and distributed under the terms of the GPLv3, which
+ * are available at: http://www.gnu.org/licenses/gpl-3.0.html
+ *
+ * If you would like to embed ZeroTier into a commercial application or
+ * redistribute it in a modified binary form, please contact ZeroTier Networks
+ * LLC. Start here: http://www.zerotier.com/
+ */
 
 #include <dlfcn.h>
 #include <sys/socket.h>
@@ -39,15 +49,13 @@ pthread_t intercept_thread;
 int * intercept_thread_id;
 pthread_key_t thr_id_key;
 
-#define IOS_SERVICE_THREAD_ID   222
-
 /*
  * Starts a service thread and performs basic setup tasks
  */
 void init_service(int key, const char * path)
 {
     service_path = path;
-    fprintf(stderr, "init_service(key=%d): tid = %d\n", key, pthread_mach_thread_np(pthread_self()));
+    //fprintf(stderr, "init_service(key=%d): tid = %d\n", key, pthread_mach_thread_np(pthread_self()));
     pthread_key_create(&thr_id_key, NULL);
     intercept_thread_id = (int*)malloc(sizeof(int));
     *intercept_thread_id = key;
@@ -55,17 +63,17 @@ void init_service(int key, const char * path)
 }
 
 /*
- * Loads symbols for intercept and performs basic setup tasks
+ * Enables or disables intercept for current thread using key in thread-local storage
  */
-void init_intercept(int key)
+void set_intercept_status(int mode)
 {
-    fprintf(stderr, "init_intercept(key=%d): tid = %d\n", key, pthread_mach_thread_np(pthread_self()));
+    //fprintf(stderr, "set_intercept_status(mode=%d): tid = %d\n", mode, pthread_mach_thread_np(pthread_self()));
     pthread_key_create(&thr_id_key, NULL);
     intercept_thread_id = (int*)malloc(sizeof(int));
-    *intercept_thread_id = key;
-    set_up_intercept();
+    *intercept_thread_id = mode;
     pthread_setspecific(thr_id_key, intercept_thread_id);
     set_thr_key(thr_id_key);
+    set_up_intercept();
 }
 
 /*
@@ -77,24 +85,18 @@ void *start_OneService(void *thread_id)
         fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
         static std::string homeDir = "";
-        // /Users/Joseph/Library/Developer/CoreSimulator/Devices/0380D5D4-BD2E-4D3D-8930-2E5C3F25C3E1/data/Library/Application Support/ZeroTier/One
-        if (!homeDir.length())
-            // FIXME: Symlinked to /iosdev since the true directory is too long to fit in a sun_path, in production this should be removed
-            
+      
 #if defined(__APPLE__)
 #include "TargetConditionals.h"
 #if TARGET_IPHONE_SIMULATOR
-            //setpath("/iosdev/data/Library/Application Support/ZeroTier/One/nc_e5cd7a9e1c87bace"); // for intercept
-            homeDir = "/iosdev/data/Library/Application Support/ZeroTier/One";
+        // homeDir = "dont/run/this/in/the/simulator";
 #elif TARGET_OS_IPHONE
         homeDir = "ZeroTier/One";
-        //setpath("ZeroTier/One/nc_e5cd7a9e1c87bace");
 #endif
 #endif
         
-            // homeDir = OneService::platformDefaultHomePath();
+        // homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {
-            //fprintf(stderr,"%s: no home path specified and no platform default available" ZT_EOL_S,argv[0]);
             return NULL;
         } else {
             std::vector<std::string> hpsp(ZeroTier::Utils::split(homeDir.c_str(),ZT_PATH_SEPARATOR_S,"",""));
@@ -143,7 +145,7 @@ void *start_OneService(void *thread_id)
                         //OSUtils::rm((homeDir + ZT_PATH_SEPARATOR_S + "identity.secret").c_str());
                         //OSUtils::rm((homeDir + ZT_PATH_SEPARATOR_S + "identity.public").c_str());
                     }
-                }	continue; // restart!
+                }   continue; // restart!
             }
             break; // terminate loop -- normally we don't keep restarting
         }

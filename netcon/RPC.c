@@ -1,3 +1,29 @@
+/*
+ * ZeroTier One - Network Virtualization Everywhere
+ * Copyright (C) 2011-2015  ZeroTier, Inc.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * --
+ *
+ * ZeroTier may be used and distributed under the terms of the GPLv3, which
+ * are available at: http://www.gnu.org/licenses/gpl-3.0.html
+ *
+ * If you would like to embed ZeroTier into a commercial application or
+ * redistribute it in a modified binary form, please contact ZeroTier Networks
+ * LLC. Start here: http://www.zerotier.com/
+ */
 
 #ifdef USE_GNU_SOURCE
 #define _GNU_SOURCE
@@ -29,7 +55,7 @@ extern "C" {
 #endif
     
 #define SERVICE_CONNECT_ATTEMPTS 30
-
+    
     /*
 #define CONNECT_SIG int __fd, const struct sockaddr * __addr, socklen_t __len
 #define SOCKET_SIG int socket_family, int socket_type, int protocol
@@ -39,9 +65,9 @@ static int (*realsocket)(SOCKET_SIG) = 0;
 static ssize_t (*realsend)(SEND_SIG) = 0;
 */
     
-#ifdef NETCON_INTERCEPT
+//#ifdef NETCON_INTERCEPT
 static int rpc_count;
-#endif
+//#endif
 
 static pthread_mutex_t lock;
 void rpc_mutex_init() {
@@ -149,7 +175,7 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
   memcpy(&cmdbuf[CANARY_IDX], &canary_num, CANARY_SZ);
   memcpy(&cmdbuf[STRUCT_IDX], data, len);
 
-#if defined(VERBOSE)
+//#if defined(VERBOSE)
   rpc_count++;
   memset(metabuf, 0, BUF_SZ);
 #if defined(__linux__)
@@ -166,7 +192,7 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
 #endif
   memcpy(&metabuf[IDX_COUNT],   &rpc_count,   sizeof(rpc_count)  ); /* rpc_count */
   memcpy(&metabuf[IDX_TIME],    &timestring,   20                ); /* timestamp */
-#endif
+//#endif
 
   /* Combine command flag+payload with RPC metadata */
     memcpy(metabuf, RPC_PHRASE, RPC_PHRASE_SZ); // Write signal phrase
@@ -186,7 +212,8 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
   }
   if(c == 'z' && n_write > 0 && forfd > -1){
     if(send(forfd, &CANARY, CANARY_SZ+PADDING_SZ, 0) < 0) {
-      fprintf(stderr,"unable to write canary to stream\n");
+        perror("send: \n");
+      fprintf(stderr,"unable to write canary to stream (fd=%d)\n", forfd);
       return -1;
     }
   }

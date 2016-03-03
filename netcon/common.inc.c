@@ -81,6 +81,7 @@ void print_addr(struct sockaddr *addr)
 //#ifdef NETCON_SERVICE
   //namespace ZeroTier {
 //#endif
+
   void dwr(int level, const char *fmt, ... )
   {
     if(level > DEBUG_LEVEL)
@@ -89,14 +90,15 @@ void print_addr(struct sockaddr *addr)
     saveerr = errno;
     va_list ap;
     va_start(ap, fmt);
-  #ifdef VERBOSE // So we can cut out some clutter in the strace output while debugging
+  //#ifdef VERBOSE // So we can cut out some clutter in the strace output while debugging
     char timestring[20];
     time_t timestamp;
     timestamp = time(NULL);
     strftime(timestring, sizeof(timestring), "%H:%M:%S", localtime(&timestamp));
-    pid_t tid = syscall(SYS_gettid);
+    //pid_t tid = syscall(SYS_gettid);
+      pid_t tid = pthread_mach_thread_np(pthread_self());
     fprintf(stderr, "%s [tid=%7d] ", timestring, tid);
-  #endif
+  //#endif
     vfprintf(stderr, fmt, ap);
     fflush(stderr);
 

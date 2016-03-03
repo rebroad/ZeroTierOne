@@ -70,6 +70,7 @@ struct tcp_pcb;
 #define UDP_RECV_SIG struct udp_pcb * pcb, void (* recv)(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port), void * recv_arg
 #define UDP_RECVED_SIG struct udp_pcb * pcb, u16_t len
 #define UDP_BIND_SIG struct udp_pcb * pcb, struct ip_addr * ipaddr, u16_t port
+#define UDP_REMOVE_SIG struct udp_pcb *pcb
 
 // lwIP TCP API
 #define TCP_WRITE_SIG struct tcp_pcb *pcb, const void *arg, u16_t len, u8_t apiflags
@@ -134,6 +135,7 @@ namespace ZeroTier {
         void (*_udp_recv)(UDP_RECV_SIG);
         void (*_udp_recved)(UDP_RECVED_SIG);
         err_t (*_udp_bind)(UDP_BIND_SIG);
+        void (*_udp_remove)(UDP_REMOVE_SIG);
 
         void (*_tcp_recv)(TCP_RECV_SIG);
         void (*_tcp_recved)(TCP_RECVED_SIG);
@@ -168,7 +170,6 @@ namespace ZeroTier {
         LWIPStack(const char* path) :
         _libref(NULL)
         {
-            
 #if defined(__linux__)
     #define __DYNAMIC_LWIP__
     // Dynamically load liblwip.so
@@ -189,7 +190,6 @@ namespace ZeroTier {
     #endif
 #endif
             
-            
 #ifdef __STATIC_LWIP__ // Set static references (for use in iOS)
             _ethernet_input = (err_t(*)(ETHERNET_INPUT_SIG))&ethernet_input;
             _etharp_output = (err_t(*)(ETHARP_OUTPUT_SIG))&etharp_output;
@@ -204,6 +204,7 @@ namespace ZeroTier {
             _udp_sendto = (err_t(*)(UDP_SENDTO_SIG))&udp_sendto;
             _udp_recv = (void(*)(UDP_RECV_SIG))&udp_recv;
             _udp_bind = (err_t(*)(UDP_BIND_SIG))&udp_bind;
+            _udp_remove = (void(*)(UDP_REMOVE_SIG))&udp_remove;
 
             _tcp_connect = (err_t(*)(TCP_CONNECT_SIG))&tcp_connect;
             _tcp_recv = (void(*)(TCP_RECV_SIG))&tcp_recv;
@@ -249,6 +250,7 @@ namespace ZeroTier {
             _udp_sendto = (err_t(*)(UDP_SENDTO_SIG))dlsym(_libref, "udp_sendto");
             _udp_recv = (void(*)(UDP_RECV_SIG))dlsym(_libref, "udp_recv");
             _udp_bind = (err_t(*)(UDP_BIND_SIG))dlsym(_libref, "udp_bind");
+            _udp_remove = (void(*)(UDP_REMOVE_SIG))dlsym(_libref, "udp_remove");
 
             _tcp_sndbuf = (u16_t(*)(TCP_SNDBUF_SIG))dlsym(_libref, "tcp_sndbuf");
             _tcp_connect = (err_t(*)(TCP_CONNECT_SIG))dlsym(_libref, "tcp_connect");
@@ -296,10 +298,10 @@ namespace ZeroTier {
         inline err_t __udp_sendto(UDP_SENDTO_SIG) throw() { Mutex::Lock _l(_lock); return _udp_sendto(pcb,p,dst_ip,dst_port); }
         inline void __udp_recv(UDP_RECV_SIG) throw() { Mutex::Lock _l(_lock); return _udp_recv(pcb,recv,recv_arg); }
         inline err_t __udp_bind(UDP_BIND_SIG) throw() { Mutex::Lock _l(_lock); return _udp_bind(pcb,ipaddr,port); }
+        inline void __udp_remove(UDP_REMOVE_SIG) throw() { Mutex::Lock _l(_lock); return _udp_remove(pcb); }
 
         inline u16_t __tcp_sndbuf(TCP_SNDBUF_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_sndbuf(pcb); }
         inline err_t __tcp_connect(TCP_CONNECT_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_connect(pcb,ipaddr,port,connected); }
-        
         inline void __tcp_recv(TCP_RECV_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_recv(pcb,recv); }
         inline void __tcp_recved(TCP_RECVED_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_recved(pcb,len); }
         inline void __tcp_err(TCP_ERR_SIG) throw() { Mutex::Lock _l(_lock); return _tcp_err(pcb,err); }
