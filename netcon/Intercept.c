@@ -194,7 +194,7 @@ pthread_key_t thr_id_key;
         
         if(thr_id == INTERCEPT_ENABLED) {
             if (!netpath) {
-                netpath = "ZeroTier/One/nc_e5cd7a9e1c87bace"; // Path allowed on iOS devices
+                netpath = "ZeroTier/One/nc_e5cd7a9e1c7d408c"; // Path allowed on iOS devices
                 rpc_mutex_init();
             }
             return 1;

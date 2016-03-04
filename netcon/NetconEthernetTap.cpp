@@ -731,22 +731,28 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
     // The RX buffer will be emptied via phyOnUnixWritable()
     
     // If there exists an unread packet, don't accept anything new
-    if(l->conn->unread_udp_packet){
-        dwr(MSG_DEBUG, "nc_udp_recved(): Unread packet exists, not accepting new packet\n");
-        l->tap->lwipstack->__pbuf_free(p); // Just remove everything from the pbuf chain
-        return;
+    //if(l->conn->unread_udp_packet){
+    //    dwr(MSG_DEBUG, "nc_udp_recved(): Unread packet exists, not accepting new packet\n");
+    //    l->tap->lwipstack->__pbuf_free(p); // Just remove everything from the pbuf chain
+    //    return;
+    //}
+    
+    if(p) {
+        l->conn->rxsz = 0;
+        memset(l->conn->rxbuf, 0, DEFAULT_UDP_RX_BUF_SZ);
     }
+    
     while(p != NULL) {
         if(p->len <= 0)
             break;
-        int avail = DEFAULT_UDP_RX_BUF_SZ - l->conn->rxsz;
+        //int avail = DEFAULT_UDP_RX_BUF_SZ - l->conn->rxsz;
         int len = p->len;
-        if(avail < len){
+        //if(avail < len){
             // dwr(MSG_ERROR," nc_udp_recved(): not enough room (%d bytes) on RX buffer\n", avail);
-            dwr(MSG_ERROR," nc_udp_recved(): Not enough space for pbuf (pbuf->len = %d bytes)\n", len);
-            l->tap->lwipstack->__pbuf_free(q); // Just drop it.
-            return;
-        }
+        //    dwr(MSG_ERROR," nc_udp_recved(): Not enough space for pbuf (pbuf->len = %d bytes)\n", len);
+        //    l->tap->lwipstack->__pbuf_free(q); // Just drop it.
+        //    return;
+        //}
         
         // TODO:
         // copy address info onto buffer for use in intercepted recvfrom()
@@ -755,6 +761,7 @@ void NetconEthernetTap::nc_udp_recved(void * arg, struct udp_pcb * upcb, struct 
         // memcpy(l->conn->rxbuf + (l->conn->rxsz), &l->conn->port, sizeof(u16_t));
         // l->conn->rxsz += (sizeof(u16_t));
         // payload
+        
         
         memcpy(l->conn->rxbuf + (l->conn->rxsz), p->payload, len);
         l->conn->rxsz += len;
