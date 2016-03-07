@@ -182,12 +182,8 @@ pthread_key_t thr_id_key;
 #else
             load_symbols();
 #endif
-        }
-        
+        }        
 #ifdef __IOS__
-        // fishhook_rebind_symbols();
-        // unsigned int tid = pthread_mach_thread_np(pthread_self());
-        // printf("tid = %d, thr_id_key = %d\n", tid, thr_id_key);
         void *spec = pthread_getspecific(thr_id_key);
         int thr_id = spec != NULL ? *((int*)spec) : -1;
         // dwr(MSG_DEBUG, "set_up_intercept(): thr_id = %d\n", thr_id);

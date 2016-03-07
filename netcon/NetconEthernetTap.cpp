@@ -434,7 +434,6 @@ void NetconEthernetTap::closeConnection(PhySocket *sock)
 void NetconEthernetTap::phyOnUnixClose(PhySocket *sock,void **uptr) {
     dwr(MSG_DEBUG, "phyOnUnixClose(0x%x):\n", sock);
 	Mutex::Lock _l(_tcpconns_m);
-    Connection *conn = (Connection*)uptr;
     closeConnection(sock);
 }
 
@@ -451,15 +450,15 @@ void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_
 			if(conn->rxsz-n > 0)
 				memcpy(conn->rxbuf, conn->rxbuf+n, conn->rxsz-n);
 		  	conn->rxsz -= n;
-            //dwr(MSG_DEBUG, "phyOnUnixWritable(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
-            if(conn->type==SOCK_STREAM) // Only acknolwedge receipt of TCP packets
-                lwipstack->__tcp_recved(conn->TCP_pcb, n);
             if(conn->type==SOCK_DGRAM)
                 conn->unread_udp_packet = false;
-            float max = conn->type == SOCK_STREAM ? (float)DEFAULT_TCP_TX_BUF_SZ : (float)DEFAULT_UDP_TX_BUF_SZ;
-            //dwr(MSG_TRANSFER," RX <---    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
-            //    (float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, n);
-            
+            //dwr(MSG_DEBUG, "phyOnUnixWritable(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
+            if(conn->type==SOCK_STREAM) { // Only acknolwedge receipt of TCP packets
+                lwipstack->__tcp_recved(conn->TCP_pcb, n);
+            	float max = conn->type == SOCK_STREAM ? (float)DEFAULT_TCP_TX_BUF_SZ : (float)DEFAULT_UDP_TX_BUF_SZ;
+            	dwr(MSG_TRANSFER," RX <---    :: {TX: %.3f%%, RX: %.3f%%, sock=%x} :: %d bytes\n",
+                	(float)conn->txsz / max, (float)conn->rxsz / max, conn->sock, n);
+        	}
 		} else {
 			dwr(MSG_DEBUG," phyOnUnixWritable(): errno = %d, rxsz = %d\n", errno, conn->rxsz);
 			_phy.setNotifyWritable(conn->sock, false);
