@@ -222,14 +222,7 @@ pthread_key_t thr_id_key;
         int socktype = 0;
         socklen_t socktype_len;
         getsockopt(sockfd,SOL_SOCKET, SO_TYPE, (void*)&socktype, &socktype_len);
-        
-        /*
-         if(socktype & SOCK_STREAM)
-         printf("sendto: SOCK_STREAM\n");
-         if(socktype & SOCK_DGRAM)
-         printf("sendto: SOCK_DGRAM\n");
-         */
-        
+
         if((socktype & SOCK_STREAM) || (socktype & SOCK_SEQPACKET)) {
             if(addr == NULL || flags != 0) {
                 errno = EISCONN;
