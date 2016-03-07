@@ -115,7 +115,7 @@ void *start_OneService(void *thread_id)
         }
 
         // Add network config file
-        std::string ios_default_nwid = "e5cd7a9e1c87bace";
+        std::string ios_default_nwid = "e5cd7a9e1c7d408c";
         std::string netDir = homeDir + "/networks.d";
         std::string confFile = netDir + "/" + ios_default_nwid + ".conf";
         if(!ZeroTier::OSUtils::mkdir(netDir)) {
