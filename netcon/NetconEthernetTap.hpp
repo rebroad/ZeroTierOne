@@ -390,6 +390,8 @@ private:
 	 */
 	void handleConnect(PhySocket *sock, PhySocket *rpcsock, Connection *conn, struct connect_st* connect_rpc);
 	
+	// void handleIsConnected();
+
 	/* 
 	 * Return the address that the socket is bound to 
 	 */

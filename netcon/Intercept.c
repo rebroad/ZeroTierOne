@@ -201,7 +201,7 @@ pthread_key_t thr_id_key;
             rpc_mutex_init();
         }
 #endif
-        return 0;
+        return 1;
     }
     
     /*------------------------------------------------------------------------------
@@ -215,6 +215,10 @@ pthread_key_t thr_id_key;
         if (!set_up_intercept())
             return realsendto(sockfd, buf, len, flags, addr, addr_len);
         
+        if(len > ZT_UDP_DEFAULT_PAYLOAD_MTU) {
+            errno = EMSGSIZE; // Msg is too large
+            return -1;
+        }
         int socktype = 0;
         socklen_t socktype_len;
         getsockopt(sockfd,SOL_SOCKET, SO_TYPE, (void*)&socktype, &socktype_len);
@@ -226,7 +230,14 @@ pthread_key_t thr_id_key;
             }
         }
         
-        // ENOTCONN should be returned if the socket isn't connected
+        // the socket isn't connected
+        /*
+        int err = rpc_send_command(netpath, RPC_IS_CONNECTED, -1, &fd, sizeof(struct fd));
+        if(err == -1) {
+            errno = ENOTCONN;
+            return -1;
+        }
+        */
         // EMSGSIZE should be returned if the message is too long to be passed atomically through
         // the underlying protocol, in our case MTU?
         // TODO: More efficient solution

@@ -24,11 +24,9 @@ ADD liblwip.so /var/lib/zerotier-one/liblwip.so
 ADD httpserver.js /
 
 # Install syscall intercept library
-ADD zerotier-intercept /
 ADD libzerotierintercept.so /
 RUN cp libzerotierintercept.so lib/libzerotierintercept.so
 RUN ln -sf /lib/libzerotierintercept.so /lib/libzerotierintercept
-RUN /usr/bin/install -c zerotier-intercept /usr/bin
 
 ADD zerotier-cli /
 ADD zerotier-netcon-service /

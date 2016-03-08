@@ -1157,6 +1157,13 @@ void NetconEthernetTap::handleConnect(PhySocket *sock, PhySocket *rpcSock, Conne
 	}
 }
 
+/* TODO
+void NetconEthernetTap::handleIsConnected()
+{
+
+}
+*/
+
 void NetconEthernetTap::handleWrite(Connection *conn)
 {
     //dwr(MSG_DEBUG, "handleWrite()\n");
