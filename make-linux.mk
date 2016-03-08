@@ -115,7 +115,7 @@ installer: one FORCE
 	./ext/installfiles/linux/buildinstaller.sh
 
 clean: FORCE
-	rm -rf *.so *.o netcon/*.a node/*.o controller/*.o osdep/*.o service/*.o ext/http-parser/*.o ext/lz4/*.o ext/json-parser/*.o $(OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest zerotier-netcon-service build-* ZeroTierOneInstaller-* *.deb *.rpm .depend netcon/.depend
+	rm -rf *.so *.o netcon/*.a node/*.o controller/*.o osdep/*.o service/*.o ext/http-parser/*.o ext/lz4/*.o ext/json-parser/*.o ext/miniupnpc/*.o ext/libnatpmp/*.o $(OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest zerotier-netcon-service build-* ZeroTierOneInstaller-* *.deb *.rpm .depend netcon/.depend
 	# Remove files from all the funny places we put them for tests
 	find netcon -type f \( -name '*.o' -o -name '*.so' -o -name '*.1.0' -o -name 'zerotier-one' -o -name 'zerotier-cli' -o -name 'zerotier-netcon-service' \) -delete
 	find netcon/docker-test -name "zerotier-intercept" -type f -delete
@@ -125,6 +125,7 @@ debug:	FORCE
 	make ZT_DEBUG=1 selftest
 
 official: FORCE
+	make ZT_OFFICIAL_RELEASE=1 clean
 	make -j 4 ZT_OFFICIAL_RELEASE=1 one
 	make ZT_OFFICIAL_RELEASE=1 installer
 
