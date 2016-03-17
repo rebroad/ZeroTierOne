@@ -95,10 +95,11 @@ void print_addr(struct sockaddr *addr)
     time_t timestamp;
     timestamp = time(NULL);
     strftime(timestring, sizeof(timestring), "%H:%M:%S", localtime(&timestamp));
-#if defined(__linux__)
+#if defined(__ANDROID__)
+    pid_t tid = gettid();
+#elif defined(__linux__)
     pid_t tid = syscall(SYS_gettid);
-#endif
-#if defined(__APPLE__)
+#elif defined(__APPLE__)
       pid_t tid = pthread_mach_thread_np(pthread_self());
 #endif
     fprintf(stderr, "%s [tid=%7d] ", timestring, tid);

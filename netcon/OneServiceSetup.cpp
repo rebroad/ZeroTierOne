@@ -24,6 +24,8 @@
  * redistribute it in a modified binary form, please contact ZeroTier Networks
  * LLC. Start here: http://www.zerotier.com/
  */
+#include <jni.h>
+#include "jni_utils.h"
 
 #include <dlfcn.h>
 #include <sys/socket.h>
@@ -49,40 +51,53 @@ pthread_t intercept_thread;
 int * intercept_thread_id;
 pthread_key_t thr_id_key;
 
-/*
- * Starts a service thread and performs basic setup tasks
- */
-void init_service(int key, const char * path)
-{
-    service_path = path;
-    //fprintf(stderr, "init_service(key=%d): tid = %d\n", key, pthread_mach_thread_np(pthread_self()));
-    pthread_key_create(&thr_id_key, NULL);
-    intercept_thread_id = (int*)malloc(sizeof(int));
-    *intercept_thread_id = key;
-    pthread_create(&intercept_thread, NULL, start_OneService, (void *)(intercept_thread_id));
-}
 
-/*
- * Enables or disables intercept for current thread using key in thread-local storage
- */
-void set_intercept_status(int mode)
-{
-    //fprintf(stderr, "set_intercept_status(mode=%d): tid = %d\n", mode, pthread_mach_thread_np(pthread_self()));
-    pthread_key_create(&thr_id_key, NULL);
-    intercept_thread_id = (int*)malloc(sizeof(int));
-    *intercept_thread_id = mode;
-    pthread_setspecific(thr_id_key, intercept_thread_id);
-    set_thr_key(thr_id_key);
-    set_up_intercept();
-}
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#if !defined(__ANDROID__)
+    /*
+     * Starts a service thread and performs basic setup tasks
+     */
+    void init_service(int key, const char * path)
+    {
+        service_path = path;
+        //fprintf(stderr, "init_service(key=%d): tid = %d\n", key, pthread_mach_thread_np(pthread_self()));
+        pthread_key_create(&thr_id_key, NULL);
+        intercept_thread_id = (int*)malloc(sizeof(int));
+        *intercept_thread_id = key;
+        pthread_create(&intercept_thread, NULL, startOneService, (void *)(intercept_thread_id));
+    }
+
+    /*
+     * Enables or disables intercept for current thread using key in thread-local storage
+     */
+    void set_intercept_status(int mode)
+    {
+        //fprintf(stderr, "set_intercept_status(mode=%d): tid = %d\n", mode, pthread_mach_thread_np(pthread_self()));
+        pthread_key_create(&thr_id_key, NULL);
+        intercept_thread_id = (int*)malloc(sizeof(int));
+        *intercept_thread_id = mode;
+        pthread_setspecific(thr_id_key, intercept_thread_id);
+        //set_thr_key(thr_id_key);
+        set_up_intercept();
+    }
+#endif
 
 /*
  * Starts a new service instance
  */
-void *start_OneService(void *thread_id)
+#if defined(__ANDROID__)
+    JNIEXPORT void JNICALL Java_Netcon_NetconWrapper_startOneService(JNIEnv *env, jobject thisObj)
+#else
+    void *start_OneService(void *thread_id)
+#endif
     {
+
+        LOGV("startOneService(): In service call code\n");
         chdir(service_path.c_str());
-        fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
+        //fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
         static std::string homeDir = "";
       
@@ -94,10 +109,9 @@ void *start_OneService(void *thread_id)
         homeDir = "ZeroTier/One";
 #endif
 #endif
-        
         // homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {
-            return NULL;
+            return;
         } else {
             std::vector<std::string> hpsp(ZeroTier::Utils::split(homeDir.c_str(),ZT_PATH_SEPARATOR_S,"",""));
             std::string ptmp;
@@ -115,16 +129,18 @@ void *start_OneService(void *thread_id)
         }
 
         // Add network config file
-        std::string ios_default_nwid = "e5cd7a9e1c7d408c";
+        std::string ios_default_nwid = "e5cd7a9e1c3511dd";
         std::string netDir = homeDir + "/networks.d";
         std::string confFile = netDir + "/" + ios_default_nwid + ".conf";
         if(!ZeroTier::OSUtils::mkdir(netDir)) {
-            printf("unable to create %s\n", netDir.c_str());
+            LOGV("unable to create %s\n", netDir.c_str());
         }
         if(!ZeroTier::OSUtils::writeFile(confFile.c_str(), "")) {
-            printf("unable to write network conf file: %s\n", ios_default_nwid.c_str());
+            LOGV("unable to write network conf file: %s\n", ios_default_nwid.c_str());
         }
         
+
+        LOGV("homeDir = %s", homeDir.c_str());
         for(;;) {
             zt1Service = ZeroTier::OneService::newInstance(homeDir.c_str(),9991);
             switch(zt1Service->run()) {
@@ -149,5 +165,9 @@ void *start_OneService(void *thread_id)
             }
             break; // terminate loop -- normally we don't keep restarting
         }
-        return NULL;
+        return;
     }
+
+#ifdef __cplusplus
+}
+#endif

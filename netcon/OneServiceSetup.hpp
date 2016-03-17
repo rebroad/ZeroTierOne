@@ -25,15 +25,31 @@
  * LLC. Start here: http://www.zerotier.com/
  */
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+	
+#include <jni.h>
+
 #ifndef ONE_SERVICE_SETUP_HPP
 #define ONE_SERVICE_SETUP_HPP
 
 #define INTERCEPT_ENABLED   111
 #define INTERCEPT_DISABLED  222
 
-void init_service(int key, const char * path);
-void init_intercept(int key);
-void *start_OneService(void *thread_id);
+#if defined(__ANDROID__)	
+	JNIEXPORT void JNICALL Java_Netcon_NetconWrapper_startOneService(JNIEnv *env, jobject thisObj);
+#else
+	void *start_OneService(void *thread_id);
+	void init_service(int key, const char * path);
+	void init_intercept(int key);
+#endif
 void set_intercept_status(int mode);
 
+#endif
+
+
+#ifdef __cplusplus
+}
 #endif

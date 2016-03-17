@@ -128,27 +128,27 @@ int rpc_join(const char * sockname)
   if(!load_symbols_rpc())
     return -1;
 
-	struct sockaddr_un addr;
-	int conn_err = -1, attempts = 0;
-	memset(&addr, 0, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, sockname, sizeof(addr.sun_path)-1);
+  struct sockaddr_un addr;
+  int conn_err = -1, attempts = 0;
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  strncpy(addr.sun_path, sockname, sizeof(addr.sun_path)-1);
 
-	int sock;
-	if((sock = realsocket(AF_UNIX, SOCK_STREAM, 0)) < 0){
-		fprintf(stderr, "Error while creating RPC socket\n");
-		return -1;
-	}
-	while((conn_err != 0) && (attempts < SERVICE_CONNECT_ATTEMPTS)){
-		if((conn_err = realconnect(sock, (struct sockaddr*)&addr, sizeof(addr))) != 0) {
-			fprintf(stderr, "Error while connecting to RPC socket. Re-attempting...\n");
-			sleep(1);
-		}
-		else
-			return sock;
-		attempts++;
-	}
-	return -1;
+  int sock;
+  if((sock = realsocket(AF_UNIX, SOCK_STREAM, 0)) < 0){
+    fprintf(stderr, "Error while creating RPC socket\n");
+    return -1;
+  }
+  while((conn_err != 0) && (attempts < SERVICE_CONNECT_ATTEMPTS)){
+    if((conn_err = realconnect(sock, (struct sockaddr*)&addr, sizeof(addr))) != 0) {
+      fprintf(stderr, "Error while connecting to RPC socket. Re-attempting...\n");
+      sleep(1);
+    }
+    else
+      return sock;
+    attempts++;
+  }
+  return -1;
 }
 
 /*
@@ -179,8 +179,14 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
   rpc_count++;
   memset(metabuf, 0, BUF_SZ);
 #if defined(__linux__)
-  pid_t pid = syscall(SYS_getpid);
-  pid_t tid = syscall(SYS_gettid);
+  #if !defined(__ANDROID__)
+    pid_t pid = syscall(SYS_getpid);
+    pid_t tid = syscall(SYS_gettid);
+  #else
+    // Dummy values
+    pid_t pid = 5;
+    pid_t tid = 4;
+  #endif
 #endif
   char timestring[20];
   time_t timestamp;
@@ -227,7 +233,7 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
     if(cmdbuf[CMD_ID_IDX]==RPC_CONNECT
       || cmdbuf[CMD_ID_IDX]==RPC_BIND
       || cmdbuf[CMD_ID_IDX]==RPC_LISTEN) {
-    	ret = get_retval(rpc_sock);
+      ret = get_retval(rpc_sock);
     }
     if(cmdbuf[CMD_ID_IDX]==RPC_GETSOCKNAME) {
       pthread_mutex_unlock(&lock);
