@@ -131,10 +131,9 @@ NetconEthernetTap::NetconEthernetTap(
 	_run(true)
 {
 	// Start SOCKS5 Proxy server
-	StartProxy();
-
-
-
+	#if defined (D_USE_SOCKS_PROXY)
+		StartProxy();
+	#endif
 
 	char sockPath[4096],lwipPath[4096];
 	rpcCounter = -1;
@@ -950,7 +949,12 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
     dwr(MSG_DEBUG," handleBind(%d): port = %d\n", bind_rpc->sockfd, port);
     if(conn) {
         if(conn->type == SOCK_DGRAM) {
-            err = lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, port);
+        	// FIXME: Review why compliation through JNI+NDK toolchain comaplains about this
+       		#if defined(__ANDROID__)
+            	err = lwipstack->__udp_bind(conn->UDP_pcb, NULL, port);
+            #else
+				err = lwipstack->__udp_bind(conn->UDP_pcb, IPADDR_ANY, port);
+            #endif
             if(err == ERR_USE) // port in use
                 sendReturnValue(rpcSock, -1, EADDRINUSE);
             else {
@@ -1255,3 +1259,4 @@ void NetconEthernetTap::handleWrite(Connection *conn)
 }
 
 } // namespace ZeroTier
+
