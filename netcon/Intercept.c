@@ -84,7 +84,7 @@ static char *netpath = (char *)0;
 #define INTERCEPT_ENABLED         111
 #define INTERCEPT_DISABLED        222
 #define SOCKS_PROXY_IGNORE_PORT   1337
-#define MEDIA_SERVER_PORT         8000
+#define MEDIA_SERVER_PORT         554
 #define MEDIA_CLIENT_PORT_MIN     10000
 #define MEDIA_CLIENT_PORT_MAX     65535
     
@@ -156,52 +156,59 @@ pthread_key_t thr_id_key;
     {
 #if defined(__linux__)
         realaccept4 = dlsym(RTLD_NEXT, "accept4");
+    #if !defined(__ANDROID__)
         realsyscall = dlsym(RTLD_NEXT, "syscall");
+    #endif
 #endif
         realsetsockopt = (int(*)(SETSOCKOPT_SIG))dlsym(RTLD_NEXT, "setsockopt");
         realgetsockopt = (int(*)(GETSOCKOPT_SIG))dlsym(RTLD_NEXT, "getsockopt");
         realsocket = (int(*)(SOCKET_SIG))dlsym(RTLD_NEXT, "socket");
         realconnect = (int(*)(CONNECT_SIG))dlsym(RTLD_NEXT, "connect");
-        realbind = (int(*)(BIND_SIG))dlsym(RTLD_NEXT, "bind");
         realaccept = (int(*)(ACCEPT_SIG))dlsym(RTLD_NEXT, "accept");
         reallisten = (int(*)(LISTEN_SIG))dlsym(RTLD_NEXT, "listen");
         realclose = (int(*)(CLOSE_SIG))dlsym(RTLD_NEXT, "close");
         realgetsockname = (int(*)(GETSOCKNAME_SIG))dlsym(RTLD_NEXT, "getsockname");
+    #if !defined(__ANDROID__)
+        realbind = (int(*)(BIND_SIG))dlsym(RTLD_NEXT, "bind");
         realsendto = (ssize_t(*)(int, const void *, size_t, int, const struct sockaddr *, socklen_t))dlsym(RTLD_NEXT, "sendto");
         realrecvfrom = (int(*)(RECVFROM_SIG))dlsym(RTLD_NEXT, "recvfrom");
         realrecvmsg = (int(*)(RECVMSG_SIG))dlsym(RTLD_NEXT, "recvmsg");
+    #endif
     }
     
-    void set_thr_key(pthread_key_t key) { thr_id_key = key; }
+    //void set_thr_key(pthread_key_t key) { thr_id_key = key; }
     
     // Set RPC socket path and initialize RPC mutex
     int set_up_intercept() {
         if(!realconnect){
-#ifdef __IOS__
+#if defined(__IOS__)
            fishhook_rebind_symbols();
 #else
             load_symbols();
 #endif
         }        
-#ifdef __IOS__
+#if defined(__IOS__)
         void *spec = pthread_getspecific(thr_id_key);
         int thr_id = spec != NULL ? *((int*)spec) : -1;
         // dwr(MSG_DEBUG, "set_up_intercept(): thr_id = %d\n", thr_id);
         
         if(thr_id == INTERCEPT_ENABLED) {
             if (!netpath) {
-                netpath = "ZeroTier/One/nc_e5cd7a9e1c7d408c"; // Path allowed on iOS devices
+                netpath = "ZeroTier/One/nc_e5cd7a9e1c3511dd"; // Path allowed on iOS devices
                 rpc_mutex_init();
             }
             return 1;
         }
+#elif defined(__ANDROID__)
+        netpath = "ZeroTier/One/nc_e5cd7a9e1c3511dd";
+        return 1;
 #else
         if (!netpath) {
             netpath = getenv("ZT_NC_NETWORK");
             rpc_mutex_init();
         }
 #endif
-        return 1;
+        return 0;
     }
     
     /*------------------------------------------------------------------------------
@@ -209,6 +216,7 @@ pthread_key_t thr_id_key;
      ------------------------------------------------------------------------------*/
     
     // int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *addr, socklen_t addr_len
+#if !defined(__ANDROID__)
     ssize_t sendto(SENDTO_SIG)
     {
         // dwr(MSG_DEBUG, " sendto(%d, %d)\n", sockfd, len);
@@ -231,13 +239,12 @@ pthread_key_t thr_id_key;
         }
         
         // the socket isn't connected
-        /*
-        int err = rpc_send_command(netpath, RPC_IS_CONNECTED, -1, &fd, sizeof(struct fd));
-        if(err == -1) {
-            errno = ENOTCONN;
-            return -1;
-        }
-        */
+        //int err = rpc_send_command(netpath, RPC_IS_CONNECTED, -1, &fd, sizeof(struct fd));
+        //if(err == -1) {
+        //    errno = ENOTCONN;
+        //    return -1;
+        //}
+
         // EMSGSIZE should be returned if the message is too long to be passed atomically through
         // the underlying protocol, in our case MTU?
         // TODO: More efficient solution
@@ -250,12 +257,14 @@ pthread_key_t thr_id_key;
         }
         return send(sockfd, buf, len, flags);
     }
-    
+#endif
+
     /*------------------------------------------------------------------------------
      ----------------------------------- sendmsg() ---------------------------------
      ------------------------------------------------------------------------------*/
     
     // int socket, const struct msghdr *message, int flags
+#if !defined(__ANDROID__)
     ssize_t sendmsg(SENDMSG_SIG)
     {
         dwr(MSG_DEBUG, "sendmsg()\n");
@@ -290,6 +299,7 @@ pthread_key_t thr_id_key;
         free(buf);
         return err;
     }
+#endif
     
     /*------------------------------------------------------------------------------
      ---------------------------------- recvfrom() ---------------------------------
@@ -297,6 +307,7 @@ pthread_key_t thr_id_key;
     
     // int socket, void *restrict buffer, size_t length, int flags, struct sockaddr
     // *restrict address, socklen_t *restrict address_len
+#if !defined(__ANDROID__)
     ssize_t recvfrom(RECVFROM_SIG)
     {
         //dwr(MSG_DEBUG, " recvfrom(%d)\n", socket);
@@ -327,12 +338,14 @@ pthread_key_t thr_id_key;
         memcpy(address->sa_data+2, &addr, sizeof(addr));
         return err;
     }
-    
+#endif
+
     /*------------------------------------------------------------------------------
      ----------------------------------- recvmsg() ---------------------------------
      ------------------------------------------------------------------------------*/
     
     // int socket, struct msghdr *message, int flags
+#if !defined(__ANDROID__)
     ssize_t recvmsg(RECVMSG_SIG)
     {
         dwr(MSG_DEBUG, " recvmsg(%d)\n", socket);
@@ -359,35 +372,6 @@ pthread_key_t thr_id_key;
             message->msg_flags |= MSG_TRUNC; // Indicate that the buffer has been truncated
         }
         
-        // API-returned flags (TODO)
-        /*
-         if(true == false) {
-         message->msg_flags |= MSG_EOR;
-         // indicates end-of-record; the data returned completed a record
-         // (generally used with sockets of type SOCK_SEQPACKET).
-         }
-         if(true == false) {
-         message->msg_flags |= MSG_TRUNC;
-         // indicates that the trailing portion of a datagram was discarded
-         // because the datagram was larger than the buffer supplied.
-         }
-         if(true == false) {
-         message->msg_flags |= MSG_CTRUNC;
-         // indicates that some control data were discarded due to lack of
-         // space in the buffer for ancillary data.
-         }
-         if(true == false) {
-         message->msg_flags |= MSG_OOB;
-         // is returned to indicate that expedited or out-of-band data were
-         // received.
-         }
-         if(true == false) {
-         // message->msg_flags |= MSG_ERRQUEUE;
-         // indicates that no data was received but an extended error from
-         // the socket error queue.
-         }
-         */
-        
         while (n > 0) {
             ssize_t count = n < iov->iov_len ? n : iov->iov_len;
             memcpy (iov->iov_base, p, count);
@@ -398,7 +382,8 @@ pthread_key_t thr_id_key;
         free(buf);
         return err;
     }
-    
+#endif
+
     /*------------------------------------------------------------------------------
      --------------------------------- setsockopt() --------------------------------
      ------------------------------------------------------------------------------*/
@@ -462,10 +447,12 @@ pthread_key_t thr_id_key;
         /* Check that type makes sense */
 #if defined(__linux__)
         int flags = socket_type & ~SOCK_TYPE_MASK;
+    #if !defined(__ANDROID__)
         if (flags & ~(SOCK_CLOEXEC | SOCK_NONBLOCK)) {
             errno = EINVAL;
             return -1;
         }
+    #endif
 #endif
         socket_type &= SOCK_TYPE_MASK;
         /* Check protocol is in range */
@@ -495,7 +482,11 @@ pthread_key_t thr_id_key;
         rpc_st.socket_type = socket_type;
         rpc_st.protocol = protocol;
 #if defined(__linux__)
+    #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
+    #else
+        rpc_st.__tid = 5; // dummy value
+    #endif
 #endif
         /* -1 is passed since we we're generating the new socket in this call */
         int err = rpc_send_command(netpath, RPC_SOCKET, -1, &rpc_st, sizeof(struct socket_st));
@@ -589,7 +580,11 @@ pthread_key_t thr_id_key;
         /* Assemble and send RPC */
         struct connect_st rpc_st;
 #if defined(__linux__)
+    #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
+    #else
+        rpc_st.__tid = 5; // dummy value
+    #endif
 #endif
         rpc_st.__fd = __fd;
         memcpy(&rpc_st.__addr, __addr, sizeof(struct sockaddr_storage));
@@ -603,13 +598,14 @@ pthread_key_t thr_id_key;
     
     /* int sockfd, const struct sockaddr *addr, socklen_t addrlen
      bind() intercept function */
+#if !defined(__ANDROID__)
     int bind(BIND_SIG)
     {
         dwr(MSG_DEBUG,"bind(%d):\n", sockfd);
-        /* make sure we don't touch any standard outputs */
+        // make sure we don't touch any standard outputs
         if(sockfd == 0 || sockfd == 1 || sockfd == 2)
             return(realbind(sockfd, addr, addrlen));
-        /* If local, just use normal syscall */
+        // If local, just use normal syscall
         struct sockaddr_in *connaddr;
         connaddr = (struct sockaddr_in *)addr;
         
@@ -675,29 +671,34 @@ pthread_key_t thr_id_key;
         if (!set_up_intercept())
             return realbind(sockfd, addr, addrlen);
         
-        /* Check that this is a valid fd */
+        // Check that this is a valid fd
         if(fcntl(sockfd, F_GETFD) < 0) {
             errno = EBADF;
             return -1;
         }
-        /* Check that it is a socket */
+        // Check that it is a socket
         int opt = -1;
         socklen_t opt_len;
         if(getsockopt(sockfd, SOL_SOCKET, SO_TYPE, (void *) &opt, &opt_len) < 0) {
             errno = ENOTSOCK;
             return -1;
         }
-        /* Assemble and send RPC */
+        // Assemble and send RPC
         struct bind_st rpc_st;
         rpc_st.sockfd = sockfd;
 #if defined(__linux__)
+    #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
+    #else
+        rpc_st.__tid = 5; // dummy value
+    #endif
 #endif
         memcpy(&rpc_st.addr, addr, sizeof(struct sockaddr_storage));
         memcpy(&rpc_st.addrlen, &addrlen, sizeof(socklen_t));
         return rpc_send_command(netpath, RPC_BIND, sockfd, &rpc_st, sizeof(struct bind_st));
     }
-    
+#endif
+
     /*------------------------------------------------------------------------------
      ----------------------------------- accept4() ---------------------------------
      ------------------------------------------------------------------------------*/
@@ -707,10 +708,12 @@ pthread_key_t thr_id_key;
     int accept4(ACCEPT4_SIG)
     {
         dwr(MSG_DEBUG,"accept4(%d):\n", sockfd);
+    #if !defined(__ANDROID__)
         if ((flags & SOCK_CLOEXEC))
             fcntl(sockfd, F_SETFL, FD_CLOEXEC);
         if ((flags & SOCK_NONBLOCK))
-            fcntl(sockfd, F_SETFL, O_NONBLOCK);
+           fcntl(sockfd, F_SETFL, O_NONBLOCK);
+    #endif
         return accept(sockfd, addr, addrlen);
     }
 #endif
@@ -820,7 +823,11 @@ pthread_key_t thr_id_key;
         rpc_st.sockfd = sockfd;
         rpc_st.backlog = backlog;
 #if defined(__linux__)
+    #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
+    #else
+        rpc_st.__tid = 5; // dummy value
+    #endif
 #endif
         return rpc_send_command(netpath, RPC_LISTEN, sockfd, &rpc_st, sizeof(struct listen_st));
     }
@@ -879,7 +886,7 @@ pthread_key_t thr_id_key;
     /*------------------------------------------------------------------------------
      ------------------------------------ syscall() --------------------------------
      ------------------------------------------------------------------------------*/
-    
+#if !defined(__ANDROID__)
 #if defined(__linux__)
     long syscall(SYSCALL_SIG)
     {
@@ -900,12 +907,12 @@ pthread_key_t thr_id_key;
         dwr(MSG_DEBUG_EXTRA,"syscall(%u, ...):\n", number);
         
 #if defined(__i386__)
-        /* TODO: Implement for 32-bit systems: syscall(__NR_socketcall, 18, args);
-         args[0] = (unsigned long) fd;
-         args[1] = (unsigned long) addr;
-         args[2] = (unsigned long) addrlen;
-         args[3] = (unsigned long) flags;
-         */
+        // TODO: Implement for 32-bit systems: syscall(__NR_socketcall, 18, args);
+         //args[0] = (unsigned long) fd;
+         //args[1] = (unsigned long) addr;
+         //args[2] = (unsigned long) addrlen;
+         //args[3] = (unsigned long) flags;
+         
 #else
         if(number == __NR_accept4) {
             int sockfd = a;
@@ -921,6 +928,8 @@ pthread_key_t thr_id_key;
 #endif
         return realsyscall(number,a,b,c,d,e,f);
     }
+
+#endif
 #endif
     
 #ifdef __cplusplus
