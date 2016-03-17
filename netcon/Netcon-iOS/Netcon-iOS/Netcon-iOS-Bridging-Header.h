@@ -6,5 +6,3 @@ int start_intercept();
 int start_service(const char * path);
 void disable_intercept();
 void enable_intercept();
-
-#import "ProxyKitTest.h"

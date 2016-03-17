@@ -142,12 +142,12 @@ class ViewController: UIViewController {
         start_service(path[0])
     }
     
-    var proxy: ProxyKitTest! // Object used for testing startup and connectivity of the Proxy Server instance
+    //var proxy: ProxyKitTest! // Object used for testing startup and connectivity of the Proxy Server instance
     var proxy_server_thread : NSThread!
     func ztnc_start_proxy_server() {
         print("\n\nstart_proxy_server()\n")
-        proxy = ProxyKitTest()
-        proxy.start_proxy_server()
+        // proxy = ProxyKitTest()
+        // proxy.start_proxy_server()
         enable_intercept();
     }
     

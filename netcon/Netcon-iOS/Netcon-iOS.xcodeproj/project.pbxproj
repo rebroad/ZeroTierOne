@@ -14,7 +14,8 @@
 		7C856DC91C70B5B800F34C96 /* fishhook.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C856DC71C70B5B800F34C96 /* fishhook.c */; };
 		7C856DCA1C70B5B800F34C96 /* fishhook.h in Headers */ = {isa = PBXBuildFile; fileRef = 7C856DC81C70B5B800F34C96 /* fishhook.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7C98B2C61C8610C600C2A0AA /* OneServiceSetup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */; };
-		7CA80C591C7F70960063FBEB /* ProxyKitTest.m in Sources */ = {isa = PBXBuildFile; fileRef = 7CA80C581C7F70960063FBEB /* ProxyKitTest.m */; };
+		7CB608661C9B654800507A8B /* NetconProxy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CB608641C9B654800507A8B /* NetconProxy.cpp */; };
+		7CB608671C9B654800507A8B /* NetconProxy.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CB608651C9B654800507A8B /* NetconProxy.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CD698201C725E2800F21A9E /* libServiceSetup.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CD698171C725E0300F21A9E /* libServiceSetup.a */; };
 		7CD698271C72651B00F21A9E /* OneServiceSetup.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CD6982A1C72655300F21A9E /* libServiceSetup.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CD698171C725E0300F21A9E /* libServiceSetup.a */; };
@@ -186,7 +187,6 @@
 		7CE6B41D1C70D30C00BEA5A3 /* pppdebug.h in Headers */ = {isa = PBXBuildFile; fileRef = 7CE6B2A01C70C26500BEA5A3 /* pppdebug.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CE6B41E1C70D30C00BEA5A3 /* randm.h in Headers */ = {isa = PBXBuildFile; fileRef = 7CE6B2A21C70C26500BEA5A3 /* randm.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CE6B41F1C70D30C00BEA5A3 /* vj.h in Headers */ = {isa = PBXBuildFile; fileRef = 7CE6B2A41C70C26500BEA5A3 /* vj.h */; settings = {ATTRIBUTES = (Public, ); }; };
-		DDD1AC3C5FFC6C1908B88F00 /* Pods.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BD0876E9862335A1B0027103 /* Pods.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -272,7 +272,8 @@
 		7C856DC31C70B42F00F34C96 /* RPC.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RPC.c; path = ../../RPC.c; sourceTree = "<group>"; };
 		7C856DC71C70B5B800F34C96 /* fishhook.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fishhook.c; path = ../../fishhook.c; sourceTree = "<group>"; };
 		7C856DC81C70B5B800F34C96 /* fishhook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = fishhook.h; path = ../../fishhook.h; sourceTree = "<group>"; };
-		7CA80C581C7F70960063FBEB /* ProxyKitTest.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ProxyKitTest.m; sourceTree = "<group>"; };
+		7CB608641C9B654800507A8B /* NetconProxy.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = NetconProxy.cpp; path = ../NetconProxy.cpp; sourceTree = "<group>"; };
+		7CB608651C9B654800507A8B /* NetconProxy.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = NetconProxy.hpp; path = ../NetconProxy.hpp; sourceTree = "<group>"; };
 		7CD698171C725E0300F21A9E /* libServiceSetup.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libServiceSetup.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OneServiceSetup.cpp; path = ../../OneServiceSetup.cpp; sourceTree = "<group>"; };
 		7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = OneServiceSetup.hpp; path = ../../OneServiceSetup.hpp; sourceTree = "<group>"; };
@@ -457,9 +458,6 @@
 		7CE6B3821C70D18300BEA5A3 /* ClusterGeoIpService.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = ClusterGeoIpService.hpp; path = ../../../service/ClusterGeoIpService.hpp; sourceTree = "<group>"; };
 		7CE6B3831C70D18300BEA5A3 /* ControlPlane.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = ControlPlane.hpp; path = ../../../service/ControlPlane.hpp; sourceTree = "<group>"; };
 		7CE6B3841C70D18300BEA5A3 /* OneService.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = OneService.hpp; path = ../../../service/OneService.hpp; sourceTree = "<group>"; };
-		95D8CE20D4FDD8C2A368A21A /* Pods.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Pods.release.xcconfig; path = "Pods/Target Support Files/Pods/Pods.release.xcconfig"; sourceTree = "<group>"; };
-		AAD6C847164E9AF310C54FF1 /* Pods.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Pods.debug.xcconfig; path = "Pods/Target Support Files/Pods/Pods.debug.xcconfig"; sourceTree = "<group>"; };
-		BD0876E9862335A1B0027103 /* Pods.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -476,7 +474,6 @@
 			files = (
 				7CD6982A1C72655300F21A9E /* libServiceSetup.a in Frameworks */,
 				7CDB50601C70A21100CC09EC /* ZeroTierNetcon.framework in Frameworks */,
-				DDD1AC3C5FFC6C1908B88F00 /* Pods.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -513,19 +510,9 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		18A92C057E6637F57DF07C15 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				AAD6C847164E9AF310C54FF1 /* Pods.debug.xcconfig */,
-				95D8CE20D4FDD8C2A368A21A /* Pods.release.xcconfig */,
-			);
-			name = Pods;
-			sourceTree = "<group>";
-		};
 		522B26C60AF40C458E5ADE96 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				BD0876E9862335A1B0027103 /* Pods.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -542,6 +529,8 @@
 		7CDB500C1C70A0BA00CC09EC = {
 			isa = PBXGroup;
 			children = (
+				7CB608641C9B654800507A8B /* NetconProxy.cpp */,
+				7CB608651C9B654800507A8B /* NetconProxy.hpp */,
 				7CDB50171C70A0BA00CC09EC /* Netcon-iOS */,
 				7CDB502C1C70A0BA00CC09EC /* Netcon-iOSTests */,
 				7CDB50371C70A0BA00CC09EC /* Netcon-iOSUITests */,
@@ -549,7 +538,6 @@
 				7CDB505A1C70A21100CC09EC /* ZeroTierNetconTests */,
 				7CD698181C725E0300F21A9E /* ServiceSetup */,
 				7CDB50161C70A0BA00CC09EC /* Products */,
-				18A92C057E6637F57DF07C15 /* Pods */,
 				522B26C60AF40C458E5ADE96 /* Frameworks */,
 			);
 			sourceTree = "<group>";
@@ -579,7 +567,6 @@
 				7CDB507D1C70A32500CC09EC /* NetconWrapper.cpp */,
 				7CDB507E1C70A32500CC09EC /* NetconWrapper.hpp */,
 				7CDB507C1C70A32500CC09EC /* Netcon-iOS-Bridging-Header.h */,
-				7CA80C581C7F70960063FBEB /* ProxyKitTest.m */,
 			);
 			path = "Netcon-iOS";
 			sourceTree = "<group>";
@@ -817,6 +804,7 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7CB608671C9B654800507A8B /* NetconProxy.hpp in Headers */,
 				7CE6B3891C70D1FA00BEA5A3 /* http_parser.h in Headers */,
 				7CE6B38A1C70D1FA00BEA5A3 /* lz4.h in Headers */,
 				7CE6B38B1C70D1FA00BEA5A3 /* LWIPStack.hpp in Headers */,
@@ -916,13 +904,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7CDB503D1C70A0BA00CC09EC /* Build configuration list for PBXNativeTarget "Netcon-iOS" */;
 			buildPhases = (
-				80C4D890D06E282501EAA890 /* Check Pods Manifest.lock */,
 				7CDB50111C70A0BA00CC09EC /* Sources */,
 				7CDB50121C70A0BA00CC09EC /* Frameworks */,
 				7CDB50131C70A0BA00CC09EC /* Resources */,
 				7CDB50651C70A21100CC09EC /* Embed Frameworks */,
-				92ED6A331B74A9D253FDE0B7 /* Embed Pods Frameworks */,
-				1EE4B4943F65D39AD7793BB5 /* Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -1107,54 +1092,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		1EE4B4943F65D39AD7793BB5 /* Copy Pods Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Copy Pods Resources";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/Pods/Target Support Files/Pods/Pods-resources.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		80C4D890D06E282501EAA890 /* Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Check Pods Manifest.lock";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_ROOT}/../Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [[ $? != 0 ]] ; then\n    cat << EOM\nerror: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\nEOM\n    exit 1\nfi\n";
-			showEnvVarsInLog = 0;
-		};
-		92ED6A331B74A9D253FDE0B7 /* Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Embed Pods Frameworks";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${SRCROOT}/Pods/Target Support Files/Pods/Pods-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
 		7CD698131C725E0300F21A9E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -1171,7 +1108,6 @@
 				7CDB501B1C70A0BA00CC09EC /* ViewController.swift in Sources */,
 				7CDB507F1C70A32500CC09EC /* NetconWrapper.cpp in Sources */,
 				7CDB50191C70A0BA00CC09EC /* AppDelegate.swift in Sources */,
-				7CA80C591C7F70960063FBEB /* ProxyKitTest.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1195,6 +1131,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7CB608661C9B654800507A8B /* NetconProxy.cpp in Sources */,
 				7CE6B3DC1C70D2EF00BEA5A3 /* auth.c in Sources */,
 				7CE6B3DD1C70D2EF00BEA5A3 /* chap.c in Sources */,
 				7CE6B3DE1C70D2EF00BEA5A3 /* chpms.c in Sources */,
@@ -1482,7 +1419,6 @@
 		};
 		7CDB503E1C70A0BA00CC09EC /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = AAD6C847164E9AF310C54FF1 /* Pods.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -1506,7 +1442,6 @@
 		};
 		7CDB503F1C70A0BA00CC09EC /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 95D8CE20D4FDD8C2A368A21A /* Pods.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;

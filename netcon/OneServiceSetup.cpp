@@ -24,8 +24,11 @@
  * redistribute it in a modified binary form, please contact ZeroTier Networks
  * LLC. Start here: http://www.zerotier.com/
  */
-#include <jni.h>
-#include "jni_utils.h"
+
+#if defined(__ANDROID__)
+    #include <jni.h>
+    #include "jni_utils.h"
+#endif
 
 #include <dlfcn.h>
 #include <sys/socket.h>
@@ -91,10 +94,10 @@ extern "C" {
 #if defined(__ANDROID__)
     JNIEXPORT void JNICALL Java_Netcon_NetconWrapper_startOneService(JNIEnv *env, jobject thisObj)
 #else
-    void *start_OneService(void *thread_id)
+    void *startOneService(void *thread_id)
 #endif
     {
-        LOGV("startOneService(): In service call code\n");
+        // LOGV("startOneService(): In service call code\n");
         chdir(service_path.c_str());
         //fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
@@ -110,7 +113,11 @@ extern "C" {
 #endif
         // homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {
-            return;
+            #if defined(__ANDROID)
+                return;
+            #else
+                return NULL;
+            #endif
         } else {
             std::vector<std::string> hpsp(ZeroTier::Utils::split(homeDir.c_str(),ZT_PATH_SEPARATOR_S,"",""));
             std::string ptmp;
@@ -132,14 +139,14 @@ extern "C" {
         std::string netDir = homeDir + "/networks.d";
         std::string confFile = netDir + "/" + ios_default_nwid + ".conf";
         if(!ZeroTier::OSUtils::mkdir(netDir)) {
-            LOGV("unable to create %s\n", netDir.c_str());
+            // LOGV("unable to create %s\n", netDir.c_str());
         }
         if(!ZeroTier::OSUtils::writeFile(confFile.c_str(), "")) {
-            LOGV("unable to write network conf file: %s\n", ios_default_nwid.c_str());
+            // LOGV("unable to write network conf file: %s\n", ios_default_nwid.c_str());
         }
         
 
-        LOGV("homeDir = %s", homeDir.c_str());
+        // LOGV("homeDir = %s", homeDir.c_str());
         for(;;) {
             zt1Service = ZeroTier::OneService::newInstance(homeDir.c_str(),9991);
             switch(zt1Service->run()) {
@@ -164,7 +171,11 @@ extern "C" {
             }
             break; // terminate loop -- normally we don't keep restarting
         }
-        return;
+        #if defined(__ANDROID)
+            return;
+        #else
+            return NULL;
+        #endif
     }
 
 #ifdef __cplusplus

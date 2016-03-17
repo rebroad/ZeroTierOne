@@ -43,7 +43,7 @@ extern "C" {
 #if defined(__ANDROID__)	
 	JNIEXPORT void JNICALL Java_Netcon_NetconWrapper_startOneService(JNIEnv *env, jobject thisObj);
 #else
-	void *start_OneService(void *thread_id);
+	void *startOneService(void *thread_id);
 	void init_service(int key, const char * path);
 	void init_intercept(int key);
 #endif
