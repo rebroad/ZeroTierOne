@@ -170,7 +170,9 @@ namespace ZeroTier {
         LWIPStack(const char* path) :
         _libref(NULL)
         {
-#if defined(__linux__)
+#if defined(__ANDROID__)
+    #define __STATIC_LWIP__
+#elif defined(__linux__)
     #define __DYNAMIC_LWIP__
     // Dynamically load liblwip.so
     _libref = dlmopen(LM_ID_NEWLM, path, RTLD_NOW);
