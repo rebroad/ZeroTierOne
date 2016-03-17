@@ -485,7 +485,7 @@ pthread_key_t thr_id_key;
     #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
     #else
-        rpc_st.__tid = 5; // dummy value
+        rpc_st.__tid = gettid(); // dummy value
     #endif
 #endif
         /* -1 is passed since we we're generating the new socket in this call */
@@ -583,7 +583,7 @@ pthread_key_t thr_id_key;
     #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
     #else
-        rpc_st.__tid = 5; // dummy value
+        rpc_st.__tid = gettid(); // dummy value
     #endif
 #endif
         rpc_st.__fd = __fd;
@@ -690,7 +690,7 @@ pthread_key_t thr_id_key;
     #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
     #else
-        rpc_st.__tid = 5; // dummy value
+        rpc_st.__tid = gettid(); // dummy value
     #endif
 #endif
         memcpy(&rpc_st.addr, addr, sizeof(struct sockaddr_storage));
@@ -826,7 +826,7 @@ pthread_key_t thr_id_key;
     #if !defined(__ANDROID__)
         rpc_st.__tid = syscall(SYS_gettid);
     #else
-        rpc_st.__tid = 5; // dummy value
+        rpc_st.__tid = gettid(); // dummy value
     #endif
 #endif
         return rpc_send_command(netpath, RPC_LISTEN, sockfd, &rpc_st, sizeof(struct listen_st));

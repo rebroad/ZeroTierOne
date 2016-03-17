@@ -94,7 +94,6 @@ extern "C" {
     void *start_OneService(void *thread_id)
 #endif
     {
-
         LOGV("startOneService(): In service call code\n");
         chdir(service_path.c_str());
         //fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());

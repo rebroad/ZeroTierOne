@@ -185,7 +185,7 @@ int rpc_send_command(char *path, int cmd, int forfd, void *data, int len)
   #else
     // Dummy values
     pid_t pid = 5;
-    pid_t tid = 4;
+    pid_t tid = gettid();
   #endif
 #endif
   char timestring[20];
