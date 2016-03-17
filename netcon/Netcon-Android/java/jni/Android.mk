@@ -17,9 +17,10 @@ LOCAL_LDLIBS := -llog
 
 # Intercept/RPC files
 LOCAL_SRC_FILES := \
-	$(ZT1)/netcon/test.c \
+	$(ZT1)/netcon/jni_test.c \
 	$(ZT1)/netcon/Intercept.c \
 	$(ZT1)/netcon/RPC.c \
+	$(ZT1)/netcon/NetconProxy.cpp
 
 # Platform specific implementation files
 LOCAL_SRC_FILES += \
@@ -75,7 +76,7 @@ LOCAL_SRC_FILES += \
 	$(ZT1)/ext/lwip/src/api/netdb.c \
 	$(ZT1)/ext/lwip/src/api/netifapi.c \
 	$(ZT1)/ext/lwip/src/api/sockets.c \
-	$(ZT1)/ext/lwip/src/api/tcpip.c 
+	$(ZT1)/ext/lwip/src/api/tcpip.c
 
 # lwIP core files
 LOCAL_SRC_FILES += \
@@ -94,7 +95,7 @@ LOCAL_SRC_FILES += \
 	$(ZT1)/ext/lwip/src/core/tcp_out.c \
 	$(ZT1)/ext/lwip/src/core/tcp.c \
 	$(ZT1)/ext/lwip/src/core/timers.c \
-	$(ZT1)/ext/lwip/src/core/udp.c 
+	$(ZT1)/ext/lwip/src/core/udp.c
 
 # lwIP core/ip4 files
 LOCAL_SRC_FILES += \
@@ -111,7 +112,7 @@ LOCAL_SRC_FILES += \
 LOCAL_SRC_FILES += \
 	$(ZT1)/ext/lwip/src/netif/etharp.c \
 	$(ZT1)/ext/lwip/src/netif/ethernetif.c \
-	$(ZT1)/ext/lwip/src/netif/slipif.c 
+	$(ZT1)/ext/lwip/src/netif/slipif.c
 
 # JNI Files
 LOCAL_SRC_FILES += \

@@ -1,5 +1,5 @@
 #include <jni.h>
-#include "test.h"
+#include "jni_test.h"
 
 #ifdef __cplusplus
 extern "C" {

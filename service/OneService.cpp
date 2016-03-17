@@ -1179,7 +1179,7 @@ public:
 							fclose(tapFailLog);
 						}
 #else
-						fprintf(stderr,"ERROR: unable to configure virtual network port: %s"ZT_EOL_S,exc.what());
+						fprintf(stderr,"ERROR: unable to configure virtual network port: %s" ZT_EOL_S,exc.what());
 #endif
 						return -999;
 					} catch ( ... ) {
@@ -1200,12 +1200,12 @@ public:
 					for(std::vector<InetAddress>::iterator ip(newAssignedIps.begin());ip!=newAssignedIps.end();++ip) {
 						if (!std::binary_search(assignedIps.begin(),assignedIps.end(),*ip))
 							if (!t->second->addIp(*ip))
-								fprintf(stderr,"ERROR: unable to add ip address %s"ZT_EOL_S, ip->toString().c_str());
+								fprintf(stderr,"ERROR: unable to add ip address %s" ZT_EOL_S, ip->toString().c_str());
 					}
 					for(std::vector<InetAddress>::iterator ip(assignedIps.begin());ip!=assignedIps.end();++ip) {
 						if (!std::binary_search(newAssignedIps.begin(),newAssignedIps.end(),*ip))
 							if (!t->second->removeIp(*ip))
-								fprintf(stderr,"ERROR: unable to remove ip address %s"ZT_EOL_S, ip->toString().c_str());
+								fprintf(stderr,"ERROR: unable to remove ip address %s" ZT_EOL_S, ip->toString().c_str());
 					}
 					assignedIps.swap(newAssignedIps);
 				} else {
@@ -1244,7 +1244,7 @@ public:
 
 			case ZT_EVENT_TRACE: {
 				if (metaData) {
-					::fprintf(stderr,"%s"ZT_EOL_S,(const char *)metaData);
+					::fprintf(stderr,"%s" ZT_EOL_S,(const char *)metaData);
 					::fflush(stderr);
 				}
 			}	break;
