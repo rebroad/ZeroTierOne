@@ -113,7 +113,7 @@ extern "C" {
 #endif
         // homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {
-            #if defined(__ANDROID)
+            #if defined(__ANDROID__)
                 return;
             #else
                 return NULL;
@@ -171,7 +171,7 @@ extern "C" {
             }
             break; // terminate loop -- normally we don't keep restarting
         }
-        #if defined(__ANDROID)
+        #if defined(__ANDROID__)
             return;
         #else
             return NULL;
