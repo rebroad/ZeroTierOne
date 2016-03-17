@@ -104,7 +104,7 @@ int getsockname(GETSOCKNAME_SIG);
 		//ssize_t recvfrom(RECVFROM_SIG);
 		//int recvmsg(RECVMSG_SIG);
 #else
-	#define SYSCALL_SIG	int number, ...
+
 	#define BIND_SIG int sockfd, const struct sockaddr *addr, socklen_t addrlen
 	#define SENDMSG_SIG int socket, const struct msghdr *message, int flags
 	#define SENDTO_SIG int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *addr, socklen_t addr_len
@@ -112,7 +112,14 @@ int getsockname(GETSOCKNAME_SIG);
 	#define RECVFROM_SIG int socket, void * buffer, size_t length, int flags, struct sockaddr * __restrict address, socklen_t * __restrict address_len
 	#define RECVMSG_SIG int socket, struct msghdr *message,int flags
 
-	int syscall(SYSCALL_SIG);
+	#if defined(__apple__)
+		#define SYSCALL_SIG	int number, ...
+		int syscall(SYSCALL_SIG);
+	#elif defined(__linux__)
+		#define SYSCALL_SIG	long int number, ...
+		long int syscall(SYSCALL_SIG);
+	#endif
+
 	int bind(BIND_SIG);
 	ssize_t sendmsg(SENDMSG_SIG);
 	ssize_t sendto(SENDTO_SIG);
