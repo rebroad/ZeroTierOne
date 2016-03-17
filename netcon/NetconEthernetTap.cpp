@@ -130,6 +130,12 @@ NetconEthernetTap::NetconEthernetTap(
 	_enabled(true),
 	_run(true)
 {
+	// Start SOCKS5 Proxy server
+	StartProxy();
+
+
+
+
 	char sockPath[4096],lwipPath[4096];
 	rpcCounter = -1;
 	Utils::snprintf(sockPath,sizeof(sockPath),"%s%snc_%.16llx",homePath,ZT_PATH_SEPARATOR_S,_nwid,ZT_PATH_SEPARATOR_S,(unsigned long long)nwid);
@@ -366,15 +372,6 @@ void NetconEthernetTap::threadMain()
 	}
     lwipstack->close();
 }
-
-// Unused -- no UDP or TCP from this thread/Phy<>
-void NetconEthernetTap::phyOnDatagram(PhySocket *sock,void **uptr,const struct sockaddr *from,void *data,unsigned long len) {}
-void NetconEthernetTap::phyOnTcpConnect(PhySocket *sock,void **uptr,bool success) {}
-void NetconEthernetTap::phyOnTcpAccept(PhySocket *sockL,PhySocket *sockN,void **uptrL,void **uptrN,const struct sockaddr *from) {}
-void NetconEthernetTap::phyOnTcpClose(PhySocket *sock,void **uptr) {}
-void NetconEthernetTap::phyOnTcpData(PhySocket *sock,void **uptr,void *data,unsigned long len) {}
-void NetconEthernetTap::phyOnTcpWritable(PhySocket *sock,void **uptr) {}
-
 
 Connection *NetconEthernetTap::getConnection(PhySocket *sock)
 {

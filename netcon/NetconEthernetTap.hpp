@@ -448,6 +448,27 @@ private:
  	 */
 	void closeConnection(PhySocket *sock);
 
+	// --- Proxy stubs
+	int proxyListenPort;
+
+	//std::map<int,PhySocket> proxySockStates;
+
+	int sockstate;
+	int proxyListenSocket;
+	PhySocket *proxyListenPhySocket;
+
+	void StartProxy();
+
+	void phyOnFileDescriptorActivity(PhySocket *sock,void **uptr,bool readable,bool writable);
+
+	class ProxyConn
+	{
+	public:
+		int fd; // likely not needed
+	};
+
+	// --- end Proxy stubs
+
 	ip_addr_t convert_ip(struct sockaddr_in * addr)
 	{
 	  ip_addr_t conn_addr;
