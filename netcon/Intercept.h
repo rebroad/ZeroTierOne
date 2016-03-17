@@ -104,7 +104,7 @@ int getsockname(GETSOCKNAME_SIG);
 		//ssize_t recvfrom(RECVFROM_SIG);
 		//int recvmsg(RECVMSG_SIG);
 #else
-	#define SYSCALL_SIG	long number, ...
+	#define SYSCALL_SIG	int number, ...
 	#define BIND_SIG int sockfd, const struct sockaddr *addr, socklen_t addrlen
 	#define SENDMSG_SIG int socket, const struct msghdr *message, int flags
 	#define SENDTO_SIG int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *addr, socklen_t addr_len
@@ -112,7 +112,7 @@ int getsockname(GETSOCKNAME_SIG);
 	#define RECVFROM_SIG int socket, void * buffer, size_t length, int flags, struct sockaddr * __restrict address, socklen_t * __restrict address_len
 	#define RECVMSG_SIG int socket, struct msghdr *message,int flags
 
-	long syscall(SYSCALL_SIG);
+	int syscall(SYSCALL_SIG);
 	int bind(BIND_SIG);
 	ssize_t sendmsg(SENDMSG_SIG);
 	ssize_t sendto(SENDTO_SIG);
@@ -124,11 +124,11 @@ int getsockname(GETSOCKNAME_SIG);
 #if defined(__linux__)
 	static int (*realaccept4)(ACCEPT4_SIG) = 0;
 	#if !defined(__ANDROID__)
-		static long (*realsyscall)(SYSCALL_SIG) = 0;
+		static int (*realsyscall)(SYSCALL_SIG) = 0;
 	#endif
 #endif
 
-#if defined(__ANDROID__)
+#if !defined(__ANDROID__)
 	static int (*realbind)(BIND_SIG) = 0;
 	static int (*realsendmsg)(SENDMSG_SIG) = 0;
 	static ssize_t (*realsendto)(SENDTO_SIG) = 0;
@@ -144,7 +144,6 @@ int getsockname(GETSOCKNAME_SIG);
 	static int (*realclose)(CLOSE_SIG) = 0;
 	static int (*realgetsockname)(GETSOCKNAME_SIG) = 0;
 #endif
-
 #ifdef __cplusplus
 }
 #endif

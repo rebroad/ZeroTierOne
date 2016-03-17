@@ -30,7 +30,9 @@
 extern "C" {
 #endif
 	
-#include <jni.h>
+#if defined(__ANDROID__)	
+	#include <jni.h>
+#endif
 
 #ifndef ONE_SERVICE_SETUP_HPP
 #define ONE_SERVICE_SETUP_HPP
