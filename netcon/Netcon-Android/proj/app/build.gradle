@@ -25,13 +25,13 @@ android {
     sourceSets.main {
         jniLibs.srcDir '../../java/libs' //set jniLibs directory to ./libs
         jni.srcDirs = [] //disable automatic ndk-build call
-        java.srcDirs = ['src/main/java', '../java/src']
+        java.srcDirs = ['src/main/java', '../../java/src']
     }
     task ndkBuild(type: Exec) {
         if (Os.isFamily(Os.FAMILY_WINDOWS)) {
-            commandLine "${android.getNdkDirectory().getAbsolutePath()}/ndk-build.cmd", '-j8', '-C', file('../java').absolutePath, "ZT1=${System.getProperty('user.dir')}/../../.."
+            commandLine "${android.getNdkDirectory().getAbsolutePath()}/ndk-build.cmd", '-j8', '-C', file('../../java').absolutePath, "ZT1=${System.getProperty('user.dir')}/../../.."
         } else {
-            commandLine "${android.getNdkDirectory().getAbsolutePath()}/ndk-build", '-j8', '-C', file('../java').absolutePath, "ZT1=${System.getProperty('user.dir')}/../../.."
+            commandLine "${android.getNdkDirectory().getAbsolutePath()}/ndk-build", '-j8', '-C', file('../../java').absolutePath, "ZT1=${System.getProperty('user.dir')}/../../.."
         }
     }
     tasks.withType(JavaCompile) {
