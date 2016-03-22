@@ -29,6 +29,9 @@ class ViewController: UIViewController {
     
     @IBAction func TcpClientTestAction(sender: AnyObject) {
         print("TcpClientTestAction\n")
+        
+        test_intercepted_proxy_streams()
+        
         //let addr_string = txtAddr.text
         //let port:Int32? = Int32(txtPort.text!);
         //cpp_tcp_socket_client_test(addr_string!, port!)
@@ -92,16 +95,18 @@ class ViewController: UIViewController {
         // For HTTP request
         var buffer = [UInt8](count: 100, repeatedValue: 0)
         let str = "GET / HTTP/1.0\r\n\r\n"
+        //let str = "Welcome to the machine"
+        print("strlen = %d\n", str.characters.count)
         let encodedDataArray = [UInt8](str.utf8)
         
         var inputStream:NSInputStream?
         var outputStream:NSOutputStream?
         
         // As usual, get our streams to our desired "local" address
-        NSStream.getStreamsToHostWithName("10.242.211.245", port: Int(80), inputStream: &inputStream, outputStream: &outputStream)
+        NSStream.getStreamsToHostWithName("10.5.5.2", port: Int(80), inputStream: &inputStream, outputStream: &outputStream)
         
         // SOCKS Proxy config dictionary
-        let myDict:NSDictionary = [NSStreamSOCKSProxyHostKey : "localhost",
+        let myDict:NSDictionary = [NSStreamSOCKSProxyHostKey : "0.0.0.0",
             NSStreamSOCKSProxyPortKey : 1337,
             NSStreamSOCKSProxyVersionKey : NSStreamSOCKSProxyVersion5]
         
@@ -122,10 +127,11 @@ class ViewController: UIViewController {
         inputStream!.open()
         outputStream!.open()
         
+        sleep(1)
         outputStream?.write(encodedDataArray, maxLength: encodedDataArray.count)
-        sleep(5)
-        inputStream?.read(&buffer, maxLength: 100)
-        print("buffer = \(buffer)\n")
+        //sleep(5)
+        //inputStream?.read(&buffer, maxLength: 100)
+        //print("buffer = \(buffer)\n")
     }
     
     
@@ -137,7 +143,7 @@ class ViewController: UIViewController {
     func ztnc_start_service() {
         // FIXME: We use this to get a path for the ZeroTierOne service to use, this should be done differently for production
         let path = NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory.DocumentDirectory, NSSearchPathDomainMask.UserDomainMask, true)
-        disable_intercept() // We don't want the ZeroTier service to use intercepted calls
+        //disable_intercept() // We don't want the ZeroTier service to use intercepted calls
         print("\n\nstart_service()\n")
         start_service(path[0])
     }
@@ -145,10 +151,10 @@ class ViewController: UIViewController {
     //var proxy: ProxyKitTest! // Object used for testing startup and connectivity of the Proxy Server instance
     var proxy_server_thread : NSThread!
     func ztnc_start_proxy_server() {
-        print("\n\nstart_proxy_server()\n")
+        //print("\n\nstart_proxy_server()\n")
         // proxy = ProxyKitTest()
         // proxy.start_proxy_server()
-        enable_intercept();
+        //enable_intercept();
     }
     
     // ------- END
@@ -169,13 +175,14 @@ class ViewController: UIViewController {
             self.service_thread = NSThread(target:self, selector:"ztnc_start_service", object:nil)
             self.service_thread.start()
         });
+        /*
         sleep(1)
         // Proxy Server thread
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), {
             self.proxy_server_thread = NSThread(target:self, selector:"ztnc_start_proxy_server", object:nil)
             self.proxy_server_thread.start()
         });
-        
+        */
         // ------- END
     }
 

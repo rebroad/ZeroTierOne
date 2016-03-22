@@ -59,7 +59,7 @@ struct getsockname_st;
 struct accept_st;
 
 #define APPLICATION_POLL_FREQ           2
-#define ZT_LWIP_TCP_TIMER_INTERVAL      10
+#define ZT_LWIP_TCP_TIMER_INTERVAL      50
 #define STATUS_TMR_INTERVAL             500 // How often we check connection statuses (in ms)
 
 // TCP Buffer sizes
@@ -96,7 +96,9 @@ struct Connection
   unsigned char txbuf[DEFAULT_UDP_TX_BUF_SZ];
   unsigned char rxbuf[DEFAULT_UDP_RX_BUF_SZ];
     
-    bool unread_udp_packet;
+  // TODO: necessary still?
+  bool unread_udp_packet;
+  int proxy_conn_state;
 };
 
 /*
@@ -208,16 +210,10 @@ private:
 	 *
 	 */
  	static err_t nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err);
-
-    
-    
-    
+	static err_t nc_recved_proxy(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err);
     
     static void nc_udp_recved(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port);
 
-    
-    
-    
     
 	/*
 	 * Callback from LWIP when an internal error is associtated with the given (arg)
@@ -267,6 +263,8 @@ private:
 	 *
 	 */
 	static err_t nc_connected(void *arg, struct tcp_pcb *PCB, err_t err);
+    static err_t nc_connected_proxy(void *arg, struct tcp_pcb *PCB, err_t err);
+
 	
 	//static void nc_close(struct tcp_pcb *PCB);
 	//static err_t nc_send(struct tcp_pcb *PCB);
@@ -354,7 +352,8 @@ private:
 	[?] EPROTONOSUPPORT - The protocol type or the specified protocol is not supported within this domain.
 	 */
 	Connection * handleSocket(PhySocket *sock, void **uptr, struct socket_st* socket_rpc);
-	
+	Connection * handleSocketProxy(PhySocket *sock, int socket_type);
+
 	/*
 	 * Handles an RPC to connect to a given address and port
 	 *
@@ -389,7 +388,8 @@ private:
 	[X] EINVAL - Invalid argument, SVr4, generally makes sense to set this
 	 */
 	void handleConnect(PhySocket *sock, PhySocket *rpcsock, Connection *conn, struct connect_st* connect_rpc);
-	
+	int handleConnectProxy(PhySocket *sock, struct sockaddr_in *rawAddr);
+
 	// void handleIsConnected();
 
 	/* 
@@ -420,7 +420,13 @@ private:
 	void phyOnTcpAccept(PhySocket *sockL,PhySocket *sockN,void **uptrL,void **uptrN,const struct sockaddr *from);
 	void phyOnTcpClose(PhySocket *sock,void **uptr);
 	void phyOnTcpData(PhySocket *sock,void **uptr,void *data,unsigned long len);
-	void phyOnTcpWritable(PhySocket *sock,void **uptr);
+
+
+
+
+
+	void processReceivedData(PhySocket *sock,void **uptr,bool lwip_invoked);
+	void phyOnTcpWritable(PhySocket *sock,void **uptr,bool lwip_invoked);
 
 	/*
  	 * Signals us to close the TcpConnection associated with this PhySocket
@@ -461,12 +467,6 @@ private:
 
 	void phyOnFileDescriptorActivity(PhySocket *sock,void **uptr,bool readable,bool writable);
 
-	class ProxyConn
-	{
-	public:
-		int fd; // likely not needed
-	};
-
 	// --- end Proxy stubs
 
 	ip_addr_t convert_ip(struct sockaddr_in * addr)
@@ -500,7 +500,7 @@ private:
 	Mutex _multicastGroups_m;
 
 	std::vector<InetAddress> _ips;
-	Mutex _ips_m, _tcpconns_m, _rx_buf_m;
+	Mutex _ips_m, _tcpconns_m, _rx_buf_m, _close_m;
 
 	unsigned int _mtu;
 	volatile bool _enabled;

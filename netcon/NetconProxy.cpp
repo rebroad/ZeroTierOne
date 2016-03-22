@@ -29,6 +29,9 @@
 #include "../osdep/Phy.hpp"
 #include "../node/Utils.hpp"
 
+//#include "common.inc.c"
+
+
 #include <string.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -37,6 +40,7 @@
 #define SOCKS_CONNECT_INIT	1
 #define SOCKS_CONNECT_IPV4	2
 #define SOCKS_UDP			3 // ?
+#define SOCKS_COMPLETE      4
 
 #define CONNECTION_TIMEOUT	8
 
@@ -46,11 +50,11 @@ namespace ZeroTier
 	{	
 		printf("StartProxy()\n");
 		// ref port 1080
-		proxyListenPort = 1080;
+		proxyListenPort = 1337;
 		struct sockaddr_in in4;
 		memset(&in4,0,sizeof(in4));
 		in4.sin_family = AF_INET;
-		in4.sin_addr.s_addr = Utils::hton((uint32_t)0x7f000001); // right now we just listen for TCP @127.0.0.1
+		in4.sin_addr.s_addr = Utils::hton((uint32_t)0x00000000); // right now we just listen for TCP @127.0.0.1
 		in4.sin_port = Utils::hton((uint16_t)proxyListenPort);
 		
 		printf("_phy.tcpListen\n");
@@ -64,8 +68,26 @@ namespace ZeroTier
 		printf("phyOnTcpData(): 0x%x, len = %d\n", sock, len);
 		unsigned char *buf;
 		buf = (unsigned char *)data;
+        
+		// Get connection for this PhySocket
+		Connection *conn = getConnection(sock);
+		if(!conn) {
+			printf("phyOnTcpData(): Unable to locate Connection for sock=0x%x\n", sock);
+			return;
+		}
 
-		if(sockstate==SOCKS_UDP)
+		// Write data to lwIP PCB (outgoing)
+        if(conn->proxy_conn_state == SOCKS_COMPLETE)
+        {
+        	if(len) {
+	            printf("data = %s, len = %d\n", data, len);
+	            memcpy((&conn->txbuf)+(conn->txsz), buf, len);
+	   			conn->txsz += len;
+	   			handleWrite(conn);
+   			}
+        }
+
+		if(conn->proxy_conn_state==SOCKS_UDP)
 		{
 			printf("SOCKS_UDP from client\n");
 			// +----+------+------+----------+----------+----------+
@@ -84,7 +106,7 @@ namespace ZeroTier
         // +----+----------+----------+
         // | 1  |    1     | 1 to 255 |
         // +----+----------+----------+
-		if(sockstate==SOCKS_OPEN)
+		if(conn->proxy_conn_state==SOCKS_OPEN)
 		{
 			if(len >= 3)
 			{
@@ -92,7 +114,6 @@ namespace ZeroTier
 				int methodsLength = buf[1];
 				int firstSupportedMethod = buf[2];
 				int supportedMethod = 0;
-
 
 				// Password auth
 				if(firstSupportedMethod == 2) {
@@ -112,7 +133,7 @@ namespace ZeroTier
 				_phy.streamSend(sock, reply, sizeof(reply));
 
 				// Set state for next message
-				sockstate = SOCKS_CONNECT_INIT;
+				conn->proxy_conn_state = SOCKS_CONNECT_INIT;
 			}
 		}
 
@@ -122,7 +143,7 @@ namespace ZeroTier
         // +----+-----+-------+------+----------+----------+
         // | 1  |  1  | X'00' |  1   | Variable |    2     |
         // +----+-----+-------+------+----------+----------+
-		if(sockstate==SOCKS_CONNECT_INIT)
+		if(conn->proxy_conn_state==SOCKS_CONNECT_INIT)
 		{
 			// 4(meta) + 4(ipv4) + 2(port) = 10
 			if(len >= 10)
@@ -183,34 +204,23 @@ namespace ZeroTier
 						ip = addrstr.substr(0, del);
 						port = addrstr.substr(del+1, domain_len);
 						
-						printf(" addrlen = %d\n", domain_len);
-						printf("addrstr = %s\n", addrstr.c_str()); 
-						printf("raw_addr = %s\n", raw_addr);
-						printf("ip = %s\n", ip.c_str());
-						printf("port = %s\n", port.c_str());
-						
-						int fd = socket(AF_INET, SOCK_STREAM, 0);
+						// Create new lwIP PCB
+						PhySocket * new_sock = handleSocketProxy(sock, SOCK_STREAM);
+                        
+                        printf("new_sock = 0x%x\n", sock);
+                        printf("new_sock = 0x%x\n", new_sock);
+						if(!new_sock)
+							printf("Error while creating proxied-socket\n");
 
-						// Give new socket to ZTO I/O polling loop
-						ProxyConn *newproxyconn = new ProxyConn();
-						PhySocket * newsock = _phy.wrapSocket(fd, newproxyconn);
-						printf("socket() = %d\n", fd);
-						newproxyconn->fd = _phy.getDescriptor(sock);
-						printf(" conn->fd = %d\n", newproxyconn->fd);
-						_phy.setNotifyReadable(newsock, true);
-
-						if(fd < 0)
-							perror("socket");
-
+                        // Form address
 					    struct sockaddr_in addr; 
 					    memset(&addr, '0', sizeof(addr)); 
 					    addr.sin_family = AF_INET;
 					    addr.sin_port = Utils::hton((uint16_t)atoi(port.c_str()));
-						addr.sin_addr.s_addr = inet_addr(ip.c_str());
-						int err = connect(fd, (struct sockaddr*)&addr, sizeof(addr));
-						if(err < 0)
-							perror("connect");
+//						addr.sin_addr.s_addr = inet_addr(ip.c_str());
+                        addr.sin_addr.s_addr = inet_addr("10.5.5.2");
 
+						handleConnectProxy(sock, &addr);
 
 						// Convert connection err code into SOCKS-err-code
 						// X'00' succeeded
@@ -243,6 +253,9 @@ namespace ZeroTier
 						// reply[5] = 0; // BIND.ADDR
 						memcpy(&reply[5+domain_len], &port, 2); // PORT
 						_phy.streamSend(sock, reply, sizeof(reply));
+                        
+                        // Any further data activity on this PhySocket will be considered data to send
+                        conn->proxy_conn_state = SOCKS_COMPLETE;
 					}
 					// CONNECT
 				}
@@ -287,7 +300,6 @@ namespace ZeroTier
 					printf("ip = %s\n", ip.c_str());
 					printf("port = %s\n", port.c_str());
 
-					ProxyConn *newproxyconn = new ProxyConn();
 					int fd = socket(AF_INET, SOCK_DGRAM, 0);
 					if(fd < 0)
 						perror("socket");
@@ -301,7 +313,7 @@ namespace ZeroTier
 					int err = connect(fd, (struct sockaddr*)&addr, sizeof(addr));
 					if(err < 0)
 						perror("connect");
-					sockstate == SOCKS_UDP; // FIXME: This needs to be generalized and removed before production
+					conn->proxy_conn_state == SOCKS_UDP; // FIXME: This needs to be generalized and removed before production
 				}
 
 				if(addr_type == 1337)
@@ -313,7 +325,7 @@ namespace ZeroTier
 
 		// SOCKS_CONNECT_IPV4
 		/*
-		if(proxySockStates[sock] == SOCKS_CONNECT_IPV4)
+		if(pconn->proxy_conn_state == SOCKS_CONNECT_IPV4)
 		{
 			if(len == 4)
 			{
@@ -327,7 +339,11 @@ namespace ZeroTier
 
 	void NetconEthernetTap::phyOnTcpAccept(PhySocket *sockL,PhySocket *sockN,void **uptrL,void **uptrN,const struct sockaddr *from)
 	{
-		printf("phyOnTcpConnect(): sockN = 0x%x\n", sockN);	
+		printf("phyOnTcpAccept(): sockN = 0x%x\n", sockN);
+        Connection *newConn = new Connection();
+        newConn->sock = sockN;
+        _phy.setNotifyWritable(sockN, false);
+        _Connections.push_back(newConn);
 	}
 
 	void NetconEthernetTap::phyOnTcpConnect(PhySocket *sock,void **uptr,bool success)
@@ -346,9 +362,10 @@ namespace ZeroTier
 		printf("phyOnTcpClose(): 0x%x\n", sock);
 	}
 
-	void NetconEthernetTap::phyOnTcpWritable(PhySocket *sock,void **uptr) 
+	void NetconEthernetTap::phyOnTcpWritable(PhySocket *sock,void **uptr, bool lwip_invoked) 
 	{
-		printf("phyOnTcpWritable(): 0x%x\n", sock);
+		printf(" phyOnTcpWritable(): sock=0x%x\n", sock);
+		processReceivedData(sock,uptr,lwip_invoked);
 	}
 
 	// RX data on stream socks and send back over client sock's underlying fd
@@ -357,21 +374,21 @@ namespace ZeroTier
 		printf("phyOnFileDescriptorActivity(): 0x%x \n", sock);
 		if(readable)
 		{
-			ProxyConn *conn = (ProxyConn*)*uptr;
-			if(!conn){
-				printf("\t!conn");
-				return;
-			}
+			//ProxyConn *conn = (ProxyConn*)*uptr;
+			//if(!conn){
+			//	printf("\t!conn");
+			//	return;
+			//}
 			char buf[50];
 			memset(buf, 0, sizeof(buf));
 
 			printf("Activity(R)->socket() = %d\n", _phy.getDescriptor(sock));
-			printf("Activity(W)->socket() = %d\n", conn->fd);
+			//printf("Activity(W)->socket() = %d\n", conn->fd);
 			int n_read = read(_phy.getDescriptor(sock), buf, sizeof(buf));
-			printf("  read = %d\n", n_read);
-			int n_sent = write(conn->fd, buf, n_read);
-			printf("buf = %s\n", buf);
-			printf("  sent = %d\n", n_sent);
+			//printf("  read = %d\n", n_read);
+			//int n_sent = write(conn->fd, buf, n_read);
+			//printf("buf = %s\n", buf);
+			//printf("  sent = %d\n", n_sent);
 		}
 		if(writable)
 		{

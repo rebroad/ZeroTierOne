@@ -371,6 +371,9 @@ tcp_write(struct tcp_pcb *pcb, const void *arg, u16_t len, u8_t apiflags)
   err_t err;
   /* don't allocate segments bigger than half the maximum window we ever received */
   u16_t mss_local = LWIP_MIN(pcb->mss, pcb->snd_wnd_max/2);
+    
+    // Added to fix bug where mss_local was 0 - Joseph Henry
+    mss_local = mss_local == 0 ? pcb->mss : mss_local;
 
 #if LWIP_NETIF_TX_SINGLE_PBUF
   /* Always copy to try to create single pbufs for TX */
@@ -528,7 +531,7 @@ tcp_write(struct tcp_pcb *pcb, const void *arg, u16_t len, u8_t apiflags)
     u16_t chksum = 0;
     u8_t chksum_swapped = 0;
 #endif /* TCP_CHECKSUM_ON_COPY */
-
+      
     if (apiflags & TCP_WRITE_FLAG_COPY) {
       /* If copy is set, memory should be allocated and data copied
        * into pbuf */

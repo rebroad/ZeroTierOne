@@ -7,12 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		7C856DBF1C70B3EC00F34C96 /* Intercept.h in Headers */ = {isa = PBXBuildFile; fileRef = 7C856DBD1C70B3EC00F34C96 /* Intercept.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7C856DC01C70B3EC00F34C96 /* RPC.h in Headers */ = {isa = PBXBuildFile; fileRef = 7C856DBE1C70B3EC00F34C96 /* RPC.h */; settings = {ATTRIBUTES = (Public, ); }; };
-		7C856DC51C70B42F00F34C96 /* Intercept.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C856DC21C70B42F00F34C96 /* Intercept.c */; };
 		7C856DC61C70B42F00F34C96 /* RPC.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C856DC31C70B42F00F34C96 /* RPC.c */; };
-		7C856DC91C70B5B800F34C96 /* fishhook.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C856DC71C70B5B800F34C96 /* fishhook.c */; };
-		7C856DCA1C70B5B800F34C96 /* fishhook.h in Headers */ = {isa = PBXBuildFile; fileRef = 7C856DC81C70B5B800F34C96 /* fishhook.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7C98B2C61C8610C600C2A0AA /* OneServiceSetup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */; };
 		7CB608661C9B654800507A8B /* NetconProxy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CB608641C9B654800507A8B /* NetconProxy.cpp */; };
 		7CB608671C9B654800507A8B /* NetconProxy.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CB608651C9B654800507A8B /* NetconProxy.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -265,15 +261,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		7C856DBD1C70B3EC00F34C96 /* Intercept.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Intercept.h; path = ../../Intercept.h; sourceTree = "<group>"; };
 		7C856DBE1C70B3EC00F34C96 /* RPC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = RPC.h; path = ../../RPC.h; sourceTree = "<group>"; };
 		7C856DC11C70B42F00F34C96 /* common.inc.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = common.inc.c; path = ../../common.inc.c; sourceTree = "<group>"; };
-		7C856DC21C70B42F00F34C96 /* Intercept.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = Intercept.c; path = ../../Intercept.c; sourceTree = "<group>"; };
 		7C856DC31C70B42F00F34C96 /* RPC.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RPC.c; path = ../../RPC.c; sourceTree = "<group>"; };
-		7C856DC71C70B5B800F34C96 /* fishhook.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = fishhook.c; path = ../../fishhook.c; sourceTree = "<group>"; };
-		7C856DC81C70B5B800F34C96 /* fishhook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = fishhook.h; path = ../../fishhook.h; sourceTree = "<group>"; };
-		7CB608641C9B654800507A8B /* NetconProxy.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = NetconProxy.cpp; path = ../NetconProxy.cpp; sourceTree = "<group>"; };
-		7CB608651C9B654800507A8B /* NetconProxy.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = NetconProxy.hpp; path = ../NetconProxy.hpp; sourceTree = "<group>"; };
+		7CB608641C9B654800507A8B /* NetconProxy.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = NetconProxy.cpp; path = ../../NetconProxy.cpp; sourceTree = "<group>"; };
+		7CB608651C9B654800507A8B /* NetconProxy.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = NetconProxy.hpp; path = ../../NetconProxy.hpp; sourceTree = "<group>"; };
 		7CD698171C725E0300F21A9E /* libServiceSetup.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libServiceSetup.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OneServiceSetup.cpp; path = ../../OneServiceSetup.cpp; sourceTree = "<group>"; };
 		7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = OneServiceSetup.hpp; path = ../../OneServiceSetup.hpp; sourceTree = "<group>"; };
@@ -529,8 +521,6 @@
 		7CDB500C1C70A0BA00CC09EC = {
 			isa = PBXGroup;
 			children = (
-				7CB608641C9B654800507A8B /* NetconProxy.cpp */,
-				7CB608651C9B654800507A8B /* NetconProxy.hpp */,
 				7CDB50171C70A0BA00CC09EC /* Netcon-iOS */,
 				7CDB502C1C70A0BA00CC09EC /* Netcon-iOSTests */,
 				7CDB50371C70A0BA00CC09EC /* Netcon-iOSUITests */,
@@ -612,6 +602,8 @@
 		7CE6B37D1C70D01A00BEA5A3 /* ZeroTierOne */ = {
 			isa = PBXGroup;
 			children = (
+				7CB608641C9B654800507A8B /* NetconProxy.cpp */,
+				7CB608651C9B654800507A8B /* NetconProxy.hpp */,
 				7CE6B3731C70CF8900BEA5A3 /* LWIPStack.hpp */,
 				7CE6B3741C70CF8900BEA5A3 /* NetconEthernetTap.cpp */,
 				7CE6B3751C70CF8900BEA5A3 /* NetconEthernetTap.hpp */,
@@ -786,12 +778,8 @@
 		7CE6B4201C70D9D200BEA5A3 /* Intercept */ = {
 			isa = PBXGroup;
 			children = (
-				7C856DC71C70B5B800F34C96 /* fishhook.c */,
-				7C856DC81C70B5B800F34C96 /* fishhook.h */,
 				7C856DC11C70B42F00F34C96 /* common.inc.c */,
-				7C856DC21C70B42F00F34C96 /* Intercept.c */,
 				7C856DC31C70B42F00F34C96 /* RPC.c */,
-				7C856DBD1C70B3EC00F34C96 /* Intercept.h */,
 				7C856DBE1C70B3EC00F34C96 /* RPC.h */,
 			);
 			name = Intercept;
@@ -858,8 +846,6 @@
 				7CE6B3B71C70D1FC00BEA5A3 /* Topology.hpp in Headers */,
 				7CE6B3B81C70D1FC00BEA5A3 /* Utils.hpp in Headers */,
 				7CE6B3B91C70D1FC00BEA5A3 /* World.hpp in Headers */,
-				7C856DBF1C70B3EC00F34C96 /* Intercept.h in Headers */,
-				7C856DCA1C70B5B800F34C96 /* fishhook.h in Headers */,
 				7C856DC01C70B3EC00F34C96 /* RPC.h in Headers */,
 				7CE6B3801C70D14F00BEA5A3 /* ZeroTierOne.h in Headers */,
 				7CE6B4121C70D30C00BEA5A3 /* auth.h in Headers */,
@@ -1220,8 +1206,6 @@
 				7CE6B3DA1C70D26B00BEA5A3 /* Topology.cpp in Sources */,
 				7CE6B3DB1C70D26B00BEA5A3 /* Utils.cpp in Sources */,
 				7CE6B3BA1C70D23000BEA5A3 /* OneService.cpp in Sources */,
-				7C856DC91C70B5B800F34C96 /* fishhook.c in Sources */,
-				7C856DC51C70B42F00F34C96 /* Intercept.c in Sources */,
 				7C856DC61C70B42F00F34C96 /* RPC.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1532,6 +1516,7 @@
 				OTHER_CFLAGS = (
 					"-D__IOS__",
 					"-DVERBOSE",
+					"-DLWIP_DEBUG",
 				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
@@ -1540,6 +1525,7 @@
 					"-DNETCON_SERVICE",
 					"-DNETCON_INTERCEPT",
 					"-DVERBOSE",
+					"-DUSE_SOCKS_PROXY",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = ZeroTier.ZeroTierNetcon;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1572,6 +1558,7 @@
 				OTHER_CFLAGS = (
 					"-D__IOS__",
 					"-DVERBOSE",
+					"-DLWIP_DEBUG",
 				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
@@ -1580,6 +1567,7 @@
 					"-DNETCON_SERVICE",
 					"-DNETCON_INTERCEPT",
 					"-DVERBOSE",
+					"-DUSE_SOCKS_PROXY",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = ZeroTier.ZeroTierNetcon;
 				PRODUCT_NAME = "$(TARGET_NAME)";
