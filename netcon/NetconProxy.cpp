@@ -29,38 +29,32 @@
 #include "../osdep/Phy.hpp"
 #include "../node/Utils.hpp"
 
-//#include "common.inc.c"
-
-
 #include <string.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#define SOCKS_OPEN			0
-#define SOCKS_CONNECT_INIT	1
-#define SOCKS_CONNECT_IPV4	2
-#define SOCKS_UDP			3 // ?
+#define SOCKS_OPEN          0
+#define SOCKS_CONNECT_INIT  1
+#define SOCKS_CONNECT_IPV4  2
+#define SOCKS_UDP           3 // ?
 #define SOCKS_COMPLETE      4
 
-#define CONNECTION_TIMEOUT	8
+#define CONNECTION_TIMEOUT  8
 
 namespace ZeroTier
 {
 	void NetconEthernetTap::StartProxy()
 	{	
 		printf("StartProxy()\n");
-		// ref port 1080
 		proxyListenPort = 1337;
 		struct sockaddr_in in4;
 		memset(&in4,0,sizeof(in4));
 		in4.sin_family = AF_INET;
-		in4.sin_addr.s_addr = Utils::hton((uint32_t)0x00000000); // right now we just listen for TCP @127.0.0.1
+		in4.sin_addr.s_addr = Utils::hton((uint32_t)0x00000000); // right now we just listen for TCP @0.0.0.0
 		in4.sin_port = Utils::hton((uint16_t)proxyListenPort);
-		
-		printf("_phy.tcpListen\n");
 		proxyListenPhySocket = _phy.tcpListen((const struct sockaddr*)&in4,(void *)this);
 		sockstate = SOCKS_OPEN;
-    	printf("proxyListenPhySocket = 0x%x\n", proxyListenPhySocket);
+		printf("proxyListenPhySocket = 0x%x\n", proxyListenPhySocket);
 	}
 
 	void NetconEthernetTap::phyOnTcpData(PhySocket *sock,void **uptr,void *data,unsigned long len) 
@@ -90,18 +84,18 @@ namespace ZeroTier
 		if(conn->proxy_conn_state==SOCKS_UDP)
 		{
 			printf("SOCKS_UDP from client\n");
-			// +----+------+------+----------+----------+----------+
-			// |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
-			// +----+------+------+----------+----------+----------+
-			// | 2  |  1   |  1   | Variable |    2     | Variable |
-			// +----+------+------+----------+----------+----------+
+            // +----+------+------+----------+----------+----------+
+            // |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+            // +----+------+------+----------+----------+----------+
+            // | 2  |  1   |  1   | Variable |    2     | Variable |
+            // +----+------+------+----------+----------+----------+
 
 			int fragment_num = buf[2];
 			int addr_type = buf[3];
 		}
 
-		// SOCKS_OPEN
-		// +----+----------+----------+
+        // SOCKS_OPEN
+        // +----+----------+----------+
         // |VER | NMETHODS | METHODS  |
         // +----+----------+----------+
         // | 1  |    1     | 1 to 255 |
@@ -121,8 +115,8 @@ namespace ZeroTier
 				}
 				printf(" INFO <ver=%d, meth_len=%d, supp_meth=%d>\n", version, methodsLength, supportedMethod);
 
-				// Send METHOD selection msg
-				// +----+--------+
+                // Send METHOD selection msg
+                // +----+--------+
                 // |VER | METHOD |
                 // +----+--------+
                 // | 1  |   1    |
@@ -137,8 +131,8 @@ namespace ZeroTier
 			}
 		}
 
-		// SOCKS_CONNECT
-		// +----+-----+-------+------+----------+----------+
+        // SOCKS_CONNECT
+        // +----+-----+-------+------+----------+----------+
         // |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
         // +----+-----+-------+------+----------+----------+
         // | 1  |  1  | X'00' |  1   | Variable |    2     |
@@ -217,7 +211,7 @@ namespace ZeroTier
 					    memset(&addr, '0', sizeof(addr)); 
 					    addr.sin_family = AF_INET;
 					    addr.sin_port = Utils::hton((uint16_t)atoi(port.c_str()));
-//						addr.sin_addr.s_addr = inet_addr(ip.c_str());
+						// addr.sin_addr.s_addr = inet_addr(ip.c_str());
                         addr.sin_addr.s_addr = inet_addr("10.5.5.2");
 
 						handleConnectProxy(sock, &addr);
@@ -235,11 +229,11 @@ namespace ZeroTier
 						// X'09' to X'FF' unassigned
 
 						// SOCKS_CONNECT_REPLY
-						// +----+-----+-------+------+----------+----------+
-	        			// |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-	        			// +----+-----+-------+------+----------+----------+
-	        			// | 1  |  1  | X'00' |  1   | Variable |    2     |
-	        			// +----+-----+-------+------+----------+----------+
+                        // +----+-----+-------+------+----------+----------+
+                        // |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+                        // +----+-----+-------+------+----------+----------+
+                        // | 1  |  1  | X'00' |  1   | Variable |    2     |
+                        // +----+-----+-------+------+----------+----------+
 
 						char reply[len];
 						int addr_len = domain_len;
@@ -257,7 +251,7 @@ namespace ZeroTier
                         // Any further data activity on this PhySocket will be considered data to send
                         conn->proxy_conn_state = SOCKS_COMPLETE;
 					}
-					// CONNECT
+					// END CONNECT
 				}
 
 				// BIND Request
@@ -274,14 +268,14 @@ namespace ZeroTier
 					// PORT supplied should be port assigned by server in previous msg
 					printf("UDP association request\n");
 
-					// SOCKS_CONNECT (Cont.)
-					// +----+-----+-------+------+----------+----------+
-			        // |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-			        // +----+-----+-------+------+----------+----------+
-			        // | 1  |  1  | X'00' |  1   | Variable |    2     |
-			        // +----+-----+-------+------+----------+----------+
+                    // SOCKS_CONNECT (Cont.)
+                    // +----+-----+-------+------+----------+----------+
+                    // |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+                    // +----+-----+-------+------+----------+----------+
+                    // | 1  |  1  | X'00' |  1   | Variable |    2     |
+                    // +----+-----+-------+------+----------+----------+
 
-					// NOTE: Similar to cmd==1, should consolidate logic
+                    // NOTE: Similar to cmd==1, should consolidate logic
 
 					int domain_len = buf[4];
 					// Grab Addr:Port
@@ -313,37 +307,24 @@ namespace ZeroTier
 					int err = connect(fd, (struct sockaddr*)&addr, sizeof(addr));
 					if(err < 0)
 						perror("connect");
-					conn->proxy_conn_state == SOCKS_UDP; // FIXME: This needs to be generalized and removed before production
+					conn->proxy_conn_state == SOCKS_UDP;
 				}
 
-				if(addr_type == 1337)
-				{
-					// IPv6
-				}
+				//if(addr_type == 1337)
+				//{
+				//	// IPv6
+				//}
 			}
 		}
-
-		// SOCKS_CONNECT_IPV4
-		/*
-		if(pconn->proxy_conn_state == SOCKS_CONNECT_IPV4)
-		{
-			if(len == 4)
-			{
-
-			}
-		}
-		*/
-
 	}
-
 
 	void NetconEthernetTap::phyOnTcpAccept(PhySocket *sockL,PhySocket *sockN,void **uptrL,void **uptrN,const struct sockaddr *from)
 	{
 		printf("phyOnTcpAccept(): sockN = 0x%x\n", sockN);
-        Connection *newConn = new Connection();
-        newConn->sock = sockN;
-        _phy.setNotifyWritable(sockN, false);
-        _Connections.push_back(newConn);
+		Connection *newConn = new Connection();
+		newConn->sock = sockN;
+		_phy.setNotifyWritable(sockN, false);
+		_Connections.push_back(newConn);
 	}
 
 	void NetconEthernetTap::phyOnTcpConnect(PhySocket *sock,void **uptr,bool success)
@@ -355,11 +336,19 @@ namespace ZeroTier
 	void NetconEthernetTap::phyOnDatagram(PhySocket *sock,void **uptr,const struct sockaddr *from,void *data,unsigned long len)
 	{
 		printf("phyOnDatagram(): \n");
+		if(len) {
+			printf("data = %s, len = %d\n", data, len);
+			memcpy((&conn->txbuf)+(conn->txsz), buf, len);
+			conn->txsz += len;
+			handleWrite(conn);
+		}
 	}
 
 	void NetconEthernetTap::phyOnTcpClose(PhySocket *sock,void **uptr) 
 	{
 		printf("phyOnTcpClose(): 0x%x\n", sock);
+		Mutex::Lock _l(_tcpconns_m);
+		closeConnection(sock);
 	}
 
 	void NetconEthernetTap::phyOnTcpWritable(PhySocket *sock,void **uptr, bool lwip_invoked) 
@@ -381,7 +370,6 @@ namespace ZeroTier
 			//}
 			char buf[50];
 			memset(buf, 0, sizeof(buf));
-
 			printf("Activity(R)->socket() = %d\n", _phy.getDescriptor(sock));
 			//printf("Activity(W)->socket() = %d\n", conn->fd);
 			int n_read = read(_phy.getDescriptor(sock), buf, sizeof(buf));

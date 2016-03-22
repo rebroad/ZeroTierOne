@@ -452,11 +452,6 @@ void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwi
 		_rx_buf_m.lock();
 	}
 	Connection *conn = getConnection(sock);	
-
-	printf("    conn->rxsz = %d\n", conn->rxsz);
-	printf("    conn = %x\n", conn);
-
-
 	if(conn && conn->rxsz) {
 		int n = _phy.streamSend(conn->sock, conn->rxbuf, conn->rxsz);
 		printf("n = %d\n", n);
