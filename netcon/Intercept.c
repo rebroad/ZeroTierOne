@@ -315,9 +315,9 @@ pthread_key_t thr_id_key;
 #if !defined(__ANDROID__)
     ssize_t recvfrom(RECVFROM_SIG)
     {
-        dwr(MSG_DEBUG, " recvfrom(%d)\n", socket);
+        //dwr(MSG_DEBUG, " recvfrom(%d)\n", socket);
         //if(!set_up_intercept())
-            return realrecvfrom(socket, buffer, length, flags, address, address_len);
+        return realrecvfrom(socket, buffer, length, flags, address, address_len);
         
         ssize_t err;
         int sock_type;
@@ -631,8 +631,6 @@ pthread_key_t thr_id_key;
         d[2] = (ip >> 16) & 0xFF;
         d[3] = (ip >> 24) & 0xFF;
         dwr(MSG_DEBUG,"bind(): %d.%d.%d.%d: %d\n", d[0],d[1],d[2],d[3], ntohs(port));
-        //return realbind(sockfd, addr, addrlen);
-
 
         int sock_type;
         socklen_t sock_type_len = sizeof(sock_type);

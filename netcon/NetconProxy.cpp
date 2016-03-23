@@ -131,8 +131,8 @@ namespace ZeroTier
             // | 2  |  1   |  1   | Variable |    2     | Variable |
             // +----+------+------+----------+----------+----------+
 
-			int fragment_num = buf[2];
-			int addr_type = buf[3];
+			//int fragment_num = buf[2];
+			//int addr_type = buf[3];
 		}
 
         // SOCKS_OPEN
@@ -196,7 +196,6 @@ namespace ZeroTier
 					{
 						//printf("IPv4\n");
 						int raw_addr;
-						struct sockaddr *dst;
 						memcpy(&raw_addr, &buf[4], 4);
 						char newaddr[16];
 						inet_ntop(AF_INET, &raw_addr, (char*)newaddr, INET_ADDRSTRLEN);
@@ -276,8 +275,8 @@ namespace ZeroTier
 				if(cmd == 2)
 				{
 					printf("BIND request\n");
-					char raw_addr[15];
-					int bind_port;
+					//char raw_addr[15];
+					//int bind_port;
 				}
 
 				// UDP ASSOCIATION Request
@@ -390,11 +389,11 @@ namespace ZeroTier
 			//	printf("\t!conn");
 			//	return;
 			//}
-			char buf[50];
-			memset(buf, 0, sizeof(buf));
-			printf("Activity(R)->socket() = %d\n", _phy.getDescriptor(sock));
+			//char buf[50];
+			//memset(buf, 0, sizeof(buf));
+			//printf("Activity(R)->socket() = %d\n", _phy.getDescriptor(sock));
 			//printf("Activity(W)->socket() = %d\n", conn->fd);
-			int n_read = read(_phy.getDescriptor(sock), buf, sizeof(buf));
+			//int n_read = read(_phy.getDescriptor(sock), buf, sizeof(buf));
 			//printf("  read = %d\n", n_read);
 			//int n_sent = write(conn->fd, buf, n_read);
 			//printf("buf = %s\n", buf);
