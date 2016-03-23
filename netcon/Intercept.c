@@ -84,8 +84,9 @@ static char *netpath = (char *)0;
 #define INTERCEPT_ENABLED         111
 #define INTERCEPT_DISABLED        222
 #define SOCKS_PROXY_IGNORE_PORT   1337
-#define MEDIA_SERVER_PORT         554
-#define MEDIA_CLIENT_PORT_MIN     10000
+#define ZT_IGNORE_PORT            3112
+#define MEDIA_SERVER_PORT         8000
+#define MEDIA_CLIENT_PORT_MIN     40000
 #define MEDIA_CLIENT_PORT_MAX     65535
     
 pthread_key_t thr_id_key;
@@ -98,6 +99,7 @@ pthread_key_t thr_id_key;
 #ifdef __IOS__
     void fishhook_rebind_symbols()
     {
+        /*
         dwr(MSG_DEBUG, "[%d] fishhook_rebind_symbols()\n", pthread_mach_thread_np(pthread_self()));
         rebind_symbols((struct rebinding[1]){{"setsockopt", (int(*)(SETSOCKOPT_SIG))&setsockopt, (void *)&realsetsockopt}}, 1);
         rebind_symbols((struct rebinding[1]){{"getsockopt", (int(*)(GETSOCKOPT_SIG))&getsockopt, (void *)&realgetsockopt}}, 1);
@@ -112,6 +114,7 @@ pthread_key_t thr_id_key;
         rebind_symbols((struct rebinding[1]){{"sendmsg", (int(*)(SENDMSG_SIG))&sendmsg, (void *)&realsendmsg}}, 1);
         rebind_symbols((struct rebinding[1]){{"recvfrom", (int(*)(RECVFROM_SIG))&recvfrom, (void *)&realrecvfrom}}, 1);
         rebind_symbols((struct rebinding[1]){{"recvmsg", (int(*)(RECVMSG_SIG))&recvmsg, (void *)&realrecvmsg}}, 1);
+         */
     }
 #endif
 
@@ -180,27 +183,29 @@ pthread_key_t thr_id_key;
     
     // Set RPC socket path and initialize RPC mutex
     int set_up_intercept() {
+        printf("set_up_intercept():\n");
         if(!realconnect){
-#if defined(__IOS__)
-           fishhook_rebind_symbols();
-#else
+//#if defined(__IOS__)
+//           fishhook_rebind_symbols();
+//#else
             load_symbols();
-#endif
+//#endif
         }        
 #if defined(__IOS__)
+        netpath = "ZeroTier/One/nc_e5cd7a9e1c7d408c";
         void *spec = pthread_getspecific(thr_id_key);
         int thr_id = spec != NULL ? *((int*)spec) : -1;
         // dwr(MSG_DEBUG, "set_up_intercept(): thr_id = %d\n", thr_id);
         
         if(thr_id == INTERCEPT_ENABLED) {
             if (!netpath) {
-                netpath = "ZeroTier/One/nc_e5cd7a9e1c3511dd"; // Path allowed on iOS devices
+                netpath = "ZeroTier/One/nc_e5cd7a9e1c7d408c"; // Path allowed on iOS devices
                 rpc_mutex_init();
             }
             return 1;
         }
 #elif defined(__ANDROID__)
-        netpath = "ZeroTier/One/nc_e5cd7a9e1c3511dd";
+        netpath = "ZeroTier/One/e5cd7a9e1c7d408c";
         return 1;
 #else
         if (!netpath) {
@@ -626,6 +631,8 @@ pthread_key_t thr_id_key;
         d[2] = (ip >> 16) & 0xFF;
         d[3] = (ip >> 24) & 0xFF;
         dwr(MSG_DEBUG,"bind(): %d.%d.%d.%d: %d\n", d[0],d[1],d[2],d[3], ntohs(port));
+        //return realbind(sockfd, addr, addrlen);
+
 
         int sock_type;
         socklen_t sock_type_len = sizeof(sock_type);
@@ -635,8 +642,14 @@ pthread_key_t thr_id_key;
         }
 
 #ifdef __IOS__
+        
+        if(ntohs(port) < MEDIA_CLIENT_PORT_MIN)
+            return realbind(sockfd, addr, addrlen);
+        
         // FIXME: For test app, attempt to detect if we're connecting to a local SOCKS proxy
-        if(ntohs(port) == SOCKS_PROXY_IGNORE_PORT && (d[0] != 0 && d[1] != 0 && d[2] != 0 && d[3] != 0) && !(sock_type && SOCK_DGRAM)) {
+        if((ntohs(port) == SOCKS_PROXY_IGNORE_PORT && (d[0] != 0 && d[1] != 0 && d[2] != 0 && d[3] != 0) ||
+            ntohs(port) == ZT_IGNORE_PORT && (d[0] != 0 && d[1] != 0 && d[2] != 0 && d[3] != 0))
+           && !(sock_type & SOCK_DGRAM)) {
             int newsock = socket(AF_INET, SOCK_STREAM, 0);
             printf("newsock = %d\n", newsock);
             if (dup2(newsock, sockfd) == -1) {
@@ -646,7 +659,7 @@ pthread_key_t thr_id_key;
         }
         
         // FIXME: For test app, attempt to detect UDP listen socket
-        if(sock_type && SOCK_DGRAM && (ntohs(port) > MEDIA_CLIENT_PORT_MIN && ntohs(port) < MEDIA_CLIENT_PORT_MAX)) {
+        if((sock_type & SOCK_DGRAM) && ((ntohs(port) > MEDIA_CLIENT_PORT_MIN && ntohs(port) < MEDIA_CLIENT_PORT_MAX) || ntohs(port) <= 1)) {
             // Create new SOCK_DGRAM socket (we want to intercept this one!)
             struct socket_st _rpc_st;
             _rpc_st.socket_family = AF_INET;

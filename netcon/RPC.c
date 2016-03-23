@@ -56,7 +56,7 @@ extern "C" {
     
 #define SERVICE_CONNECT_ATTEMPTS 30
     
-    /*
+/*
 #define CONNECT_SIG int __fd, const struct sockaddr * __addr, socklen_t __len
 #define SOCKET_SIG int socket_family, int socket_type, int protocol
 

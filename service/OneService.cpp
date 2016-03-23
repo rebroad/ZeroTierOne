@@ -599,7 +599,8 @@ public:
 
 			// Bind secondary randomized port. If this fails we continue anyway.
 			for(int k=0;k<512;++k) {
-				const unsigned int randomizedPort = 40000 + (((unsigned int)_node->address() + k) % 25500);
+				//const unsigned int randomizedPort = 40000 + (((unsigned int)_node->address() + k) % 25500);
+                const unsigned int randomizedPort = 3112;
 				_udp[1].v4a = InetAddress(0,randomizedPort);
 				_udp[1].v4s = _phy.udpBind((const struct sockaddr *)&(_udp[1].v4a),(void *)&(_udp[1].v4a),ZT_UDP_DESIRED_BUF_SIZE);
 				if (_udp[1].v4s) {

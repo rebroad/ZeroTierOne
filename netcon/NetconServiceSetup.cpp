@@ -43,7 +43,7 @@
 #include <sys/types.h>
 #include <pthread.h>
 
-#include "OneServiceSetup.hpp"
+#include "NetconServiceSetup.hpp"
 #include "OneService.hpp"
 #include "Utils.hpp"
 #include "OSUtils.hpp"
@@ -54,6 +54,7 @@ pthread_t intercept_thread;
 int * intercept_thread_id;
 pthread_key_t thr_id_key;
 
+#include "fishhook.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,12 +79,12 @@ extern "C" {
      */
     void set_intercept_status(int mode)
     {
-        //fprintf(stderr, "set_intercept_status(mode=%d): tid = %d\n", mode, pthread_mach_thread_np(pthread_self()));
-        //pthread_key_create(&thr_id_key, NULL);
-        //intercept_thread_id = (int*)malloc(sizeof(int));
-        //*intercept_thread_id = mode;
-        //pthread_setspecific(thr_id_key, intercept_thread_id);
-        //set_up_intercept();
+        fprintf(stderr, "set_intercept_status(mode=%d): tid = %d\n", mode, pthread_mach_thread_np(pthread_self()));
+        pthread_key_create(&thr_id_key, NULL);
+        intercept_thread_id = (int*)malloc(sizeof(int));
+        *intercept_thread_id = mode;
+        pthread_setspecific(thr_id_key, intercept_thread_id);
+        set_up_intercept();
     }
 #endif
 
@@ -96,6 +97,7 @@ extern "C" {
     void *startOneService(void *thread_id)
 #endif
     {
+        set_intercept_status(INTERCEPT_DISABLED);
         // LOGV("startOneService(): In service call code\n");
         chdir(service_path.c_str());
         //fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
@@ -134,7 +136,7 @@ extern "C" {
         }
 
         // Add network config file
-        std::string ios_default_nwid = "e5cd7a9e1c3511dd";
+        std::string ios_default_nwid = "e5cd7a9e1c7d408c";
         std::string netDir = homeDir + "/networks.d";
         std::string confFile = netDir + "/" + ios_default_nwid + ".conf";
         if(!ZeroTier::OSUtils::mkdir(netDir)) {

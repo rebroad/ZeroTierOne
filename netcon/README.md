@@ -212,3 +212,12 @@ After you've created your network and placed its blank config file in *netcon/do
     ./test.sh httpd
 
 It's useful to note that the keyword *httpd* in this example is merely a substring for a test name, this means that if we replaced it with *x86_64* or *fc23*, it would run all unit tests for *x86_64* systems or *Fedora 23* respectively.
+
+# Mobile App Embedding
+
+API               | Hookable      | Proxy-able   |
+----------------- | ------------- | ------------ |
+iOS (NSStream)    |      NO       |     YES      |
+iOS (BSD socket)  |      YES      |     NO       |
+Android (socket)  | Not reliably  |     NO       |
+Android (Socket)  | Not reliably  |     YES      |

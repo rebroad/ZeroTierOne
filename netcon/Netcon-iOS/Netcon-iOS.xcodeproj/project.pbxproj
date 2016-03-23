@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7C1E5C641CA2B1AB0023C4C2 /* Intercept.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C1E5C621CA2B1AB0023C4C2 /* Intercept.c */; };
+		7C1E5C651CA2B1AB0023C4C2 /* Intercept.h in Headers */ = {isa = PBXBuildFile; fileRef = 7C1E5C631CA2B1AB0023C4C2 /* Intercept.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		7C2E626F1CA29DCB001836D6 /* NetconServiceSetup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7C2E626D1CA29DCB001836D6 /* NetconServiceSetup.cpp */; };
 		7C856DC01C70B3EC00F34C96 /* RPC.h in Headers */ = {isa = PBXBuildFile; fileRef = 7C856DBE1C70B3EC00F34C96 /* RPC.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		7C856DC61C70B42F00F34C96 /* RPC.c in Sources */ = {isa = PBXBuildFile; fileRef = 7C856DC31C70B42F00F34C96 /* RPC.c */; };
-		7C98B2C61C8610C600C2A0AA /* OneServiceSetup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */; };
 		7CB608661C9B654800507A8B /* NetconProxy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7CB608641C9B654800507A8B /* NetconProxy.cpp */; };
-		7CB608671C9B654800507A8B /* NetconProxy.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CB608651C9B654800507A8B /* NetconProxy.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CD698201C725E2800F21A9E /* libServiceSetup.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CD698171C725E0300F21A9E /* libServiceSetup.a */; };
-		7CD698271C72651B00F21A9E /* OneServiceSetup.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */; settings = {ATTRIBUTES = (Public, ); }; };
 		7CD6982A1C72655300F21A9E /* libServiceSetup.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7CD698171C725E0300F21A9E /* libServiceSetup.a */; };
 		7CDB50191C70A0BA00CC09EC /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB50181C70A0BA00CC09EC /* AppDelegate.swift */; };
 		7CDB501B1C70A0BA00CC09EC /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB501A1C70A0BA00CC09EC /* ViewController.swift */; };
@@ -261,14 +261,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		7C1E5C621CA2B1AB0023C4C2 /* Intercept.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = Intercept.c; path = ../../Intercept.c; sourceTree = "<group>"; };
+		7C1E5C631CA2B1AB0023C4C2 /* Intercept.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Intercept.h; path = ../../Intercept.h; sourceTree = "<group>"; };
+		7C2E626D1CA29DCB001836D6 /* NetconServiceSetup.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NetconServiceSetup.cpp; path = ../../NetconServiceSetup.cpp; sourceTree = "<group>"; };
+		7C2E626E1CA29DCB001836D6 /* NetconServiceSetup.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = NetconServiceSetup.hpp; path = ../../NetconServiceSetup.hpp; sourceTree = "<group>"; };
 		7C856DBE1C70B3EC00F34C96 /* RPC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = RPC.h; path = ../../RPC.h; sourceTree = "<group>"; };
 		7C856DC11C70B42F00F34C96 /* common.inc.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = common.inc.c; path = ../../common.inc.c; sourceTree = "<group>"; };
 		7C856DC31C70B42F00F34C96 /* RPC.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RPC.c; path = ../../RPC.c; sourceTree = "<group>"; };
 		7CB608641C9B654800507A8B /* NetconProxy.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = NetconProxy.cpp; path = ../../NetconProxy.cpp; sourceTree = "<group>"; };
-		7CB608651C9B654800507A8B /* NetconProxy.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = NetconProxy.hpp; path = ../../NetconProxy.hpp; sourceTree = "<group>"; };
 		7CD698171C725E0300F21A9E /* libServiceSetup.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libServiceSetup.a; sourceTree = BUILT_PRODUCTS_DIR; };
-		7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OneServiceSetup.cpp; path = ../../OneServiceSetup.cpp; sourceTree = "<group>"; };
-		7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; name = OneServiceSetup.hpp; path = ../../OneServiceSetup.hpp; sourceTree = "<group>"; };
 		7CDB50151C70A0BA00CC09EC /* Netcon-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Netcon-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CDB50181C70A0BA00CC09EC /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7CDB501A1C70A0BA00CC09EC /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -512,8 +513,8 @@
 		7CD698181C725E0300F21A9E /* ServiceSetup */ = {
 			isa = PBXGroup;
 			children = (
-				7CD698231C725EDE00F21A9E /* OneServiceSetup.cpp */,
-				7CD698241C725EDE00F21A9E /* OneServiceSetup.hpp */,
+				7C2E626D1CA29DCB001836D6 /* NetconServiceSetup.cpp */,
+				7C2E626E1CA29DCB001836D6 /* NetconServiceSetup.hpp */,
 			);
 			path = ServiceSetup;
 			sourceTree = "<group>";
@@ -603,7 +604,6 @@
 			isa = PBXGroup;
 			children = (
 				7CB608641C9B654800507A8B /* NetconProxy.cpp */,
-				7CB608651C9B654800507A8B /* NetconProxy.hpp */,
 				7CE6B3731C70CF8900BEA5A3 /* LWIPStack.hpp */,
 				7CE6B3741C70CF8900BEA5A3 /* NetconEthernetTap.cpp */,
 				7CE6B3751C70CF8900BEA5A3 /* NetconEthernetTap.hpp */,
@@ -778,6 +778,8 @@
 		7CE6B4201C70D9D200BEA5A3 /* Intercept */ = {
 			isa = PBXGroup;
 			children = (
+				7C1E5C621CA2B1AB0023C4C2 /* Intercept.c */,
+				7C1E5C631CA2B1AB0023C4C2 /* Intercept.h */,
 				7C856DC11C70B42F00F34C96 /* common.inc.c */,
 				7C856DC31C70B42F00F34C96 /* RPC.c */,
 				7C856DBE1C70B3EC00F34C96 /* RPC.h */,
@@ -792,7 +794,6 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7CB608671C9B654800507A8B /* NetconProxy.hpp in Headers */,
 				7CE6B3891C70D1FA00BEA5A3 /* http_parser.h in Headers */,
 				7CE6B38A1C70D1FA00BEA5A3 /* lz4.h in Headers */,
 				7CE6B38B1C70D1FA00BEA5A3 /* LWIPStack.hpp in Headers */,
@@ -860,9 +861,9 @@
 				7CE6B41B1C70D30C00BEA5A3 /* ppp_impl.h in Headers */,
 				7CE6B41C1C70D30C00BEA5A3 /* ppp.h in Headers */,
 				7CE6B41D1C70D30C00BEA5A3 /* pppdebug.h in Headers */,
+				7C1E5C651CA2B1AB0023C4C2 /* Intercept.h in Headers */,
 				7CE6B41E1C70D30C00BEA5A3 /* randm.h in Headers */,
 				7CE6B41F1C70D30C00BEA5A3 /* vj.h in Headers */,
-				7CD698271C72651B00F21A9E /* OneServiceSetup.hpp in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1083,7 +1084,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7C98B2C61C8610C600C2A0AA /* OneServiceSetup.cpp in Sources */,
+				7C2E626F1CA29DCB001836D6 /* NetconServiceSetup.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1117,6 +1118,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7C1E5C641CA2B1AB0023C4C2 /* Intercept.c in Sources */,
 				7CB608661C9B654800507A8B /* NetconProxy.cpp in Sources */,
 				7CE6B3DC1C70D2EF00BEA5A3 /* auth.c in Sources */,
 				7CE6B3DD1C70D2EF00BEA5A3 /* chap.c in Sources */,

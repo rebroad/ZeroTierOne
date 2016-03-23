@@ -60,7 +60,7 @@
 
 
 #include "common.inc.c"
-#include "OneServiceSetup.hpp"
+#include "NetconServiceSetup.hpp"
 
 void dwr(int level, const char *fmt, ... );
 
@@ -327,6 +327,7 @@ void NetconEthernetTap::threadMain()
 		if (since_status >= STATUS_TMR_INTERVAL) {
 			prev_status_time = now;
             
+            /*
 			for(size_t i=0;i<_Connections.size();++i) {
 				if(!_Connections[i]->sock || _Connections[i]->type != SOCK_STREAM)
 					continue;
@@ -350,6 +351,7 @@ void NetconEthernetTap::threadMain()
 					phyOnUnixData(_Connections[i]->sock,_phy.getuptr(_Connections[i]->sock),&tmpbuf,n);
 				}		
 			}
+             */
              
 		}
 		// Main TCP/ETHARP timer section
@@ -390,6 +392,7 @@ Connection *NetconEthernetTap::getConnection(PhySocket *sock)
 void NetconEthernetTap::closeConnection(PhySocket *sock)
 {
     dwr(MSG_DEBUG, "closeConnection(0x%x):\n", sock);
+    return;
 	Mutex::Lock _l(_close_m);
 	// Here we assume _tcpconns_m is already locked by caller
 	if(!sock) {
@@ -446,7 +449,7 @@ void NetconEthernetTap::phyOnUnixClose(PhySocket *sock,void **uptr) {
 
 void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwip_invoked)
 {
-	dwr(MSG_DEBUG,"processReceivedData(): lwip_invoked = %d\n", lwip_invoked);
+	//dwr(MSG_DEBUG,"processReceivedData(): lwip_invoked = %d\n", lwip_invoked);
 	if(!lwip_invoked) {
 		_tcpconns_m.lock();
 		_rx_buf_m.lock();
@@ -649,7 +652,7 @@ int NetconEthernetTap::sendReturnValue(PhySocket *sock, int retval, int _errno =
 }
 int NetconEthernetTap::sendReturnValue(int fd, int retval, int _errno = 0)
 {
-#if !defined(USE_SOCKS_PROXY)
+//#if !defined(USE_SOCKS_PROXY)
 	dwr(MSG_DEBUG," sendReturnValue(): fd = %d, retval = %d, errno = %d\n", fd, retval, _errno);
 	int sz = sizeof(char) + sizeof(retval) + sizeof(errno);
 	char retmsg[sz];
@@ -658,9 +661,9 @@ int NetconEthernetTap::sendReturnValue(int fd, int retval, int _errno = 0)
 	memcpy(&retmsg[1], &retval, sizeof(retval));
 	memcpy(&retmsg[1]+sizeof(retval), &_errno, sizeof(_errno));
 	return write(fd, &retmsg, sz);
-#else
-    return 1;
-#endif
+//#else
+//    return 1;
+//#endif
 }
 
 void NetconEthernetTap::unloadRPC(void *data, pid_t &pid, pid_t &tid, 
@@ -836,8 +839,8 @@ err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *
 			l->tap->phyOnTcpWritable(l->conn->sock, NULL, true);
 		#else
 			l->tap->phyOnUnixWritable(l->conn->sock, NULL, true);
+        l->tap->_phy.setNotifyWritable(l->conn->sock, true);
 		#endif
-		l->tap->_phy.setNotifyWritable(l->conn->sock, true);
 	}
 	l->tap->lwipstack->__pbuf_free(q);
 	return ERR_OK;
@@ -978,6 +981,7 @@ void NetconEthernetTap::handleBind(PhySocket *sock, PhySocket *rpcSock, void **u
 	Mutex::Lock _l(_tcpconns_m);
 	struct sockaddr_in *rawAddr = (struct sockaddr_in *) &bind_rpc->addr;
 	int err, port = lwipstack->__lwip_ntohs(rawAddr->sin_port);
+    //port -= 1;
 	ip_addr_t connAddr;
 	connAddr.addr = *((u32_t *)_ips[0].rawIpData());
 	Connection *conn = getConnection(sock);
