@@ -327,7 +327,6 @@ void NetconEthernetTap::threadMain()
 		if (since_status >= STATUS_TMR_INTERVAL) {
 			prev_status_time = now;
             
-            /*
 			for(size_t i=0;i<_Connections.size();++i) {
 				if(!_Connections[i]->sock || _Connections[i]->type != SOCK_STREAM)
 					continue;
@@ -351,8 +350,6 @@ void NetconEthernetTap::threadMain()
 					phyOnUnixData(_Connections[i]->sock,_phy.getuptr(_Connections[i]->sock),&tmpbuf,n);
 				}		
 			}
-             */
-             
 		}
 		// Main TCP/ETHARP timer section
 		if (since_tcp >= ZT_LWIP_TCP_TIMER_INTERVAL) {
@@ -392,7 +389,6 @@ Connection *NetconEthernetTap::getConnection(PhySocket *sock)
 void NetconEthernetTap::closeConnection(PhySocket *sock)
 {
     dwr(MSG_DEBUG, "closeConnection(0x%x):\n", sock);
-    return;
 	Mutex::Lock _l(_close_m);
 	// Here we assume _tcpconns_m is already locked by caller
 	if(!sock) {
@@ -456,14 +452,16 @@ void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwi
 	}
 	Connection *conn = getConnection(sock);	
 	if(conn && conn->rxsz) {
-		int n = _phy.streamSend(conn->sock, conn->rxbuf, conn->rxsz);
-		printf("n = %d\n", n);
+		long n = _phy.streamSend(conn->sock, conn->rxbuf, conn->rxsz);
+		printf("n = %lu\n", n);
 		if(n > 0) {
 			if(conn->rxsz-n > 0)
 				memcpy(conn->rxbuf, conn->rxbuf+n, conn->rxsz-n);
 		  	conn->rxsz -= n;
-            if(conn->type==SOCK_DGRAM)
+            if(conn->type==SOCK_DGRAM){
                 conn->unread_udp_packet = false;
+                _phy.setNotifyWritable(conn->sock, false);
+            }
             //dwr(MSG_DEBUG, "phyOnUnixWritable(): tid = %d\n", pthread_mach_thread_np(pthread_self()));
             if(conn->type==SOCK_STREAM) { // Only acknolwedge receipt of TCP packets
                 lwipstack->__tcp_recved(conn->TCP_pcb, n);
@@ -476,6 +474,10 @@ void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwi
 			_phy.setNotifyWritable(conn->sock, false);
 		}
 	}
+    // If everything on the buffer has been written
+    if(conn->rxsz == 0) {
+        _phy.setNotifyWritable(conn->sock, false);
+    }
 	if(!lwip_invoked) {
 		_tcpconns_m.unlock();
 		_rx_buf_m.unlock();
@@ -485,7 +487,7 @@ void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwi
 
 void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_invoked)
 {
-	dwr(MSG_DEBUG," phyOnUnixWritable(): sock=0x%x\n", sock);
+	dwr(MSG_DEBUG," phyOnUnixWritable(): sock=0x%x, lwip_invoked = %d\n", sock, lwip_invoked);
 	processReceivedData(sock,uptr,lwip_invoked);
 }
 
@@ -839,8 +841,8 @@ err_t NetconEthernetTap::nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *
 			l->tap->phyOnTcpWritable(l->conn->sock, NULL, true);
 		#else
 			l->tap->phyOnUnixWritable(l->conn->sock, NULL, true);
-        l->tap->_phy.setNotifyWritable(l->conn->sock, true);
 		#endif
+        //l->tap->_phy.setNotifyWritable(l->conn->sock, true);
 	}
 	l->tap->lwipstack->__pbuf_free(q);
 	return ERR_OK;

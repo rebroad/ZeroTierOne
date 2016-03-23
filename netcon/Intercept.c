@@ -315,8 +315,8 @@ pthread_key_t thr_id_key;
 #if !defined(__ANDROID__)
     ssize_t recvfrom(RECVFROM_SIG)
     {
-        //dwr(MSG_DEBUG, " recvfrom(%d)\n", socket);
-        if(!set_up_intercept())
+        dwr(MSG_DEBUG, " recvfrom(%d)\n", socket);
+        //if(!set_up_intercept())
             return realrecvfrom(socket, buffer, length, flags, address, address_len);
         
         ssize_t err;
