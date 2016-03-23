@@ -144,7 +144,7 @@ class ViewController: UIViewController {
         // FIXME: We use this to get a path for the ZeroTierOne service to use, this should be done differently for production
         let path = NSSearchPathForDirectoriesInDomains(NSSearchPathDirectory.DocumentDirectory, NSSearchPathDomainMask.UserDomainMask, true)
         //disable_intercept() // We don't want the ZeroTier service to use intercepted calls
-        print("\n\nstart_service()\n")
+        print("start_service()\n")
         start_service(path[0])
     }
     

@@ -239,7 +239,7 @@ void NetconEthernetTap::put(const MAC &from,const MAC &to,unsigned int etherType
 	ethhdr.type = Utils::hton((uint16_t)etherType);
 
 	// We allocate a pbuf chain of pbufs from the pool.
-	p = lwipstack->__pbuf_alloc(PBUF_RAW, len+sizeof(struct eth_hdr), PBUF_POOL);
+	p = lwipstack->__pbuf_alloc(PBUF_RAW, len+sizeof(struct eth_hdr), PBUF_RAM);
 
 	if (p != NULL) {
 		const char *dataptr = reinterpret_cast<const char *>(data);
@@ -1142,7 +1142,7 @@ int NetconEthernetTap::handleConnectProxy(PhySocket *sock, struct sockaddr_in *r
 {
     dwr(MSG_DEBUG, "handleConnectProxy()\n");
     Mutex::Lock _l(_tcpconns_m);
-	int port = 80;
+    int port = rawAddr->sin_port;
 	ip_addr_t connAddr = convert_ip(rawAddr);
     int err = 0;
 

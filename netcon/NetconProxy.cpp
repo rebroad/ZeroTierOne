@@ -41,6 +41,21 @@
 
 #define CONNECTION_TIMEOUT  8
 
+#define IDX_VERSION         0
+#define IDX_COMMAND         1
+#define IDX_METHOD          1
+#define IDX_FRAG            1
+#define IDX_ERROR_CODE      1
+#define IDX_NMETHODS        1
+#define IDX_METHODS         2 // Supported methods
+#define IDX_ATYP            3
+#define IDX_DST_ADDR        4 // L:D where L = addrlen, D = addr
+#define IDX_
+
+#define THIS_PROXY_VERSION  5
+#define MAX_ADDR_LEN        32
+#define PORT_LEN            2
+
 namespace ZeroTier
 {
 	void NetconEthernetTap::StartProxy()
@@ -56,8 +71,34 @@ namespace ZeroTier
 		sockstate = SOCKS_OPEN;
 		printf("proxyListenPhySocket = 0x%x\n", proxyListenPhySocket);
 	}
+    
+    void ExtractAddress(int addr_type, unsigned char *buf, struct sockaddr_in * addr)
+    {
+        if(addr_type == 3)
+        {
+            // Extract address from buffer
+            int domain_len = buf[IDX_DST_ADDR]; // (L):D
+            char addr_[MAX_ADDR_LEN];
+            int port_ = 0;
+            memset(addr_, 0, MAX_ADDR_LEN);
+            memcpy(addr_, &buf[IDX_DST_ADDR+1], domain_len); // L:(D)
+            memcpy(&port_, &buf[IDX_DST_ADDR+1]+(domain_len), PORT_LEN);
+            port_ = Utils::hton((uint16_t)port_);
+            std::string addr_str(addr_);
+        
+            // Format address for Netcon/lwIP
+            //memset(&addr, '0', sizeof(addr));
+            addr->sin_family = AF_INET;
+            addr->sin_port = port_;
+            addr->sin_addr.s_addr = inet_addr(addr_str.c_str());
+        
+            printf("--\nnewaddr = %s\n", addr_str.c_str());
+            printf("newport = %d\n\n--", port_);
+            printf("domain_len = %d\n",domain_len);
+        }
+    }
 
-	void NetconEthernetTap::phyOnTcpData(PhySocket *sock,void **uptr,void *data,unsigned long len) 
+	void NetconEthernetTap::phyOnTcpData(PhySocket *sock,void **uptr,void *data,unsigned long len)
 	{
 		printf("phyOnTcpData(): 0x%x, len = %d\n", sock, len);
 		unsigned char *buf;
@@ -104,9 +145,9 @@ namespace ZeroTier
 		{
 			if(len >= 3)
 			{
-				int version = buf[0];
-				int methodsLength = buf[1];
-				int firstSupportedMethod = buf[2];
+				int version = buf[IDX_VERSION];
+				int methodsLength = buf[IDX_NMETHODS];
+				int firstSupportedMethod = buf[IDX_METHODS];
 				int supportedMethod = 0;
 
 				// Password auth
@@ -122,8 +163,8 @@ namespace ZeroTier
                 // | 1  |   1    |
                 // +----+--------+
 				char reply[2];
-				reply[0] = 5; // version
-				reply[1] = supportedMethod;
+				reply[IDX_VERSION] = THIS_PROXY_VERSION; // version
+				reply[IDX_METHOD] = supportedMethod;
 				_phy.streamSend(sock, reply, sizeof(reply));
 
 				// Set state for next message
@@ -139,13 +180,12 @@ namespace ZeroTier
         // +----+-----+-------+------+----------+----------+
 		if(conn->proxy_conn_state==SOCKS_CONNECT_INIT)
 		{
-			// 4(meta) + 4(ipv4) + 2(port) = 10
+			// Ex. 4(meta) + 4(ipv4) + 2(port) = 10
 			if(len >= 10)
 			{
-				// Process a SOCKS request
-				int version = buf[0];
-				int cmd = buf[1];
-				int addr_type = buf[3];
+				int version = buf[IDX_VERSION];
+				int cmd = buf[IDX_COMMAND];
+				int addr_type = buf[IDX_ATYP];
 
 				printf("SOCKS REQUEST = <ver=%d, cmd=%d, typ=%d>\n", version, cmd, addr_type);
 
@@ -186,35 +226,13 @@ namespace ZeroTier
 					// Fully-qualified domain name
 					if(addr_type == 3)
 					{
-						// NOTE: Can't separate out port with method used in IPv4 block
-						int domain_len = buf[4];
-						// Grab Addr:Port
-						char raw_addr[domain_len];
-						memset(raw_addr, 0, domain_len);
-						memcpy(raw_addr, &buf[5], domain_len);
-
-						std::string ip, port, addrstr(raw_addr);
-						int del = addrstr.find(":");
-						ip = addrstr.substr(0, del);
-						port = addrstr.substr(del+1, domain_len);
-						
-						// Create new lwIP PCB
+                        int domain_len = buf[IDX_DST_ADDR]; // (L):D
+                        struct sockaddr_in addr;
+                        ExtractAddress(addr_type,buf,&addr);
 						PhySocket * new_sock = handleSocketProxy(sock, SOCK_STREAM);
-                        
-                        printf("new_sock = 0x%x\n", sock);
-                        printf("new_sock = 0x%x\n", new_sock);
-						if(!new_sock)
+                        if(!new_sock)
 							printf("Error while creating proxied-socket\n");
-
-                        // Form address
-					    struct sockaddr_in addr; 
-					    memset(&addr, '0', sizeof(addr)); 
-					    addr.sin_family = AF_INET;
-					    addr.sin_port = Utils::hton((uint16_t)atoi(port.c_str()));
-						// addr.sin_addr.s_addr = inet_addr(ip.c_str());
-                        addr.sin_addr.s_addr = inet_addr("10.5.5.2");
-
-						handleConnectProxy(sock, &addr);
+                        handleConnectProxy(sock, &addr);
 
 						// Convert connection err code into SOCKS-err-code
 						// X'00' succeeded
@@ -235,17 +253,17 @@ namespace ZeroTier
                         // | 1  |  1  | X'00' |  1   | Variable |    2     |
                         // +----+-----+-------+------+----------+----------+
 
-						char reply[len];
+                        printf("REPLY = %d\n", addr.sin_port);
+						char reply[len]; // TODO: determine proper length
 						int addr_len = domain_len;
 						memset(reply, 0, len); // Create reply buffer at least as big as incoming SOCKS request data
-						memcpy(&reply[5],raw_addr,domain_len);
-						reply[0] = 5; // version
-						reply[1] = 0; // success/err code
+						memcpy(&reply[IDX_DST_ADDR],&buf[IDX_DST_ADDR],domain_len);
+						reply[IDX_VERSION] = THIS_PROXY_VERSION; // version
+						reply[IDX_ERROR_CODE] = 0; // success/err code
 						reply[2] = 0; // RSV
-						reply[3] = addr_type; // ATYP (1, 3, 4)
-						reply[4] = addr_len;
-						// reply[5] = 0; // BIND.ADDR
-						memcpy(&reply[5+domain_len], &port, 2); // PORT
+						reply[IDX_ATYP] = addr_type; // ATYP (1, 3, 4)
+						reply[IDX_DST_ADDR] = addr_len;
+						memcpy(&reply[IDX_DST_ADDR+domain_len], &addr.sin_port, PORT_LEN); // PORT
 						_phy.streamSend(sock, reply, sizeof(reply));
                         
                         // Any further data activity on this PhySocket will be considered data to send
@@ -277,36 +295,34 @@ namespace ZeroTier
 
                     // NOTE: Similar to cmd==1, should consolidate logic
 
-					int domain_len = buf[4];
-					// Grab Addr:Port
-					char raw_addr[domain_len];
-					memset(raw_addr, 0, domain_len);
-					memcpy(raw_addr, &buf[5], domain_len);
-
-					std::string ip, port, addrstr(raw_addr);
-					int del = addrstr.find(":");
-					ip = addrstr.substr(0, del);
-					port = addrstr.substr(del+1, domain_len);
-
-					printf(" addrlen = %d\n", domain_len);
-					printf("addrstr = %s\n", addrstr.c_str()); 
-					printf("raw_addr = %s\n", raw_addr);
-					printf("ip = %s\n", ip.c_str());
-					printf("port = %s\n", port.c_str());
-
-					int fd = socket(AF_INET, SOCK_DGRAM, 0);
-					if(fd < 0)
-						perror("socket");
-
-					struct sockaddr_in addr; 
-				    memset(&addr, '0', sizeof(addr)); 
-				    addr.sin_family = AF_INET;
-				    addr.sin_port = Utils::hton((uint16_t)atoi(port.c_str()));
-					addr.sin_addr.s_addr = inet_addr(ip.c_str());
-
-					int err = connect(fd, (struct sockaddr*)&addr, sizeof(addr));
-					if(err < 0)
-						perror("connect");
+                    // NOTE: Can't separate out port with method used in IPv4 block
+                    int domain_len = buf[4];
+                    // Grab Addr:Port
+                    char raw_addr[domain_len];
+                    memset(raw_addr, 0, domain_len);
+                    memcpy(raw_addr, &buf[5], domain_len);
+                    
+                    std::string ip, port, addrstr(raw_addr);
+                    int del = addrstr.find(":");
+                    ip = addrstr.substr(0, del);
+                    port = addrstr.substr(del+1, domain_len);
+                    
+                    // Create new lwIP PCB
+                    PhySocket * new_sock = handleSocketProxy(sock, SOCK_DGRAM);
+                    
+                    printf("new_sock = 0x%x\n", sock);
+                    printf("new_sock = 0x%x\n", new_sock);
+                    if(!new_sock)
+                        printf("Error while creating proxied-socket\n");
+                    
+                    // Form address
+                    struct sockaddr_in addr;
+                    memset(&addr, '0', sizeof(addr));
+                    addr.sin_family = AF_INET;
+                    addr.sin_port = Utils::hton((uint16_t)atoi(port.c_str()));
+                    addr.sin_addr.s_addr = inet_addr(ip.c_str());
+                    //addr.sin_addr.s_addr = inet_addr("10.5.5.2");
+                    handleConnectProxy(sock, &addr);
 					conn->proxy_conn_state == SOCKS_UDP;
 				}
 
@@ -337,7 +353,13 @@ namespace ZeroTier
 	{
 		printf("phyOnDatagram(): \n");
 		if(len) {
-			printf("data = %s, len = %d\n", data, len);
+            Connection *conn = getConnection(sock);
+            if(!conn){
+                printf("unable to locate Connection for sock=0x%x\n", sock);
+                return;
+            }
+            unsigned char *buf = (unsigned char*)data;
+			printf("data = %s, len = %lu\n", data, len);
 			memcpy((&conn->txbuf)+(conn->txsz), buf, len);
 			conn->txsz += len;
 			handleWrite(conn);

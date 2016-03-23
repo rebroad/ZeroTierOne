@@ -79,12 +79,11 @@ extern "C" {
     void set_intercept_status(int mode)
     {
         //fprintf(stderr, "set_intercept_status(mode=%d): tid = %d\n", mode, pthread_mach_thread_np(pthread_self()));
-        pthread_key_create(&thr_id_key, NULL);
-        intercept_thread_id = (int*)malloc(sizeof(int));
-        *intercept_thread_id = mode;
-        pthread_setspecific(thr_id_key, intercept_thread_id);
-        //set_thr_key(thr_id_key);
-        set_up_intercept();
+        //pthread_key_create(&thr_id_key, NULL);
+        //intercept_thread_id = (int*)malloc(sizeof(int));
+        //*intercept_thread_id = mode;
+        //pthread_setspecific(thr_id_key, intercept_thread_id);
+        //set_up_intercept();
     }
 #endif
 
