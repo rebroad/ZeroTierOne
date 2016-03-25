@@ -211,7 +211,6 @@ private:
 	 */
  	static err_t nc_recved(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err);
 	static err_t nc_recved_proxy(void *arg, struct tcp_pcb *PCB, struct pbuf *p, err_t err);
-    
     static void nc_udp_recved(void * arg, struct udp_pcb * upcb, struct pbuf * p, struct ip_addr * addr, u16_t port);
 
     

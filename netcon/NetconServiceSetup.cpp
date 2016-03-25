@@ -110,7 +110,6 @@ extern "C" {
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
         static std::string homeDir = "";
 
-
 #if defined(__ANDROID__)
     homeDir = "/sdcard/zerotier";
 #endif

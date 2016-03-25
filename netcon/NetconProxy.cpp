@@ -62,9 +62,11 @@ namespace ZeroTier
 {
 	void NetconEthernetTap::StartProxy()
 	{	
-			LOGV("StartProxy!\n");
-
-		printf("StartProxy()\n");
+#if defined (__ANDROID__)
+			LOGV("StartProxy()\n");
+#else
+			printf("StartProxy()\n");
+#endif
 		proxyListenPort = 1337;
 		struct sockaddr_in in4;
 		memset(&in4,0,sizeof(in4));
@@ -78,6 +80,7 @@ namespace ZeroTier
     
     void ExtractAddress(int addr_type, unsigned char *buf, struct sockaddr_in * addr)
     {
+    	// TODO: Generalize extraction logic
         if(addr_type == 3)
         {
             // Extract address from buffer
