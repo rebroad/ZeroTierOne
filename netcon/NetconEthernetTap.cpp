@@ -62,7 +62,9 @@
 #include "common.inc.c"
 #include "NetconServiceSetup.hpp"
 
-#include "jni_utils.h"
+#if defined(__ANDROID__)
+	#include "jni_utils.h"
+#endif
 
 void dwr(int level, const char *fmt, ... );
 

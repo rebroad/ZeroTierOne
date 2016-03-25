@@ -56,7 +56,9 @@
 #define MAX_ADDR_LEN        32
 #define PORT_LEN            2
 
-#include "jni_utils.h"
+#if defined(__ANDROID__)
+	#include "jni_utils.h"
+#endif
 
 namespace ZeroTier
 {
