@@ -28,7 +28,7 @@ LOCAL_SRC_FILES += \
 
 # NetconEthernetTap files
 LOCAL_SRC_FILES += \
-	$(ZT1)/netcon/OneServiceSetup.cpp \
+	$(ZT1)/netcon/NetconServiceSetup.cpp \
 	$(ZT1)/netcon/NetconEthernetTap.cpp
 
 # ZeroTierOne ext files
