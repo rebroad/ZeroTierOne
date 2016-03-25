@@ -34,6 +34,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
+#include "jni_utils.h"
+
 typedef struct NetlinkList
 {
     struct NetlinkList *m_next;
@@ -548,6 +550,7 @@ static unsigned countLinks(int p_socket, NetlinkList *p_netlinkList)
 
 int getifaddrs(struct ifaddrs **ifap)
 {
+    LOGV("getifaddrs\n");
     if(!ifap)
     {
         return -1;

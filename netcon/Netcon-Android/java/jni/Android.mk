@@ -17,18 +17,12 @@ LOCAL_LDLIBS := -llog
 
 # Intercept/RPC files
 LOCAL_SRC_FILES := \
-	$(ZT1)/netcon/jni_test.c \
-	$(ZT1)/netcon/Intercept.c \
 	$(ZT1)/netcon/RPC.c \
-	$(ZT1)/netcon/NetconProxy.cpp
-
-# Platform specific implementation files
-LOCAL_SRC_FILES += \
-	$(ZT1)/netcon/ifaddrs.c
+	$(ZT1)/netcon/NetconProxy.cpp 
 
 # NetconEthernetTap files
 LOCAL_SRC_FILES += \
-	$(ZT1)/netcon/OneServiceSetup.cpp \
+	$(ZT1)/netcon/NetconServiceSetup.cpp \
 	$(ZT1)/netcon/NetconEthernetTap.cpp
 
 # ZeroTierOne ext files
