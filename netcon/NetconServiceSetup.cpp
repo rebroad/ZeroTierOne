@@ -47,7 +47,13 @@
 #include "OneService.hpp"
 #include "Utils.hpp"
 #include "OSUtils.hpp"
+
+#if !defined(__ANDROID__)
 #include "Intercept.h"
+#endif
+
+#include "jni_utils.h"
+
 
 std::string service_path;
 pthread_t intercept_thread;
@@ -93,25 +99,34 @@ extern "C" {
  */
 #if defined(__ANDROID__)
     JNIEXPORT void JNICALL Java_Netcon_NetconWrapper_startOneService(JNIEnv *env, jobject thisObj)
+    {
 #else
     void *startOneService(void *thread_id)
-#endif
     {
         set_intercept_status(INTERCEPT_DISABLED);
+#endif
         // LOGV("startOneService(): In service call code\n");
         chdir(service_path.c_str());
         //fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;
         static std::string homeDir = "";
-      
+
+
+#if defined(__ANDROID__)
+    homeDir = "/sdcard/zerotier";
+#endif
+
 #if defined(__APPLE__)
-#include "TargetConditionals.h"
-#if TARGET_IPHONE_SIMULATOR
-        // homeDir = "dont/run/this/in/the/simulator";
-#elif TARGET_OS_IPHONE
-        homeDir = "ZeroTier/One";
+    #include "TargetConditionals.h"
+    #if TARGET_IPHONE_SIMULATOR
+            // homeDir = "dont/run/this/in/the/simulator";
+    #elif TARGET_OS_IPHONE
+            homeDir = "ZeroTier/One";
+    #endif
 #endif
-#endif
+
+        LOGV("Starting service...\n");
+
         // homeDir = OneService::platformDefaultHomePath();
         if (!homeDir.length()) {
             #if defined(__ANDROID__)
@@ -129,25 +144,26 @@ extern "C" {
                     ptmp.push_back(ZT_PATH_SEPARATOR);
                 ptmp.append(*pi);
                 if ((*pi != ".")&&(*pi != "..")) {
-                    if (!ZeroTier::OSUtils::mkdir(ptmp))
+                    if (!ZeroTier::OSUtils::mkdir(ptmp)) {
                         throw std::runtime_error("home path does not exist, and could not create");
+                    }
                 }
             }
         }
 
         // Add network config file
-        std::string ios_default_nwid = "e5cd7a9e1c7d408c";
+        std::string ios_default_nwid = "e5cd7a9e1c3511dd";
         std::string netDir = homeDir + "/networks.d";
         std::string confFile = netDir + "/" + ios_default_nwid + ".conf";
         if(!ZeroTier::OSUtils::mkdir(netDir)) {
-            // LOGV("unable to create %s\n", netDir.c_str());
+             LOGV("unable to create %s\n", netDir.c_str());
         }
         if(!ZeroTier::OSUtils::writeFile(confFile.c_str(), "")) {
-            // LOGV("unable to write network conf file: %s\n", ios_default_nwid.c_str());
+             LOGV("unable to write network conf file: %s\n", ios_default_nwid.c_str());
         }
         
 
-        // LOGV("homeDir = %s", homeDir.c_str());
+        LOGV("homeDir = %s", homeDir.c_str());
         for(;;) {
             zt1Service = ZeroTier::OneService::newInstance(homeDir.c_str(),9991);
             switch(zt1Service->run()) {

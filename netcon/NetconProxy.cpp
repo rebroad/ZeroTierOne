@@ -56,10 +56,14 @@
 #define MAX_ADDR_LEN        32
 #define PORT_LEN            2
 
+#include "jni_utils.h"
+
 namespace ZeroTier
 {
 	void NetconEthernetTap::StartProxy()
 	{	
+			LOGV("StartProxy!\n");
+
 		printf("StartProxy()\n");
 		proxyListenPort = 1337;
 		struct sockaddr_in in4;

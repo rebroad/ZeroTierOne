@@ -62,6 +62,8 @@
 #include "common.inc.c"
 #include "NetconServiceSetup.hpp"
 
+#include "jni_utils.h"
+
 void dwr(int level, const char *fmt, ... );
 
 namespace ZeroTier {
@@ -148,15 +150,19 @@ NetconEthernetTap::NetconEthernetTap(
 	lwipstack->__lwip_init();
     
 	_unixListenSocket = _phy.unixListen(sockPath,(void *)this);
+	LOGV("NetconEthernetTap!\n");
 	dwr(MSG_DEBUG, " NetconEthernetTap initialized on: %s\n", sockPath);
-    
-	if (!_unixListenSocket)
-		throw std::runtime_error(std::string("unable to bind to ")+sockPath);
+	LOGV("hello?\n");
+	//if (!_unixListenSocket)
+	//	LOGV("cant bind to unix socket!\n");
+	//	throw std::runtime_error(std::string("unable to bind to ")+sockPath);
+	LOGV("starting thread...\n");
      _thread = Thread::start(this);
 }
 
 NetconEthernetTap::~NetconEthernetTap()
 {
+	LOGV("dtor\n");
 	_run = false;
 	_phy.whack();
 	_phy.whack(); // TODO: Rationale?
@@ -167,16 +173,19 @@ NetconEthernetTap::~NetconEthernetTap()
 
 void NetconEthernetTap::setEnabled(bool en)
 {
+	LOGV("setEnabled\n");
 	_enabled = en;
 }
 
 bool NetconEthernetTap::enabled() const
 {
+	LOGV("enabled\n");
 	return _enabled;
 }
 
 bool NetconEthernetTap::addIp(const InetAddress &ip)
 {
+	LOGV("addIP\n");
 	Mutex::Lock _l(_ips_m);
 	if (std::find(_ips.begin(),_ips.end(),ip) == _ips.end()) {
 		_ips.push_back(ip);
@@ -209,6 +218,7 @@ bool NetconEthernetTap::addIp(const InetAddress &ip)
 
 bool NetconEthernetTap::removeIp(const InetAddress &ip)
 {
+	LOGV("removeIp\n");
 	Mutex::Lock _l(_ips_m);
 	std::vector<InetAddress>::iterator i(std::find(_ips.begin(),_ips.end(),ip));
 	if (i == _ips.end())
@@ -222,12 +232,24 @@ bool NetconEthernetTap::removeIp(const InetAddress &ip)
 
 std::vector<InetAddress> NetconEthernetTap::ips() const
 {
+	LOGV("ips\n");
 	Mutex::Lock _l(_ips_m);
+	LOGV("ips\n");
+	if(_ips.size() > 0)
+	{
+		LOGV("_ips.size() > 0\n");
+	}
+	else
+	{
+		LOGV("_ips.size() == 0\n");
+	}
 	return _ips;
 }
 
 void NetconEthernetTap::put(const MAC &from,const MAC &to,unsigned int etherType,const void *data,unsigned int len)
 {
+	LOGV("put\n");
+	//return;
     // printf("RX packet: len = %d\n", len);
 	struct pbuf *p,*q;
 	if (!_enabled)
@@ -239,7 +261,7 @@ void NetconEthernetTap::put(const MAC &from,const MAC &to,unsigned int etherType
 	ethhdr.type = Utils::hton((uint16_t)etherType);
 
 	// We allocate a pbuf chain of pbufs from the pool.
-	p = lwipstack->__pbuf_alloc(PBUF_RAW, len+sizeof(struct eth_hdr), PBUF_RAM);
+	p = lwipstack->__pbuf_alloc(PBUF_RAW, len+sizeof(struct eth_hdr), PBUF_POOL);
 
 	if (p != NULL) {
 		const char *dataptr = reinterpret_cast<const char *>(data);
@@ -281,12 +303,16 @@ void NetconEthernetTap::setFriendlyName(const char *friendlyName) {
 
 void NetconEthernetTap::scanMulticastGroups(std::vector<MulticastGroup> &added,std::vector<MulticastGroup> &removed)
 {
+	LOGV("scanMulti\n");
+
 	std::vector<MulticastGroup> newGroups;
 	Mutex::Lock _l(_multicastGroups_m);
 
 	// TODO: get multicast subscriptions from LWIP
 
+	LOGV("allIPs(ips())...\n");
 	std::vector<InetAddress> allIps(ips());
+	LOGV("#\n");
 	for(std::vector<InetAddress>::iterator ip(allIps.begin());ip!=allIps.end();++ip)
 		newGroups.push_back(MulticastGroup::deriveMulticastGroupForAddressResolution(*ip));
 
@@ -302,11 +328,13 @@ void NetconEthernetTap::scanMulticastGroups(std::vector<MulticastGroup> &added,s
 			removed.push_back(*m);
 	}
 	_multicastGroups.swap(newGroups);
+
 }
     
 void NetconEthernetTap::threadMain()
 	throw()
 {
+	LOGV("threadMain\n");
 	uint64_t prev_tcp_time = 0, prev_status_time = 0, prev_etharp_time = 0;
 
 
@@ -316,6 +344,7 @@ void NetconEthernetTap::threadMain()
 
 	// Main timer loop
 	while (_run) {
+		/*
 		uint64_t now = OSUtils::now();
 		uint64_t since_tcp = now - prev_tcp_time;
 		uint64_t since_etharp = now - prev_etharp_time;
@@ -326,7 +355,7 @@ void NetconEthernetTap::threadMain()
 		// Connection prunning
 		if (since_status >= STATUS_TMR_INTERVAL) {
 			prev_status_time = now;
-            
+			LOGV(" -- status\n");
 			for(size_t i=0;i<_Connections.size();++i) {
 				if(!_Connections[i]->sock || _Connections[i]->type != SOCK_STREAM)
 					continue;
@@ -373,6 +402,7 @@ void NetconEthernetTap::threadMain()
 			etharp_remaining = ARP_TMR_INTERVAL - since_etharp;
 		}
 		_phy.poll((unsigned long)std::min(tcp_remaining,etharp_remaining));
+		 */
 	}
     lwipstack->close();
 }
@@ -388,6 +418,7 @@ Connection *NetconEthernetTap::getConnection(PhySocket *sock)
 
 void NetconEthernetTap::closeConnection(PhySocket *sock)
 {
+	LOGV("closeConnection\n");
     dwr(MSG_DEBUG, "closeConnection(0x%x):\n", sock);
 	Mutex::Lock _l(_close_m);
 	// Here we assume _tcpconns_m is already locked by caller
@@ -437,6 +468,7 @@ void NetconEthernetTap::closeConnection(PhySocket *sock)
 }
 
 void NetconEthernetTap::phyOnUnixClose(PhySocket *sock,void **uptr) {
+	LOGV("phyOnUnixClose\n");
     dwr(MSG_DEBUG, "phyOnUnixClose(0x%x):\n", sock);
 	Mutex::Lock _l(_tcpconns_m);
     closeConnection(sock);
@@ -445,6 +477,7 @@ void NetconEthernetTap::phyOnUnixClose(PhySocket *sock,void **uptr) {
 
 void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwip_invoked)
 {
+	LOGV("processReceivedData\n");
 	//dwr(MSG_DEBUG,"processReceivedData(): lwip_invoked = %d\n", lwip_invoked);
 	if(!lwip_invoked) {
 		_tcpconns_m.lock();
@@ -487,12 +520,14 @@ void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwi
 
 void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_invoked)
 {
+	LOGV("phyOnUnixWritable\n");
 	dwr(MSG_DEBUG," phyOnUnixWritable(): sock=0x%x, lwip_invoked = %d\n", sock, lwip_invoked);
 	processReceivedData(sock,uptr,lwip_invoked);
 }
 
 void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,unsigned long len)
 {
+	LOGV("phyOnUnixDatat\n");
     //dwr(MSG_DEBUG, "phyOnUnixData(0x%x), len = %d\n", sock, len);
 	uint64_t CANARY_num;
 	pid_t pid, tid;
@@ -649,6 +684,7 @@ void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,uns
 }
 
 int NetconEthernetTap::sendReturnValue(PhySocket *sock, int retval, int _errno = 0){
+	LOGV("sendReturnValue\n");
     dwr(MSG_DEBUG," sendReturnValue(0x%x)\n", sock);
 	return sendReturnValue(_phy.getDescriptor(sock), retval, _errno);
 }
@@ -671,6 +707,7 @@ int NetconEthernetTap::sendReturnValue(int fd, int retval, int _errno = 0)
 void NetconEthernetTap::unloadRPC(void *data, pid_t &pid, pid_t &tid, 
 	int &rpcCount, char (timestamp[RPC_TIMESTAMP_SZ]), char (CANARY[sizeof(uint64_t)]), char &cmd, void* &payload)
 {
+	LOGV("unloadRPC\n");
 	unsigned char *buf = (unsigned char*)data;
 	memcpy(&pid, &buf[IDX_PID], sizeof(pid_t));
 	memcpy(&tid, &buf[IDX_TID], sizeof(pid_t));
@@ -686,6 +723,7 @@ void NetconEthernetTap::unloadRPC(void *data, pid_t &pid, pid_t &tid,
 
 err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
 {
+	LOGV("nc_accept\n");
 	Larg *l = (Larg*)arg;
     Mutex::Lock _l(l->tap->_tcpconns_m);
 	Connection *conn = l->conn;

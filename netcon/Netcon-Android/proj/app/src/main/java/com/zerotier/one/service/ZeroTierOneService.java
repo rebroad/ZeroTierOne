@@ -97,7 +97,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
 
 
         wrapper.startOneService();
-
+/*
         if(wrapper.loadsymbols() == 4)
         {
             Log.e(TAG,"loadsymbols(): Symbol found");
@@ -107,7 +107,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
             Log.e(TAG,"loadsymbols(): Symbol NOT found");
             //Toast t = Toast.makeText(this, "DIDNT WORK", Toast.LENGTH_SHORT);
         }
-
+*/
     }
 
 
@@ -117,95 +117,6 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
 
 
 
-        Log.d(TAG, "onStartCommand");
-        if(!eventBus.isRegistered(this)) {
-            eventBus.register(this);
-        }
-
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        boolean useCellData = prefs.getBoolean("network_use_cellular_data", false);
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo info = cm.getActiveNetworkInfo();
-
-        // first make sure we have network connectivity
-        if(info == null || !info.isConnectedOrConnecting()) {
-            Toast t = Toast.makeText(this, "No Network Connectivity.  ZeroTier cannot start.", Toast.LENGTH_SHORT);
-            t.show();
-            return START_NOT_STICKY;
-        }
-
-        if(!useCellData) {
-            // make sure we're on wifi, otherwise stop the service
-            if(info == null || info.getType() == ConnectivityManager.TYPE_MOBILE) {
-                Toast t = Toast.makeText(this, "Currently using mobile data.  Enable \"Use Cellular Data\" in order to start ZeroTier.", Toast.LENGTH_SHORT);
-                t.show();
-                stopSelf();
-                if(node != null) {
-                    node.close();
-                }
-                return START_NOT_STICKY;
-            }
-        }
-
-
-        synchronized(this) {
-            try {
-                if (svrSocket == null) {
-                    svrSocket = new DatagramSocket(null);
-                    svrSocket.setReuseAddress(true);
-                    svrSocket.setSoTimeout(1000);
-                    svrSocket.bind(new InetSocketAddress(9993));
-                }
-
-                if(!protect(svrSocket)) {
-                    Log.e(TAG, "Error protecting UDP socket from feedback loop.");
-                }
-
-                if (node == null) {
-                    try {
-                        udpCom = new UdpCom(this, svrSocket);
-                        tunTapAdapter = new TunTapAdapter(this);
-
-                        node = new Node(
-                                System.currentTimeMillis(),
-                                dataStore,
-                                dataStore,
-                                udpCom,
-                                this,
-                                tunTapAdapter,
-                                this);
-
-                        NodeStatus status = node.status();
-                        NodeIDEvent e = new NodeIDEvent(status.getAddres());
-                        eventBus.post(e);
-
-                        udpCom.setNode(node);
-                        tunTapAdapter.setNode(node);
-
-                        udpThread = new Thread(udpCom, "UDP Communication Thread");
-
-                    } catch (NodeException e) {
-                        Log.e(TAG, "Error starting ZT1 Node: " + e.getMessage());
-                        e.printStackTrace();
-                        return START_NOT_STICKY;
-                    }
-                }
-
-
-                if (vpnThread == null) {
-                    vpnThread = new Thread(this, "ZeroTier Service Thread");
-                    vpnThread.start();
-                }
-
-                if (!udpThread.isAlive()) {
-                    udpThread.start();
-                }
-
-            } catch (Exception ex) {
-                Log.e(TAG, ex.toString());
-                return START_NOT_STICKY;
-            }
-        }
 
         return START_STICKY;
     }
@@ -260,6 +171,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
     }
 
     public void run() {
+        /*
         Log.d(TAG, "ZeroTierOne Service Started");
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
@@ -314,6 +226,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
             }
         }
         Log.d(TAG, "ZeroTierOne Service Ended");
+        */
     }
 
     //
@@ -329,6 +242,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
     }
 
     public void onEventBackgroundThread(JoinNetworkEvent e) {
+        /*
         Log.d(TAG, "Join Network Event");
         if(node == null) {
             return;
@@ -345,9 +259,11 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
         if(rc != ResultCode.RESULT_OK) {
             eventBus.post(new ErrorEvent(rc));
         }
+        */
     }
 
     public void onEventBackgroundThread(LeaveNetworkEvent e) {
+        /*
         Log.d(TAG, "Leave Network Event");
 
         if(node != null) {
@@ -361,9 +277,11 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
             dataStore.onDelete(confFile);
             dataStore.onDelete(certsFile);
         }
+        */
     }
 
     public void onEventBackgroundThread(RequestNetworkInfoEvent e) {
+        /*
         if(node == null) {
             return;
         }
@@ -372,9 +290,11 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
         if(vnc != null) {
             eventBus.post(new NetworkInfoReplyEvent(vnc));
         }
+        */
     }
 
     public void onEventBackgroundThread(RequestNetworkListEvent e) {
+        /*
         if(node == null) {
             return;
         }
@@ -385,9 +305,11 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
         if(networks != null && networks.length > 0) {
             eventBus.post(new NetworkListReplyEvent(networks));
         }
+        */
     }
 
     public void onEventBackgroundThread(RequestNodeStatusEvent e) {
+        /*
         if (node == null) {
             return;
         }
@@ -395,6 +317,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
         NodeStatus ns = node.status();
 
         eventBus.post(new NodeStatusEvent(ns));
+        */
     }
 
     public void onEventAsync(NetworkReconfigureEvent e) {
@@ -405,6 +328,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
     // Event Listener Overrides
     //
     public void onEvent(Event e) {
+        /*
         Log.d(TAG, "Event: " + e.toString());
 
         if(node != null) {
@@ -412,6 +336,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
             NodeStatusEvent nse = new NodeStatusEvent(status);
             eventBus.post(nse);
         }
+        */
     }
 
     public void onTrace(String msg) {
@@ -426,6 +351,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
             long nwid,
             VirtualNetworkConfigOperation op,
             VirtualNetworkConfig config) {
+        /*
         Log.d(TAG, "Virtual Network Config Operation: " + op.toString());
         switch(op) {
             case VIRTUAL_NETWORK_CONFIG_OPERATION_UP: {
@@ -488,7 +414,7 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
                 Log.e(TAG, "Unknown Network Config Operation!");
                 break;
         }
-
+        */
         return 0;
     }
 
@@ -501,6 +427,8 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
      * This should ONLY be called from onEventAsync(NetworkReconfigureEvent)
      */
     private void updateTunnelConfig() {
+
+        /*
         synchronized (networkConfigs) {
             if (networkConfigs.isEmpty()) {
                 return;
@@ -604,5 +532,6 @@ public class ZeroTierOneService extends VpnService implements Runnable, EventLis
             tunTapAdapter.startThreads();
             Log.i(TAG, "ZeroTier One Connected");
         }
+        */
     }
 }
