@@ -51,7 +51,6 @@
 #include "ControlPlane.hpp"
 #include "ClusterGeoIpService.hpp"
 #include "ClusterDefinition.hpp"
- #include "jni_utils.h"
 
 /**
  * Uncomment to enable UDP breakage switch
@@ -533,7 +532,7 @@ public:
 		}
 
 		if (_port == 0)
-			LOGV("cannot bind to port");
+			throw std::runtime_error("cannot bind to port");
 
 		char portstr[64];
 		Utils::snprintf(portstr,sizeof(portstr),"%u",_port);
@@ -567,13 +566,10 @@ public:
 
 	virtual ReasonForTermination run()
 	{
-		LOGV("run()\n");
-		//return ONE_UNRECOVERABLE_ERROR;
 		try {
 			std::string authToken;
 			{
 				std::string tokenStr(_homePath + ZT_PATH_SEPARATOR_S + "authtoken.secret");
-	//			LOGV(tokenStr);
 				std::string authTokenPath(_homePath + ZT_PATH_SEPARATOR_S + "authtoken.secret");
 				if (!OSUtils::readFile(authTokenPath.c_str(),authToken)) {
 					unsigned char foo[24];
@@ -585,7 +581,6 @@ public:
 						Mutex::Lock _l(_termReason_m);
 						_termReason = ONE_UNRECOVERABLE_ERROR;
 						_fatalErrorMessage = "authtoken.secret could not be written";
-						LOGV("authtoken.secret could not be written");
 						return _termReason;
 					} else OSUtils::lockDownFile(authTokenPath.c_str(),false);
 				}
@@ -660,7 +655,6 @@ public:
 								Mutex::Lock _l(_termReason_m);
 								_termReason = ONE_UNRECOVERABLE_ERROR;
 								_fatalErrorMessage = "Cluster: can't determine my cluster member ID: able to bind more than one cluster message socket IP/port!";
-								LOGV("Cluster: can't determine my cluster member ID: able to bind more than one c\n");
 								return _termReason;
 							}
 							_clusterMessageSocket = cs;
@@ -672,7 +666,6 @@ public:
 						Mutex::Lock _l(_termReason_m);
 						_termReason = ONE_UNRECOVERABLE_ERROR;
 						_fatalErrorMessage = "Cluster: can't determine my cluster member ID: unable to bind to any cluster message socket IP/port.";
-						LOGV("Cluster: can't determine my cluster member ID: unable to bind to any cl\n");
 						return _termReason;
 					}
 
@@ -874,12 +867,10 @@ public:
 			Mutex::Lock _l(_termReason_m);
 			_termReason = ONE_UNRECOVERABLE_ERROR;
 			_fatalErrorMessage = exc.what();
-			LOGV("ONE_UNRECOVERABLE_ERROR?");
 		} catch ( ... ) {
 			Mutex::Lock _l(_termReason_m);
 			_termReason = ONE_UNRECOVERABLE_ERROR;
 			_fatalErrorMessage = "unexpected exception in main thread";
-			LOGV("unexpected exception in main thread\n");
 		}
 
 		try {
@@ -911,7 +902,6 @@ public:
 	virtual std::string fatalErrorMessage() const
 	{
 		Mutex::Lock _l(_termReason_m);
-		//LOGV(""+_fatalErrorMessage.c_str());
 		return _fatalErrorMessage;
 	}
 
@@ -970,7 +960,6 @@ public:
 			Mutex::Lock _l(_termReason_m);
 			_termReason = ONE_UNRECOVERABLE_ERROR;
 			_fatalErrorMessage = tmp;
-			LOGV("fatal error code from processWirePacket: %d",(int)rc);
 			this->terminate();
 		}
 	}
@@ -1120,7 +1109,6 @@ public:
 									Mutex::Lock _l(_termReason_m);
 									_termReason = ONE_UNRECOVERABLE_ERROR;
 									_fatalErrorMessage = tmp;
-									LOGV("fatal error code from processWirePacket: %d",(int)rc);
 									this->terminate();
 									_phy.close(sock);
 									return;
@@ -1254,7 +1242,6 @@ public:
 				Mutex::Lock _l(_termReason_m);
 				_termReason = ONE_IDENTITY_COLLISION;
 				_fatalErrorMessage = "identity/address collision";
-				LOGV("identity/address collision");
 				this->terminate();
 			}	break;
 
@@ -1426,9 +1413,7 @@ public:
 		Mutex::Lock _l(_taps_m);
 		for(std::map< uint64_t,EthernetTap * >::const_iterator t(_taps.begin());t!=_taps.end();++t) {
 			if (t->second) {
-				LOGV("OneService: ips(t->second->ips()\n");
 				std::vector<InetAddress> ips(t->second->ips());
-				LOGV("#\n");
 				for(std::vector<InetAddress>::const_iterator i(ips.begin());i!=ips.end();++i) {
 					if (i->containsAddress(*(reinterpret_cast<const InetAddress *>(remoteAddr)))) {
 						return 0;

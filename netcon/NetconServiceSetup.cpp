@@ -105,7 +105,6 @@ extern "C" {
     {
         set_intercept_status(INTERCEPT_DISABLED);
 #endif
-        // LOGV("startOneService(): In service call code\n");
         chdir(service_path.c_str());
         //fprintf(stderr, "\nSERVICE PATH (tid=%d): %s\n", pthread_mach_thread_np(pthread_self()), service_path.c_str());
         static ZeroTier::OneService *volatile zt1Service = (ZeroTier::OneService *)0;

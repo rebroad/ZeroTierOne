@@ -152,7 +152,6 @@ NetconEthernetTap::NetconEthernetTap(
 	_unixListenSocket = _phy.unixListen(sockPath,(void *)this);
 	LOGV("NetconEthernetTap!\n");
 	dwr(MSG_DEBUG, " NetconEthernetTap initialized on: %s\n", sockPath);
-	LOGV("hello?\n");
 	//if (!_unixListenSocket)
 	//	LOGV("cant bind to unix socket!\n");
 	//	throw std::runtime_error(std::string("unable to bind to ")+sockPath);
@@ -173,19 +172,16 @@ NetconEthernetTap::~NetconEthernetTap()
 
 void NetconEthernetTap::setEnabled(bool en)
 {
-	LOGV("setEnabled\n");
 	_enabled = en;
 }
 
 bool NetconEthernetTap::enabled() const
 {
-	LOGV("enabled\n");
 	return _enabled;
 }
 
 bool NetconEthernetTap::addIp(const InetAddress &ip)
 {
-	LOGV("addIP\n");
 	Mutex::Lock _l(_ips_m);
 	if (std::find(_ips.begin(),_ips.end(),ip) == _ips.end()) {
 		_ips.push_back(ip);
@@ -218,7 +214,6 @@ bool NetconEthernetTap::addIp(const InetAddress &ip)
 
 bool NetconEthernetTap::removeIp(const InetAddress &ip)
 {
-	LOGV("removeIp\n");
 	Mutex::Lock _l(_ips_m);
 	std::vector<InetAddress>::iterator i(std::find(_ips.begin(),_ips.end(),ip));
 	if (i == _ips.end())
@@ -232,24 +227,12 @@ bool NetconEthernetTap::removeIp(const InetAddress &ip)
 
 std::vector<InetAddress> NetconEthernetTap::ips() const
 {
-	LOGV("ips\n");
 	Mutex::Lock _l(_ips_m);
-	LOGV("ips\n");
-	if(_ips.size() > 0)
-	{
-		LOGV("_ips.size() > 0\n");
-	}
-	else
-	{
-		LOGV("_ips.size() == 0\n");
-	}
 	return _ips;
 }
 
 void NetconEthernetTap::put(const MAC &from,const MAC &to,unsigned int etherType,const void *data,unsigned int len)
 {
-	LOGV("put\n");
-	//return;
     // printf("RX packet: len = %d\n", len);
 	struct pbuf *p,*q;
 	if (!_enabled)
@@ -303,16 +286,11 @@ void NetconEthernetTap::setFriendlyName(const char *friendlyName) {
 
 void NetconEthernetTap::scanMulticastGroups(std::vector<MulticastGroup> &added,std::vector<MulticastGroup> &removed)
 {
-	LOGV("scanMulti\n");
-
 	std::vector<MulticastGroup> newGroups;
 	Mutex::Lock _l(_multicastGroups_m);
 
 	// TODO: get multicast subscriptions from LWIP
-
-	LOGV("allIPs(ips())...\n");
 	std::vector<InetAddress> allIps(ips());
-	LOGV("#\n");
 	for(std::vector<InetAddress>::iterator ip(allIps.begin());ip!=allIps.end();++ip)
 		newGroups.push_back(MulticastGroup::deriveMulticastGroupForAddressResolution(*ip));
 
@@ -334,17 +312,11 @@ void NetconEthernetTap::scanMulticastGroups(std::vector<MulticastGroup> &added,s
 void NetconEthernetTap::threadMain()
 	throw()
 {
-	LOGV("threadMain\n");
 	uint64_t prev_tcp_time = 0, prev_status_time = 0, prev_etharp_time = 0;
-
-
-	#if defined (USE_SOCKS_PROXY)
-	//	StartProxy();
-	#endif
 
 	// Main timer loop
 	while (_run) {
-		/*
+		
 		uint64_t now = OSUtils::now();
 		uint64_t since_tcp = now - prev_tcp_time;
 		uint64_t since_etharp = now - prev_etharp_time;
@@ -402,7 +374,6 @@ void NetconEthernetTap::threadMain()
 			etharp_remaining = ARP_TMR_INTERVAL - since_etharp;
 		}
 		_phy.poll((unsigned long)std::min(tcp_remaining,etharp_remaining));
-		 */
 	}
     lwipstack->close();
 }
