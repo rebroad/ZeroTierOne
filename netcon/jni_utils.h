@@ -1,10 +1,10 @@
-#include <jni.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #if __ANDROID__
+#include <jni.h>
 #include <android/log.h>
 #define LOG_TAG "Netcon"
 

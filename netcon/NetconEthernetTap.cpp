@@ -152,18 +152,14 @@ NetconEthernetTap::NetconEthernetTap(
 	lwipstack->__lwip_init();
     
 	_unixListenSocket = _phy.unixListen(sockPath,(void *)this);
-	LOGV("NetconEthernetTap!\n");
 	dwr(MSG_DEBUG, " NetconEthernetTap initialized on: %s\n", sockPath);
 	//if (!_unixListenSocket)
-	//	LOGV("cant bind to unix socket!\n");
 	//	throw std::runtime_error(std::string("unable to bind to ")+sockPath);
-	LOGV("starting thread...\n");
      _thread = Thread::start(this);
 }
 
 NetconEthernetTap::~NetconEthernetTap()
 {
-	LOGV("dtor\n");
 	_run = false;
 	_phy.whack();
 	_phy.whack(); // TODO: Rationale?
@@ -329,7 +325,6 @@ void NetconEthernetTap::threadMain()
 		// Connection prunning
 		if (since_status >= STATUS_TMR_INTERVAL) {
 			prev_status_time = now;
-			LOGV(" -- status\n");
 			for(size_t i=0;i<_Connections.size();++i) {
 				if(!_Connections[i]->sock || _Connections[i]->type != SOCK_STREAM)
 					continue;
@@ -391,7 +386,6 @@ Connection *NetconEthernetTap::getConnection(PhySocket *sock)
 
 void NetconEthernetTap::closeConnection(PhySocket *sock)
 {
-	LOGV("closeConnection\n");
     dwr(MSG_DEBUG, "closeConnection(0x%x):\n", sock);
 	Mutex::Lock _l(_close_m);
 	// Here we assume _tcpconns_m is already locked by caller
@@ -441,7 +435,6 @@ void NetconEthernetTap::closeConnection(PhySocket *sock)
 }
 
 void NetconEthernetTap::phyOnUnixClose(PhySocket *sock,void **uptr) {
-	LOGV("phyOnUnixClose\n");
     dwr(MSG_DEBUG, "phyOnUnixClose(0x%x):\n", sock);
 	Mutex::Lock _l(_tcpconns_m);
     closeConnection(sock);
@@ -450,7 +443,6 @@ void NetconEthernetTap::phyOnUnixClose(PhySocket *sock,void **uptr) {
 
 void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwip_invoked)
 {
-	LOGV("processReceivedData\n");
 	//dwr(MSG_DEBUG,"processReceivedData(): lwip_invoked = %d\n", lwip_invoked);
 	if(!lwip_invoked) {
 		_tcpconns_m.lock();
@@ -493,14 +485,12 @@ void NetconEthernetTap::processReceivedData(PhySocket *sock,void **uptr,bool lwi
 
 void NetconEthernetTap::phyOnUnixWritable(PhySocket *sock,void **uptr,bool lwip_invoked)
 {
-	LOGV("phyOnUnixWritable\n");
 	dwr(MSG_DEBUG," phyOnUnixWritable(): sock=0x%x, lwip_invoked = %d\n", sock, lwip_invoked);
 	processReceivedData(sock,uptr,lwip_invoked);
 }
 
 void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,unsigned long len)
 {
-	LOGV("phyOnUnixDatat\n");
     //dwr(MSG_DEBUG, "phyOnUnixData(0x%x), len = %d\n", sock, len);
 	uint64_t CANARY_num;
 	pid_t pid, tid;
@@ -657,7 +647,6 @@ void NetconEthernetTap::phyOnUnixData(PhySocket *sock,void **uptr,void *data,uns
 }
 
 int NetconEthernetTap::sendReturnValue(PhySocket *sock, int retval, int _errno = 0){
-	LOGV("sendReturnValue\n");
     dwr(MSG_DEBUG," sendReturnValue(0x%x)\n", sock);
 	return sendReturnValue(_phy.getDescriptor(sock), retval, _errno);
 }
@@ -680,7 +669,6 @@ int NetconEthernetTap::sendReturnValue(int fd, int retval, int _errno = 0)
 void NetconEthernetTap::unloadRPC(void *data, pid_t &pid, pid_t &tid, 
 	int &rpcCount, char (timestamp[RPC_TIMESTAMP_SZ]), char (CANARY[sizeof(uint64_t)]), char &cmd, void* &payload)
 {
-	LOGV("unloadRPC\n");
 	unsigned char *buf = (unsigned char*)data;
 	memcpy(&pid, &buf[IDX_PID], sizeof(pid_t));
 	memcpy(&tid, &buf[IDX_TID], sizeof(pid_t));
@@ -696,7 +684,6 @@ void NetconEthernetTap::unloadRPC(void *data, pid_t &pid, pid_t &tid,
 
 err_t NetconEthernetTap::nc_accept(void *arg, struct tcp_pcb *newPCB, err_t err)
 {
-	LOGV("nc_accept\n");
 	Larg *l = (Larg*)arg;
     Mutex::Lock _l(l->tap->_tcpconns_m);
 	Connection *conn = l->conn;
