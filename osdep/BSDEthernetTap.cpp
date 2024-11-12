@@ -431,6 +431,7 @@ void BSDEthernetTap::threadMain()
 	// constructing itself.
 	Thread::sleep(500);
 
+#ifndef __OpenBSD__
 	bool pinning = _pinning;
 
 	for (unsigned int i = 0; i < _concurrency; ++i) {
@@ -451,6 +452,7 @@ void BSDEthernetTap::threadMain()
 					exit(1);
 				}
 			}
+#endif // __OpenBSD__
 
 			uint8_t b[ZT_TAP_BUF_SIZE];
 			MAC to, from;
