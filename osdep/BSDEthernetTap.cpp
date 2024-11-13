@@ -499,8 +499,10 @@ void BSDEthernetTap::threadMain()
 					}
 				}
 			}
+#ifndef __OpenBSD__
 		}));
 	}
+#endif // __OpenBSD__
 }
 
 } // namespace ZeroTier
