@@ -296,6 +296,13 @@ public:
 	static std::string jsonBinFromHex(const nlohmann::json &jv);
 #endif // OMIT_JSON_SUPPORT
 
+	static std::string getField(const char *path,const char *field,const char *defaultValue);
+	static std::string getField(const std::string &path,const std::string &field,const std::string &defaultValue);
+
+#ifdef __LINUX__
+	static std::string getPrimaryNetworkInterface();
+#endif
+
 private:
 	static const unsigned char TOLOWER_TABLE[256];
 };

@@ -995,10 +995,7 @@ public:
 		delete _controller;
 		delete _rc;
 
-		// Clean up iptables rules on shutdown
-		if (_iptablesManager) {
-			_iptablesManager->cleanup();
-		}
+		// IptablesManager cleanup is handled automatically by RAII in its destructor
 	}
 
 	void setUpMultithreading()
@@ -1239,6 +1236,19 @@ public:
 #if ZT_DEBUG==1
 							fprintf(stderr, "Randomized secondary port. Now it's %d\n", _ports[1]);
 #endif
+
+							// Update iptables rules with new port
+							if (_iptablesEnabled && _iptablesManager) {
+								std::vector<unsigned int> udpPorts = _collectUdpPorts();
+
+								if (!udpPorts.empty()) {
+									if (_iptablesManager->updateUdpPorts(udpPorts)) {
+										fprintf(stderr, "INFO: Updated iptables rules with new secondary port %u" ZT_EOL_S, _ports[1]);
+									} else {
+										fprintf(stderr, "WARNING: Failed to update iptables rules with new secondary port %u" ZT_EOL_S, _ports[1]);
+									}
+								}
+							}
 						}
 					}
 
@@ -1478,21 +1488,7 @@ public:
 
 			_ssoRedirectURL = OSUtils::jsonString(settings["ssoRedirectURL"], "");
 
-			// Iptables configuration
-			_iptablesEnabled = OSUtils::jsonBool(settings["iptablesEnabled"], false);
-			if (_iptablesEnabled) {
-				std::string wanInterface = OSUtils::jsonString(settings["iptablesWanInterface"], "eth0");
-				unsigned int udpPort = (unsigned int)OSUtils::jsonInt(settings["iptablesUdpPort"], 9993);
-
-				try {
-					_iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPort);
-					fprintf(stderr, "INFO: Iptables manager initialized with WAN interface '%s' and UDP port %u" ZT_EOL_S,
-						wanInterface.c_str(), udpPort);
-				} catch (const std::exception& e) {
-					fprintf(stderr, "ERROR: Failed to initialize iptables manager: %s" ZT_EOL_S, e.what());
-					_iptablesEnabled = false;
-				}
-			}
+			_initializeIptablesManager(settings);
 
 #ifdef ZT_CONTROLLER_USE_LIBPQ
 			// TODO:  Redis config
@@ -2346,6 +2342,58 @@ public:
 		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
 
+		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
+			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
+				fprintf(stderr, "[DEBUG] Auth failed\n");
+				res.status = 403;
+				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
+				return;
+			}
+			try {
+				fprintf(stderr, "[DEBUG] Parsing JSON body\n");
+				json requestBody = json::parse(req.body);
+				json newSettings = requestBody["settings"];
+
+				fprintf(stderr, "[DEBUG] Acquiring _localConfig_m lock\n");
+				{
+					Mutex::Lock lc(_localConfig_m);
+					json localConf = _localConfig; // Make a copy
+
+					if (!localConf.contains("settings")) {
+						localConf["settings"] = json::object();
+					}
+
+					if (newSettings.contains("iptablesEnabled")) {
+						localConf["settings"]["iptablesEnabled"] = newSettings["iptablesEnabled"];
+					}
+					if (newSettings.contains("iptablesWanInterface")) {
+						localConf["settings"]["iptablesWanInterface"] = newSettings["iptablesWanInterface"];
+					}
+
+					std::string confPath = _homePath + ZT_PATH_SEPARATOR_S + "local.conf";
+					fprintf(stderr, "[DEBUG] Writing to local.conf\n");
+					if (OSUtils::writeFile(confPath.c_str(), localConf.dump(4))) {
+						_localConfig = localConf; // Update in-memory config
+						res.status = 200;
+						setContent(req, res, "{\"status\":\"OK\"}");
+					} else {
+						res.status = 500;
+						setContent(req, res, "{\"error\":\"Error writing to local.conf\"}");
+					}
+				}
+				fprintf(stderr, "[DEBUG] Calling applyLocalConfig()\n");
+				applyLocalConfig();
+				fprintf(stderr, "[DEBUG] Finished applyLocalConfig()\n");
+			} catch (const json::exception &e) {
+				fprintf(stderr, "[DEBUG] JSON exception: %s\n", e.what());
+				res.status = 400;
+				setContent(req, res, std::string("{\"error\":\"Bad Request: ") + e.what() + "\"}");
+			}
+		};
+		_controlPlane.Post("/iptables", iptablesPost);
+		_controlPlaneV6.Post("/iptables", iptablesPost);
+
 		auto exceptionHandler = [&, setContent](const httplib::Request &req, httplib::Response &res, std::exception_ptr ep) {
 			char buf[1024];
 			auto fmt = "{\"error\": %d, \"description\": \"%s\"}";
@@ -2422,6 +2470,10 @@ public:
 			fprintf(stderr, "ERROR: Could not bind control plane. Exiting...\n");
 			exit(-1);
 		}
+
+		_controlPlane.set_logger([](const httplib::Request &req, const httplib::Response &res) {
+				fprintf(stderr, "INFO: control plane: %s %s %d" ZT_EOL_S, req.method.c_str(), req.path.c_str(), res.status);
+			});
 	}
 
 	// Must be called after _localConfig is read or modified
@@ -2689,21 +2741,11 @@ public:
 			}
 		}
 
-		// Iptables configuration
-    	_iptablesEnabled = OSUtils::jsonBool(settings["iptablesEnabled"], false);
-    	if (_iptablesEnabled) {
-    	    std::string wanInterface = OSUtils::jsonString(settings["iptablesWanInterface"], "eth0");
-    	    unsigned int udpPort = (unsigned int)OSUtils::jsonInt(settings["iptablesUdpPort"], 9993);
-
-    	    try {
-    	        _iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPort);
-    	        fprintf(stderr, "INFO: Iptables manager initialized with WAN interface '%s' and UDP port %u" ZT_EOL_S,
-    	                wanInterface.c_str(), udpPort);
-    	    } catch (const std::exception& e) {
-    	        fprintf(stderr, "ERROR: Failed to initialize iptables manager: %s" ZT_EOL_S, e.what());
-    	        _iptablesEnabled = false;
-    	    }
-    	}
+		try {
+			_initializeIptablesManager(settings);
+		} catch (const json::exception &e) {
+			fprintf(stderr,"ERROR: exception processing local config settings: %s" ZT_EOL_S,e.what());
+		}
 	}
 
 #if ZT_VAULT_SUPPORT
@@ -3954,13 +3996,92 @@ public:
 			char buf[64];
 			peerAddress.toString(buf);
 
-			bool success = isAdd ? _iptablesManager->addPeerRule(peerAddress) : _iptablesManager->removePeerRule(peerAddress);
+			bool success = isAdd ? _iptablesManager->addPeer(peerAddress) : _iptablesManager->removePeer(peerAddress);
 
 			if (success) {
 				fprintf(stderr, "INFO: %s iptables rule for peer %s" ZT_EOL_S, isAdd ? "Added" : "Removed", buf);
 			} else {
 				fprintf(stderr, "WARNING: Failed to %s iptables rule for peer %s" ZT_EOL_S, isAdd ? "add" : "remove", buf);
 			}
+		}
+	}
+
+	/**
+	 * Collect all active UDP ports (primary, secondary, tertiary)
+	 *
+	 * @return Vector of active UDP ports
+	 */
+	std::vector<unsigned int> _collectUdpPorts() const
+	{
+		std::vector<unsigned int> udpPorts;
+
+		// Add all active ports
+		if (_ports[0] != 0) udpPorts.push_back(_ports[0]); // Primary port
+		if (_ports[1] != 0) udpPorts.push_back(_ports[1]); // Secondary port
+		if (_ports[2] != 0) udpPorts.push_back(_ports[2]); // Tertiary port (UPnP/NAT-PMP)
+
+		// If no ports are available yet, use the configured primary port
+		if (udpPorts.empty()) {
+			unsigned int configuredPort = (unsigned int)OSUtils::jsonInt(_localConfig["settings"]["iptablesUdpPort"], _primaryPort);
+			if (configuredPort != 0) {
+				udpPorts.push_back(configuredPort);
+			}
+		}
+
+		return udpPorts;
+	}
+
+	/**
+	 * Initialize the iptables manager if enabled and not already initialized
+	 *
+	 * @param settings The settings object containing iptables configuration
+	 * @return True if initialization was successful or already initialized
+	 */
+	bool _initializeIptablesManager(const json& settings)
+	{
+		_iptablesEnabled = OSUtils::jsonBool(settings["iptablesEnabled"], false);
+		if (!_iptablesEnabled || _iptablesManager) {
+			return true; // Already initialized or disabled
+		}
+
+		std::string wanInterface = OSUtils::jsonString(settings["iptablesWanInterface"], "auto");
+		if (wanInterface == "auto") {
+#ifdef __LINUX__
+			wanInterface = OSUtils::getPrimaryNetworkInterface();
+			if (wanInterface.empty()) {
+				fprintf(stderr, "WARNING: Could not auto-detect WAN interface for iptables, feature disabled. Please set 'iptablesWanInterface' in local.conf." ZT_EOL_S);
+				_iptablesEnabled = false;
+				return false;
+			} else {
+				fprintf(stderr, "INFO: Auto-detected WAN interface '%s' for iptables" ZT_EOL_S, wanInterface.c_str());
+			}
+#else
+			fprintf(stderr, "WARNING: iptables WAN interface auto-detection is only supported on Linux. Please set 'iptablesWanInterface' in local.conf." ZT_EOL_S);
+			_iptablesEnabled = false;
+			return false;
+#endif
+		}
+
+		// Collect all UDP ports (primary, secondary, tertiary)
+		std::vector<unsigned int> udpPorts = _collectUdpPorts();
+
+		if (!udpPorts.empty()) {
+			try {
+				_iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPorts);
+				fprintf(stderr, "INFO: Iptables manager initialized with WAN interface '%s' and %zu UDP ports" ZT_EOL_S, wanInterface.c_str(), udpPorts.size());
+				for (unsigned int port : udpPorts) {
+					fprintf(stderr, "INFO:   - UDP port %u" ZT_EOL_S, port);
+				}
+				return true;
+			} catch (const std::exception& e) {
+				fprintf(stderr, "ERROR: Failed to initialize iptables manager: %s" ZT_EOL_S, e.what());
+				_iptablesEnabled = false;
+				return false;
+			}
+		} else {
+			fprintf(stderr, "WARNING: No UDP ports available for iptables, feature disabled" ZT_EOL_S);
+			_iptablesEnabled = false;
+			return false;
 		}
 	}
 };
