@@ -19,144 +19,312 @@
 #include <cstring>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 
 namespace ZeroTier {
 
-IptablesManager::IptablesManager(const std::string& wanInterface, unsigned int udpPort)
+IptablesManager::IptablesManager(const std::string& wanInterface, const std::vector<unsigned int>& udpPorts)
     : _wanInterface(wanInterface)
-    , _udpPort(udpPort)
+    , _udpPorts(udpPorts)
+    , _initialized(false)
 {
     // Validate WAN interface name to prevent command injection
     if (_wanInterface.empty() || _wanInterface.find_first_of(";|&`$()<>") != std::string::npos) {
         throw std::invalid_argument("Invalid WAN interface name");
     }
 
-    // Validate UDP port
-    if (_udpPort == 0 || _udpPort > 65535) {
-        throw std::invalid_argument("Invalid UDP port number");
+    // Validate UDP ports
+    for (unsigned int port : _udpPorts) {
+        if (port == 0 || port > 65535) {
+            throw std::invalid_argument("Invalid UDP port number: " + std::to_string(port));
+        }
+    }
+
+    // Remove duplicates and sort ports
+    std::sort(_udpPorts.begin(), _udpPorts.end());
+    _udpPorts.erase(std::unique(_udpPorts.begin(), _udpPorts.end()), _udpPorts.end());
+
+    // Clean up any existing rules from previous runs (in case of unclean shutdown)
+    // Use a lock to prevent race conditions during initialization
+    {
+        Mutex::Lock _l(_peers_mutex);
+        cleanupExistingRules();
+
+        // Initialize the ipset and iptables rules
+        initializeRules();
     }
 }
 
-IptablesManager::~IptablesManager()
+IptablesManager::~IptablesManager() noexcept
 {
     cleanup();
 }
 
-bool IptablesManager::addPeerRule(const InetAddress& peerAddress)
+IptablesManager::IptablesManager(IptablesManager&& other) noexcept
+    : _wanInterface(std::move(other._wanInterface))
+    , _udpPorts(std::move(other._udpPorts))
+    , _activePeers(std::move(other._activePeers))
+    , _initialized(other._initialized)
+{
+    // Clear the other object's data to prevent double cleanup
+    other._initialized = false;
+    other._udpPorts.clear();
+    other._activePeers.clear();
+}
+
+IptablesManager& IptablesManager::operator=(IptablesManager&& other) noexcept
+{
+    if (this != &other) {
+        // Clean up our existing rules
+        cleanup();
+
+        // Move data from other
+        _wanInterface = std::move(other._wanInterface);
+        _udpPorts = std::move(other._udpPorts);
+        _activePeers = std::move(other._activePeers);
+        _initialized = other._initialized;
+
+        // Clear the other object's data
+        other._initialized = false;
+        other._udpPorts.clear();
+        other._activePeers.clear();
+    }
+    return *this;
+}
+
+bool IptablesManager::addPeer(const InetAddress& peerAddress)
 {
     if (!peerAddress) {
         return false;
     }
 
-    // Only handle IPv4 addresses for now (iptables IPv6 support can be added later)
+    // Only handle IPv4 addresses for now (IPv6 support can be added later)
     if (peerAddress.ss_family != AF_INET) {
         return false;
     }
 
-    Mutex::Lock _l(_rules_mutex);
+    Mutex::Lock _l(_peers_mutex);
 
-    // Check if rule already exists
-    if (_activeRules.find(peerAddress) != _activeRules.end()) {
-        return true; // Rule already exists
+    // Check if peer already exists
+    if (_activePeers.find(peerAddress) != _activePeers.end()) {
+        return true; // Peer already exists
     }
 
-    // Generate and execute the iptables command
-    std::string command = generateAddRuleCommand(peerAddress);
-    if (executeIptablesCommand(command)) {
-        _activeRules.insert(peerAddress);
+    // Add peer to ipset
+    std::string command = "ipset add zt_peers " + sanitizeIpAddress(peerAddress);
+    if (executeCommand(command)) {
+        _activePeers.insert(peerAddress);
         return true;
     }
 
     return false;
 }
 
-bool IptablesManager::removePeerRule(const InetAddress& peerAddress)
+bool IptablesManager::removePeer(const InetAddress& peerAddress)
 {
     if (!peerAddress) {
         return false;
     }
 
-    Mutex::Lock _l(_rules_mutex);
+    Mutex::Lock _l(_peers_mutex);
 
-    // Check if rule exists
-    if (_activeRules.find(peerAddress) == _activeRules.end()) {
-        return true; // Rule doesn't exist, consider it "removed"
+    // Check if peer exists
+    if (_activePeers.find(peerAddress) == _activePeers.end()) {
+        return true; // Peer doesn't exist, consider it "removed"
     }
 
-    // Generate and execute the iptables command
-    std::string command = generateRemoveRuleCommand(peerAddress);
-    if (executeIptablesCommand(command)) {
-        _activeRules.erase(peerAddress);
+    // Remove peer from ipset
+    std::string command = "ipset del zt_peers " + sanitizeIpAddress(peerAddress);
+    if (executeCommand(command)) {
+        _activePeers.erase(peerAddress);
         return true;
     }
 
     return false;
 }
 
-bool IptablesManager::hasPeerRule(const InetAddress& peerAddress) const
+bool IptablesManager::hasPeer(const InetAddress& peerAddress) const noexcept
 {
     if (!peerAddress) {
         return false;
     }
 
-    Mutex::Lock _l(_rules_mutex);
-    return _activeRules.find(peerAddress) != _activeRules.end();
+    Mutex::Lock _l(_peers_mutex);
+    return _activePeers.find(peerAddress) != _activePeers.end();
 }
 
-void IptablesManager::setWanInterface(const std::string& wanInterface)
+bool IptablesManager::updateUdpPorts(const std::vector<unsigned int>& udpPorts)
 {
-    // Validate WAN interface name to prevent command injection
+    // Validate new ports
+    for (unsigned int port : udpPorts) {
+        if (port == 0 || port > 65535) {
+            return false;
+        }
+    }
+
+    // Remove duplicates and sort
+    std::vector<unsigned int> newPorts = udpPorts;
+    std::sort(newPorts.begin(), newPorts.end());
+    newPorts.erase(std::unique(newPorts.begin(), newPorts.end()), newPorts.end());
+
+    // Check if ports actually changed
+    if (newPorts == _udpPorts) {
+        return true; // No change needed
+    }
+
+    // Remove old iptables rules (but keep the ipset - only startup/shutdown should destroy/flush ipset)
+    removeIptablesRules();
+
+    // Update ports
+    _udpPorts = newPorts;
+
+    // Create new iptables rules
+    createIptablesRules();
+
+    return true;
+}
+
+bool IptablesManager::updateWanInterface(const std::string& wanInterface)
+{
+    // Validate new WAN interface name
     if (wanInterface.empty() || wanInterface.find_first_of(";|&`$()<>") != std::string::npos) {
-        throw std::invalid_argument("Invalid WAN interface name");
-    }
-
-    Mutex::Lock _l(_rules_mutex);
-    _wanInterface = wanInterface;
-}
-
-void IptablesManager::setUdpPort(unsigned int udpPort)
-{
-    if (udpPort == 0 || udpPort > 65535) {
-        throw std::invalid_argument("Invalid UDP port number");
-    }
-
-    Mutex::Lock _l(_rules_mutex);
-    _udpPort = udpPort;
-}
-
-bool IptablesManager::executeIptablesCommand(const std::string& command) const
-{
-    // Additional security check - ensure command starts with "iptables"
-    if (command.find("iptables") != 0) {
         return false;
     }
+
+    // Check if interface actually changed
+    if (wanInterface == _wanInterface) {
+        return true; // No change needed
+    }
+
+    // Remove old iptables rules (but keep the ipset - only startup/shutdown should destroy/flush ipset)
+    removeIptablesRules();
+
+    // Update WAN interface
+    _wanInterface = wanInterface;
+
+    // Create new iptables rules with the new interface
+    createIptablesRules();
+
+    return true;
+}
+
+bool IptablesManager::executeCommand(const std::string& command) const
+{
+    // Additional security check - ensure command starts with expected commands
+    if (command.find("ipset") != 0 && command.find("iptables") != 0) {
+        return false;
+    }
+
+    // Debug: print the command being executed
+    fprintf(stderr, "[IptablesManager] Executing: %s\n", command.c_str());
 
     // Execute the command using system()
     int result = std::system(command.c_str());
+
+    // Debug: print the result
+    fprintf(stderr, "[IptablesManager] Result: %d\n", result);
 
     // system() returns the exit status of the command
     // 0 means success, non-zero means failure
     return (result == 0);
 }
 
-std::string IptablesManager::generateAddRuleCommand(const InetAddress& peerAddress) const
+void IptablesManager::initializeRules()
 {
-    std::stringstream ss;
-    ss << "iptables -I INPUT -i " << _wanInterface
-       << " -p udp --dport " << _udpPort
-       << " -s " << sanitizeIpAddress(peerAddress)
-       << " -j ACCEPT";
-    return ss.str();
+    // Create the ipset for ZeroTier peers
+    // Use hash:ip family inet with reasonable size limits
+    std::string createIpsetCmd = "ipset create zt_peers hash:ip family inet hashsize 1024 maxelem 65536";
+    if (!executeCommand(createIpsetCmd)) {
+        // If creation fails, the set might already exist (from a previous flush)
+        // Try to flush it first to ensure it's clean, then try creation again
+        executeCommand("ipset flush zt_peers 2>/dev/null");
+        if (!executeCommand(createIpsetCmd)) {
+            // If it still fails, try to destroy and recreate
+            executeCommand("ipset destroy zt_peers 2>/dev/null");
+            if (!executeCommand(createIpsetCmd)) {
+                throw std::runtime_error("Failed to create ipset 'zt_peers'");
+            }
+        }
+    }
+
+    // Create iptables rules for each UDP port
+    createIptablesRules();
+
+    _initialized = true;
 }
 
-std::string IptablesManager::generateRemoveRuleCommand(const InetAddress& peerAddress) const
+void IptablesManager::createIptablesRules()
 {
-    std::stringstream ss;
-    ss << "iptables -D INPUT -i " << _wanInterface
-       << " -p udp --dport " << _udpPort
-       << " -s " << sanitizeIpAddress(peerAddress)
-       << " -j ACCEPT";
-    return ss.str();
+    // Clean up any existing rules first
+    removeIptablesRules();
+
+    // Create a new chain for our rules to keep things clean
+    executeCommand("iptables -N zt_rules 2>/dev/null");
+
+    // Jump to our chain from INPUT
+    executeCommand("iptables -I INPUT 1 -j zt_rules 2>/dev/null");
+
+    // Allow established and related traffic, which handles replies to our outbound packets
+    executeCommand("iptables -A zt_rules -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT");
+
+    // Create rules for each UDP port
+    for (unsigned int port : _udpPorts) {
+        std::stringstream ss;
+        ss << "iptables -A zt_rules -i " << _wanInterface
+           << " -p udp --dport " << port
+           << " -m set --match-set zt_peers src"
+           << " -m conntrack --ctstate NEW -j ACCEPT";
+
+        if (!executeCommand(ss.str())) {
+            fprintf(stderr, "WARNING: Failed to create iptables rule for port %u" ZT_EOL_S, port);
+        }
+    }
+}
+
+void IptablesManager::removeIptablesRules()
+{
+    // Remove the jump rule from the INPUT chain (ignore errors if it doesn't exist)
+    executeCommand("iptables -D INPUT -j zt_rules 2>/dev/null");
+
+    // Flush all rules from our custom chain (ignore errors if it doesn't exist)
+    executeCommand("iptables -F zt_rules 2>/dev/null");
+
+    // Delete our custom chain (ignore errors if it doesn't exist)
+    executeCommand("iptables -X zt_rules 2>/dev/null");
+}
+
+void IptablesManager::cleanup()
+{
+    Mutex::Lock _l(_peers_mutex);
+    performCleanup();
+}
+
+void IptablesManager::cleanupExistingRules()
+{
+    // No lock needed here since this is called during construction
+    // and the object isn't fully initialized yet
+    performCleanup();
+}
+
+void IptablesManager::performCleanup()
+{
+    // NOTE: This method is only called at service startup (cleanupExistingRules) 
+    // and shutdown (destructor). It should NOT be called during normal operation
+    // when only rules need to be updated (use updateUdpPorts/updateWanInterface instead).
+
+    // Remove iptables rules
+    removeIptablesRules();
+
+    // Flush the ipset (remove all entries but keep the set)
+    // Only destroy if flush fails (set doesn't exist)
+    if (!executeCommand("ipset flush zt_peers 2>/dev/null")) {
+        // If flush fails, try to destroy (ignore errors if it doesn't exist)
+        executeCommand("ipset destroy zt_peers 2>/dev/null");
+    }
+
+    // Clear our internal tracking
+    _activePeers.clear();
+    _initialized = false;
 }
 
 std::string IptablesManager::sanitizeIpAddress(const InetAddress& addr) const
@@ -169,31 +337,19 @@ std::string IptablesManager::sanitizeIpAddress(const InetAddress& addr) const
     char tmp[128];
     addr.toString(tmp);
 
-    // Additional sanitization - only allow valid IP characters
+    // Extract only the IP address part (remove port if present)
     std::string result(tmp);
+    size_t slashPos = result.find('/');
+    if (slashPos != std::string::npos) {
+        result = result.substr(0, slashPos);
+    }
+
+    // Additional sanitization - only allow valid IP characters
     if (result.find_first_not_of("0123456789.") != std::string::npos) {
         return ""; // Invalid characters found
     }
 
     return result;
-}
-
-void IptablesManager::cleanup()
-{
-    Mutex::Lock _l(_rules_mutex);
-
-    // Remove all rules we've added
-    fprintf(stderr, "INFO: Cleaning up %zu iptables rules" ZT_EOL_S, _activeRules.size());
-    for (const auto& peerAddress : _activeRules) {
-        std::string command = generateRemoveRuleCommand(peerAddress);
-        int result = std::system(command.c_str());
-        if (result != 0) {
-            char buf[64];
-            fprintf(stderr, "WARNING: Failed to remove iptables rule for %s during cleanup" ZT_EOL_S, peerAddress.toString(buf));
-        }
-    }
-
-    _activeRules.clear();
 }
 
 } // namespace ZeroTier
