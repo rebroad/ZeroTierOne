@@ -41,7 +41,7 @@ IptablesManager::IptablesManager(const std::string& wanInterface, unsigned int u
 	// Jump to our chain from INPUT
 	executeIptablesCommand("iptables -I INPUT 1 -j zt_rules");
 	// Allow established and related traffic, which handles replies to our outbound packets
-	executeIptablesCommand("iptables -A zt_rules -m state --state ESTABLISHED,RELATED -j ACCEPT");
+	executeIptablesCommand("iptables -A zt_rules -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT");
 }
 
 IptablesManager::~IptablesManager()
@@ -152,7 +152,7 @@ std::string IptablesManager::generateAddRuleCommand(const InetAddress& peerAddre
     ss << "iptables -A zt_rules -i " << _wanInterface
        << " -p udp --dport " << _udpPort
        << " -s " << sanitizeIpAddress(peerAddress)
-       << " -m state --state NEW -j ACCEPT";
+       << " -m conntrack --ctstate NEW -j ACCEPT";
     return ss.str();
 }
 
@@ -162,7 +162,7 @@ std::string IptablesManager::generateRemoveRuleCommand(const InetAddress& peerAd
     ss << "iptables -D zt_rules -i " << _wanInterface
        << " -p udp --dport " << _udpPort
        << " -s " << sanitizeIpAddress(peerAddress)
-       << " -m state --state NEW -j ACCEPT";
+       << " -m conntrack --ctstate NEW -j ACCEPT";
     return ss.str();
 }
 
