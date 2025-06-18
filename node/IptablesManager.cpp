@@ -35,6 +35,13 @@ IptablesManager::IptablesManager(const std::string& wanInterface, unsigned int u
     if (_udpPort == 0 || _udpPort > 65535) {
         throw std::invalid_argument("Invalid UDP port number");
     }
+
+	// Create a new chain for our rules to keep things clean
+	executeIptablesCommand("iptables -N zt_rules");
+	// Jump to our chain from INPUT
+	executeIptablesCommand("iptables -I INPUT 1 -j zt_rules");
+	// Allow established and related traffic, which handles replies to our outbound packets
+	executeIptablesCommand("iptables -A zt_rules -m state --state ESTABLISHED,RELATED -j ACCEPT");
 }
 
 IptablesManager::~IptablesManager()
@@ -142,20 +149,20 @@ bool IptablesManager::executeIptablesCommand(const std::string& command) const
 std::string IptablesManager::generateAddRuleCommand(const InetAddress& peerAddress) const
 {
     std::stringstream ss;
-    ss << "iptables -I INPUT -i " << _wanInterface
+    ss << "iptables -A zt_rules -i " << _wanInterface
        << " -p udp --dport " << _udpPort
        << " -s " << sanitizeIpAddress(peerAddress)
-       << " -j ACCEPT";
+       << " -m state --state NEW -j ACCEPT";
     return ss.str();
 }
 
 std::string IptablesManager::generateRemoveRuleCommand(const InetAddress& peerAddress) const
 {
     std::stringstream ss;
-    ss << "iptables -D INPUT -i " << _wanInterface
+    ss << "iptables -D zt_rules -i " << _wanInterface
        << " -p udp --dport " << _udpPort
        << " -s " << sanitizeIpAddress(peerAddress)
-       << " -j ACCEPT";
+       << " -m state --state NEW -j ACCEPT";
     return ss.str();
 }
 
@@ -182,16 +189,14 @@ void IptablesManager::cleanup()
 {
     Mutex::Lock _l(_rules_mutex);
 
-    // Remove all rules we've added
-    fprintf(stderr, "INFO: Cleaning up %zu iptables rules" ZT_EOL_S, _activeRules.size());
-    for (const auto& peerAddress : _activeRules) {
-        std::string command = generateRemoveRuleCommand(peerAddress);
-        int result = std::system(command.c_str());
-        if (result != 0) {
-            char buf[64];
-            fprintf(stderr, "WARNING: Failed to remove iptables rule for %s during cleanup" ZT_EOL_S, peerAddress.toString(buf));
-        }
-    }
+    // Flush all rules from our custom chain
+    executeIptablesCommand("iptables -F zt_rules");
+
+    // Remove the jump rule from the INPUT chain
+    executeIptablesCommand("iptables -D INPUT -j zt_rules");
+
+    // Delete our custom chain
+    executeIptablesCommand("iptables -X zt_rules");
 
     _activeRules.clear();
 }

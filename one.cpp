@@ -144,6 +144,7 @@ static void cliPrintHelp(const char *pn,FILE *out)
 	fprintf(out,"  listmoons               - List moons (federated root sets)" ZT_EOL_S);
 	fprintf(out,"  orbit <world ID> <seed> - Join a moon via any member root" ZT_EOL_S);
 	fprintf(out,"  deorbit <world ID>      - Leave a moon" ZT_EOL_S);
+	fprintf(out,"  set-iptables-enabled <true|false|auto|interface-name> - Manage iptables rules" ZT_EOL_S);
 	fprintf(out,"  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out,ZT_EOL_S"Available settings:" ZT_EOL_S);
 	fprintf(out,"  Settings to use with [get/set] may include property names from " ZT_EOL_S);
@@ -1404,6 +1405,40 @@ static int cli(int argc,char **argv)
 
 		// fprintf(stderr, "%s\n", dump.str().c_str());
 
+	} else if (command == "set-iptables-enabled") {
+		if (arg1.length()) {
+			nlohmann::json j;
+			j["settings"]["iptablesEnabled"] = (arg1 == "true");
+			if (arg1 != "true" && arg1 != "false") {
+				j["settings"]["iptablesWanInterface"] = arg1;
+			}
+
+			std::map<std::string, std::string> requestHeaders;
+			requestHeaders["Authorization"] = std::string("Bearer ") + authToken;
+			requestHeaders["Content-Type"] = "application/json";
+
+			std::string postData = j.dump();
+			const unsigned int scode = Http::POST(
+				1024 * 1024 * 16,
+				60000,
+				(const struct sockaddr *)&addr,
+				"/iptables",
+				requestHeaders,
+				postData.data(),
+				postData.length(),
+				responseHeaders,
+				responseBody
+			);
+			if (scode == 200) {
+				printf("200 set-iptables-enabled OK" ZT_EOL_S);
+			} else {
+				fprintf(stderr, "%u %s" ZT_EOL_S, scode, responseBody.c_str());
+				return 1;
+			}
+		} else {
+			cliPrintHelp(argv[0], stdout);
+			return 1;
+		}
 	} else {
 		cliPrintHelp(argv[0],stderr);
 		return 0;
