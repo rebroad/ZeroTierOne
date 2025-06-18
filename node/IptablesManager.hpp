@@ -14,86 +14,69 @@
 #ifndef ZT_IPTABLESMANAGER_HPP
 #define ZT_IPTABLESMANAGER_HPP
 
-#include <string>
-#include <set>
-#include <mutex>
-#include <memory>
 #include "../node/InetAddress.hpp"
 #include "../node/Mutex.hpp"
+#include <string>
+#include <set>
+#include <memory>
+
+// iptables C library headers
+#include <libiptc/libiptc.h>
+#include <linux/netfilter/xt_state.h>
+#include <linux/netfilter/xt_conntrack.h>
+#include <linux/netfilter/xt_tcpudp.h>
 
 namespace ZeroTier {
 
 /**
  * Manages iptables rules for ZeroTier peer connections
- *
- * This class automatically adds iptables rules to allow incoming traffic
- * from ZeroTier peers on the WAN interface, and removes them when peers disconnect.
+ * Uses libiptc for direct kernel communication instead of shell commands
  */
 class IptablesManager
 {
 public:
     /**
      * Constructor
-     *
-     * @param wanInterface Name of the WAN interface (e.g., "eth0", "enp3s0")
-     * @param udpPort UDP port ZeroTier is listening on (default: 9993)
+     * @param wanInterface The WAN interface name
+     * @param udpPort The UDP port to protect
      */
-    IptablesManager(const std::string& wanInterface, unsigned int udpPort = 9993);
+    IptablesManager(const std::string& wanInterface, unsigned int udpPort);
 
     /**
-     * Destructor - cleans up all iptables rules
+     * Destructor - cleans up iptables rules
      */
     ~IptablesManager();
 
     /**
-     * Add iptables rule for a peer
-     *
-     * @param peerAddress IP address of the peer
-     * @return True if rule was added successfully
+     * Add an iptables rule for a specific peer
+     * @param peerAddress The peer's IP address
+     * @return true if successful, false otherwise
      */
     bool addPeerRule(const InetAddress& peerAddress);
 
     /**
-     * Remove iptables rule for a peer
-     *
-     * @param peerAddress IP address of the peer
-     * @return True if rule was removed successfully
+     * Remove an iptables rule for a specific peer
+     * @param peerAddress The peer's IP address
+     * @return true if successful, false otherwise
      */
     bool removePeerRule(const InetAddress& peerAddress);
 
     /**
      * Check if a peer rule exists
-     *
-     * @param peerAddress IP address of the peer
-     * @return True if rule exists
+     * @param peerAddress The peer's IP address
+     * @return true if rule exists, false otherwise
      */
     bool hasPeerRule(const InetAddress& peerAddress) const;
 
     /**
-     * Get the WAN interface name
-     *
-     * @return WAN interface name
-     */
-    inline const std::string& getWanInterface() const { return _wanInterface; }
-
-    /**
-     * Get the UDP port
-     *
-     * @return UDP port
-     */
-    inline unsigned int getUdpPort() const { return _udpPort; }
-
-    /**
-     * Set the WAN interface name
-     *
-     * @param wanInterface New WAN interface name
+     * Update the WAN interface
+     * @param wanInterface The new WAN interface name
      */
     void setWanInterface(const std::string& wanInterface);
 
     /**
-     * Set the UDP port
-     *
-     * @param udpPort New UDP port
+     * Update the UDP port
+     * @param udpPort The new UDP port
      */
     void setUdpPort(unsigned int udpPort);
 
@@ -107,49 +90,41 @@ public:
         return _activeRules.size();
     }
 
+private:
+    std::string _wanInterface;
+    unsigned int _udpPort;
+    mutable Mutex _rules_mutex;
+    std::set<InetAddress> _activeRules;
+
     /**
-     * Clean up all iptables rules created by this manager
-     * Called on service shutdown
+     * Initialize the iptables chain and basic rules
+     */
+    bool initializeChain();
+
+    /**
+     * Clean up all iptables rules and chains
      */
     void cleanup();
 
-private:
     /**
-     * Execute an iptables command
-     *
-     * @param command The iptables command to execute
-     * @return True if command executed successfully
+     * Create an iptables rule entry for a peer
+     * @param peerAddress The peer's IP address
+     * @return Pointer to allocated ipt_entry, or nullptr on failure
      */
-    bool executeIptablesCommand(const std::string& command) const;
+    struct ipt_entry* createPeerRule(const InetAddress& peerAddress) const;
 
     /**
-     * Generate iptables rule string for adding a peer
-     *
-     * @param peerAddress IP address of the peer
-     * @return iptables command string
+     * Get the iptc handle for the filter table
+     * @return Pointer to iptc_handle, or nullptr on failure
      */
-    std::string generateAddRuleCommand(const InetAddress& peerAddress) const;
+    struct iptc_handle* getIptcHandle() const;
 
     /**
-     * Generate iptables rule string for removing a peer
-     *
-     * @param peerAddress IP address of the peer
-     * @return iptables command string
-     */
-    std::string generateRemoveRuleCommand(const InetAddress& peerAddress) const;
-
-    /**
-     * Sanitize IP address for use in shell commands
-     *
-     * @param addr IP address to sanitize
+     * Sanitize IP address for use in rules
+     * @param addr The address to sanitize
      * @return Sanitized IP address string
      */
     std::string sanitizeIpAddress(const InetAddress& addr) const;
-
-    std::string _wanInterface;
-    unsigned int _udpPort;
-    std::set<InetAddress> _activeRules;
-    mutable Mutex _rules_mutex;
 
     // Disable copy constructor and assignment operator
     IptablesManager(const IptablesManager&) = delete;
@@ -158,4 +133,4 @@ private:
 
 } // namespace ZeroTier
 
-#endif
+#endif // ZT_IPTABLESMANAGER_HPP

@@ -995,10 +995,8 @@ public:
 		delete _controller;
 		delete _rc;
 
-		// Clean up iptables rules on shutdown
-		if (_iptablesManager) {
-			_iptablesManager->cleanup();
-		}
+		// IptablesManager destructor will automatically clean up rules
+		// No need to call cleanup() explicitly - RAII handles it
 	}
 
 	void setUpMultithreading()

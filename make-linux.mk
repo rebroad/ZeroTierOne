@@ -42,6 +42,9 @@ else
 	override DEFS+=-DZT_USE_SYSTEM_NATPMP
 endif
 
+# Add libiptc for iptables management
+LDLIBS+=-liptc
+
 # Use bundled http-parser since distribution versions are NOT API-stable or compatible!
 # Trying to use dynamically linked libhttp-parser causes tons of compatibility problems.
 ONE_OBJS+=ext/http-parser/http_parser.o
