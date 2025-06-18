@@ -18,4 +18,4 @@ url = { version = "2" }
 uuid = { version = "1.4", features = ["v4"] }
 
 [build-dependencies]
-cbindgen = "0.20"
+cbindgen = "0.29"
