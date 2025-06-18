@@ -174,6 +174,11 @@ void Peer::received(
 					if(_bond) {
 						_bond->nominatePathToBond(_paths[replacePath].p, now);
 					}
+
+					// Notify service about new peer path (iptables integration)
+					if (RR->peerPathCallback) {
+						RR->peerPathCallback(RR->peerPathCallbackUserPtr, path->address(), true);
+					}
 				}
 			} else {
 				Mutex::Lock ltl(_lastTriedPath_m);
@@ -565,6 +570,10 @@ unsigned int Peer::doPingAndKeepalive(void *tPtr,int64_t now)
 						sent |= (_paths[i].p->address().ss_family == AF_INET) ? 0x1 : 0x2;
 					}
 				} else {
+					// Notify service about removed peer path (iptables integration)
+					if (RR->peerPathCallback && _paths[i].p) {
+						RR->peerPathCallback(RR->peerPathCallbackUserPtr, _paths[i].p->address(), false);
+					}
 					_paths[i] = _PeerPath();
 					deletionOccurred = true;
 				}

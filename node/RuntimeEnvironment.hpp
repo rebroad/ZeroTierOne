@@ -19,6 +19,7 @@
 #include "Constants.hpp"
 #include "Utils.hpp"
 #include "Identity.hpp"
+#include "InetAddress.hpp"
 
 namespace ZeroTier {
 
@@ -47,6 +48,8 @@ public:
 		,mc((Multicaster *)0)
 		,topology((Topology *)0)
 		,sa((SelfAwareness *)0)
+		,peerPathCallback((PeerPathCallback)0)
+		,peerPathCallbackUserPtr((void *)0)
 	{
 		publicIdentityStr[0] = (char)0;
 		secretIdentityStr[0] = (char)0;
@@ -84,6 +87,11 @@ public:
 	Identity identity;
 	char publicIdentityStr[ZT_IDENTITY_STRING_BUFFER_LENGTH];
 	char secretIdentityStr[ZT_IDENTITY_STRING_BUFFER_LENGTH];
+
+	// Callback for peer path events (iptables integration)
+	typedef void (*PeerPathCallback)(void* userPtr, const InetAddress& peerAddress, bool isAdd);
+	PeerPathCallback peerPathCallback;
+	void* peerPathCallbackUserPtr;
 };
 
 } // namespace ZeroTier

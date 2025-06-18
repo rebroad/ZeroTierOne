@@ -285,6 +285,17 @@ public:
 
 	void initMultithreading(unsigned int concurrency, bool cpuPinningEnabled);
 
+	/**
+	 * Set callback for peer path events (iptables integration)
+	 *
+	 * @param callback Function to call when peer paths are added/removed
+	 * @param userPtr User pointer to pass to callback
+	 */
+	inline void setPeerPathCallback(RuntimeEnvironment::PeerPathCallback callback, void* userPtr)
+	{
+		_RR.peerPathCallback = callback;
+		_RR.peerPathCallbackUserPtr = userPtr;
+	}
 
 public:
 	RuntimeEnvironment _RR;
