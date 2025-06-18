@@ -16,7 +16,7 @@
 
 #include <string>
 #include <set>
-#include <mutex>
+#include <vector>
 #include <memory>
 #include "../node/InetAddress.hpp"
 #include "../node/Mutex.hpp"
@@ -24,10 +24,10 @@
 namespace ZeroTier {
 
 /**
- * Manages iptables rules for ZeroTier peer connections
+ * Manages iptables rules for ZeroTier peer communication
  *
- * This class automatically adds iptables rules to allow incoming traffic
- * from ZeroTier peers on the WAN interface, and removes them when peers disconnect.
+ * Uses ipsets for efficient peer management instead of individual rules per peer.
+ * Supports multiple UDP ports (primary, secondary, tertiary).
  */
 class IptablesManager
 {
@@ -36,107 +36,130 @@ public:
      * Constructor
      *
      * @param wanInterface Name of the WAN interface (e.g., "eth0", "enp3s0")
-     * @param udpPort UDP port ZeroTier is listening on (default: 9993)
+     * @param udpPorts Vector of UDP ports ZeroTier is listening on
      */
-    IptablesManager(const std::string& wanInterface, unsigned int udpPort = 9993);
+    explicit IptablesManager(const std::string& wanInterface, const std::vector<unsigned int>& udpPorts);
 
     /**
-     * Destructor - cleans up all iptables rules
+     * Destructor - cleans up all iptables rules and ipsets
      */
-    ~IptablesManager();
+    ~IptablesManager() noexcept;
 
     /**
-     * Add iptables rule for a peer
+     * Move constructor
+     */
+    IptablesManager(IptablesManager&& other) noexcept;
+
+    /**
+     * Move assignment operator
+     */
+    IptablesManager& operator=(IptablesManager&& other) noexcept;
+
+    /**
+     * Add a peer IP address to the allowed list
      *
      * @param peerAddress IP address of the peer
-     * @return True if rule was added successfully
+     * @return True if peer was added successfully
      */
-    bool addPeerRule(const InetAddress& peerAddress);
+    bool addPeer(const InetAddress& peerAddress);
 
     /**
-     * Remove iptables rule for a peer
+     * Remove a peer IP address from the allowed list
      *
      * @param peerAddress IP address of the peer
-     * @return True if rule was removed successfully
+     * @return True if peer was removed successfully
      */
-    bool removePeerRule(const InetAddress& peerAddress);
+    bool removePeer(const InetAddress& peerAddress);
 
     /**
-     * Check if a peer rule exists
+     * Check if a peer IP address is in the allowed list
      *
      * @param peerAddress IP address of the peer
-     * @return True if rule exists
+     * @return True if peer is in the allowed list
      */
-    bool hasPeerRule(const InetAddress& peerAddress) const;
+    bool hasPeer(const InetAddress& peerAddress) const noexcept;
+
+    /**
+     * Update the list of UDP ports (e.g., when secondary port changes)
+     *
+     * @param udpPorts New list of UDP ports
+     * @return True if ports were updated successfully
+     */
+    bool updateUdpPorts(const std::vector<unsigned int>& udpPorts);
+
+    /**
+     * Update the WAN interface (e.g., when network configuration changes)
+     *
+     * @param wanInterface New WAN interface name
+     * @return True if interface was updated successfully
+     */
+    bool updateWanInterface(const std::string& wanInterface);
 
     /**
      * Get the WAN interface name
      *
      * @return WAN interface name
      */
-    inline const std::string& getWanInterface() const { return _wanInterface; }
+    inline const std::string& getWanInterface() const noexcept { return _wanInterface; }
 
     /**
-     * Get the UDP port
+     * Get the current UDP ports
      *
-     * @return UDP port
+     * @return Vector of UDP ports
      */
-    inline unsigned int getUdpPort() const { return _udpPort; }
+    inline const std::vector<unsigned int>& getUdpPorts() const noexcept { return _udpPorts; }
 
     /**
-     * Set the WAN interface name
+     * Get the number of active peers
      *
-     * @param wanInterface New WAN interface name
+     * @return Number of active peers
      */
-    void setWanInterface(const std::string& wanInterface);
-
-    /**
-     * Set the UDP port
-     *
-     * @param udpPort New UDP port
-     */
-    void setUdpPort(unsigned int udpPort);
-
-    /**
-     * Get the number of active peer rules
-     *
-     * @return Number of active rules
-     */
-    inline size_t getActiveRuleCount() const {
-        Mutex::Lock _l(_rules_mutex);
-        return _activeRules.size();
+    inline size_t getActivePeerCount() const noexcept {
+        Mutex::Lock _l(_peers_mutex);
+        return _activePeers.size();
     }
 
+private:
     /**
-     * Clean up all iptables rules created by this manager
+     * Execute a shell command
+     *
+     * @param command The command to execute
+     * @return True if command executed successfully
+     */
+    bool executeCommand(const std::string& command) const;
+
+    /**
+     * Initialize the ipset and iptables rules
+     */
+    void initializeRules();
+
+    /**
+     * Clean up all iptables rules and ipsets
      * Called on service shutdown
      */
     void cleanup();
 
-private:
     /**
-     * Execute an iptables command
-     *
-     * @param command The iptables command to execute
-     * @return True if command executed successfully
+     * Clean up any existing iptables rules and ipsets from previous runs
+     * Called during initialization to handle unclean shutdowns
      */
-    bool executeIptablesCommand(const std::string& command) const;
+    void cleanupExistingRules();
 
     /**
-     * Generate iptables rule string for adding a peer
-     *
-     * @param peerAddress IP address of the peer
-     * @return iptables command string
+     * Perform the actual cleanup of iptables rules and ipsets
+     * Shared implementation used by both cleanup() and cleanupExistingRules()
      */
-    std::string generateAddRuleCommand(const InetAddress& peerAddress) const;
+    void performCleanup();
 
     /**
-     * Generate iptables rule string for removing a peer
-     *
-     * @param peerAddress IP address of the peer
-     * @return iptables command string
+     * Create iptables rules for the current UDP ports
      */
-    std::string generateRemoveRuleCommand(const InetAddress& peerAddress) const;
+    void createIptablesRules();
+
+    /**
+     * Remove iptables rules for the current UDP ports
+     */
+    void removeIptablesRules();
 
     /**
      * Sanitize IP address for use in shell commands
@@ -147,9 +170,10 @@ private:
     std::string sanitizeIpAddress(const InetAddress& addr) const;
 
     std::string _wanInterface;
-    unsigned int _udpPort;
-    std::set<InetAddress> _activeRules;
-    mutable Mutex _rules_mutex;
+    std::vector<unsigned int> _udpPorts;
+    std::set<InetAddress> _activePeers;
+    mutable Mutex _peers_mutex;
+    bool _initialized;
 
     // Disable copy constructor and assignment operator
     IptablesManager(const IptablesManager&) = delete;
