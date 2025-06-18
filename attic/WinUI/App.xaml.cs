@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using Hardcodet.Wpf.TaskbarNotification;
+using Newtonsoft.Json;
 
 namespace WinUI
 {
@@ -15,6 +16,11 @@ namespace WinUI
     public partial class App : Application
     {
         private TaskbarIcon tb;
+
+        public App()
+        {
+            JsonConvert.DefaultSettings = () => new JsonSerializerSettings { MaxDepth = 128 };
+        }
 
         private void InitApplication()
         {
