@@ -47,6 +47,7 @@
 #include "../node/Bond.hpp"
 #include "../node/Peer.hpp"
 #include "../node/PacketMultiplexer.hpp"
+#include "../node/IptablesManager.hpp"
 
 #include "../osdep/Phy.hpp"
 #include "../osdep/OSUtils.hpp"
@@ -696,6 +697,7 @@ static void SnodeVirtualNetworkFrameFunction(ZT_Node *node,void *uptr,void *tptr
 static int SnodePathCheckFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int64_t localSocket,const struct sockaddr_storage *remoteAddr);
 static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int family,struct sockaddr_storage *result);
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len);
+static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, bool isAdd);
 
 static int ShttpOnMessageBegin(http_parser *parser);
 static int ShttpOnUrl(http_parser *parser,const char *ptr,size_t length);
@@ -891,6 +893,10 @@ public:
 	RedisConfig *_rc;
 	std::string _ssoRedirectURL;
 
+	// Iptables manager for peer connection rules
+	std::unique_ptr<IptablesManager> _iptablesManager;
+	bool _iptablesEnabled;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -934,6 +940,7 @@ public:
 		,_run(true)
 		,_rc(NULL)
 		,_ssoRedirectURL()
+		,_iptablesEnabled(false)
 	{
 		_ports[0] = 0;
 		_ports[1] = 0;
@@ -987,6 +994,11 @@ public:
 #endif
 		delete _controller;
 		delete _rc;
+
+		// Clean up iptables rules on shutdown
+		if (_iptablesManager) {
+			_iptablesManager->cleanup();
+		}
 	}
 
 	void setUpMultithreading()
@@ -1054,6 +1066,9 @@ public:
 				cb.pathLookupFunction = SnodePathLookupFunction;
 				_node = new Node(this,(void *)0,&cb,OSUtils::now());
 			}
+
+			// Set up peer path callback for iptables integration
+			_node->setPeerPathCallback(SpeerPathCallback, this);
 
 			// local.conf
 			readLocalSettings();
@@ -1462,6 +1477,22 @@ public:
 				_controllerDbPath = cdbp;
 
 			_ssoRedirectURL = OSUtils::jsonString(settings["ssoRedirectURL"], "");
+
+			// Iptables configuration
+			_iptablesEnabled = OSUtils::jsonBool(settings["iptablesEnabled"], false);
+			if (_iptablesEnabled) {
+				std::string wanInterface = OSUtils::jsonString(settings["iptablesWanInterface"], "eth0");
+				unsigned int udpPort = (unsigned int)OSUtils::jsonInt(settings["iptablesUdpPort"], 9993);
+
+				try {
+					_iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPort);
+					fprintf(stderr, "INFO: Iptables manager initialized with WAN interface '%s' and UDP port %u" ZT_EOL_S,
+						wanInterface.c_str(), udpPort);
+				} catch (const std::exception& e) {
+					fprintf(stderr, "ERROR: Failed to initialize iptables manager: %s" ZT_EOL_S, e.what());
+					_iptablesEnabled = false;
+				}
+			}
 
 #ifdef ZT_CONTROLLER_USE_LIBPQ
 			// TODO:  Redis config
@@ -2657,6 +2688,22 @@ public:
 					_allowManagementFrom.push_back(nw);
 			}
 		}
+
+		// Iptables configuration
+    	_iptablesEnabled = OSUtils::jsonBool(settings["iptablesEnabled"], false);
+    	if (_iptablesEnabled) {
+    	    std::string wanInterface = OSUtils::jsonString(settings["iptablesWanInterface"], "eth0");
+    	    unsigned int udpPort = (unsigned int)OSUtils::jsonInt(settings["iptablesUdpPort"], 9993);
+
+    	    try {
+    	        _iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPort);
+    	        fprintf(stderr, "INFO: Iptables manager initialized with WAN interface '%s' and UDP port %u" ZT_EOL_S,
+    	                wanInterface.c_str(), udpPort);
+    	    } catch (const std::exception& e) {
+    	        fprintf(stderr, "ERROR: Failed to initialize iptables manager: %s" ZT_EOL_S, e.what());
+    	        _iptablesEnabled = false;
+    	    }
+    	}
 	}
 
 #if ZT_VAULT_SUPPORT
@@ -3899,6 +3946,23 @@ public:
 
 		return false;
 	}
+
+	// Iptables peer path management
+	void _handlePeerPathUpdate(const InetAddress& peerAddress, bool isAdd)
+	{
+		if (_iptablesEnabled && _iptablesManager) {
+			char buf[64];
+			peerAddress.toString(buf);
+
+			bool success = isAdd ? _iptablesManager->addPeerRule(peerAddress) : _iptablesManager->removePeerRule(peerAddress);
+
+			if (success) {
+				fprintf(stderr, "INFO: %s iptables rule for peer %s" ZT_EOL_S, isAdd ? "Added" : "Removed", buf);
+			} else {
+				fprintf(stderr, "WARNING: Failed to %s iptables rule for peer %s" ZT_EOL_S, isAdd ? "add" : "remove", buf);
+			}
+		}
+	}
 };
 
 static int SnodeVirtualNetworkConfigFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t nwid,void **nuptr,enum ZT_VirtualNetworkConfigOperation op,const ZT_VirtualNetworkConfig *nwconf)
@@ -3919,6 +3983,10 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodePathLookupFunction(ztaddr,family,result); }
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
+static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, bool isAdd)
+{
+	reinterpret_cast<OneServiceImpl*>(userPtr)->_handlePeerPathUpdate(peerAddress, isAdd);
+}
 
 static int ShttpOnMessageBegin(http_parser *parser)
 {
