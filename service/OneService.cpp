@@ -2403,7 +2403,7 @@ public:
 				Mutex::Lock _l(_peerPortStats_m);
 				for (const auto& peerEntry : _peerPortStats) {
 					char peerBuf[64];
-					peerEntry.first.toString(peerBuf);
+					peerEntry.first.toIpString(peerBuf);  // Use toIpString() instead of toString() to avoid "/0"
 
 					json peerData = json::object();
 					peerData["totalPackets"] = peerEntry.second.totalPackets;

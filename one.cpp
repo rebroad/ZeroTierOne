@@ -1155,8 +1155,8 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-20s %-8s %-12s %-12s %s" ZT_EOL_S, "Peer Address", "Packets", "First Seen", "Last Seen", "Port Usage");
-				printf("%-20s %-8s %-12s %-12s %s" ZT_EOL_S, "--------------------", "--------", "----------", "---------", "----------");
+				printf("%-15s %-7s %-10s %-10s %s" ZT_EOL_S, "Peer Address", "Packets", "First Seen", "Last Seen", "Port Usage");
+				printf("%-15s %-7s %-10s %-10s %s" ZT_EOL_S, "---------------", "-------", "----------", "----------", "----------");
 
 				if (j.contains("peers") && j["peers"].is_object()) {
 					for (auto& [peerAddr, peerData] : j["peers"].items()) {
@@ -1198,7 +1198,7 @@ static int cli(int argc,char **argv)
 						}
 						if (portUsage.empty()) portUsage = "none";
 
-						printf("%-20s %-8llu %-12s %-12s %s" ZT_EOL_S,
+						printf("%-15s %-7llu %-10s %-10s %s" ZT_EOL_S,
 							peerAddr.c_str(), totalPackets, firstSeenStr, lastSeenStr, portUsage.c_str());
 					}
 				}
