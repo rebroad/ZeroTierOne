@@ -157,6 +157,16 @@ private:
     void createIptablesRules();
 
     /**
+     * Efficiently replace the multiport rule with new ports (1 command)
+     */
+    bool replaceMultiportRule(const std::vector<unsigned int>& newPorts);
+
+    /**
+     * Fallback: Create individual iptables rules for each port (compatibility)
+     */
+    void createIndividualPortRules();
+
+    /**
      * Remove iptables rules for the current UDP ports
      */
     void removeIptablesRules();
