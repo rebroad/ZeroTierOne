@@ -1155,8 +1155,8 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-15s %-8s %-8s %-10s %-10s %s" ZT_EOL_S, "Peer Address", "In", "Out", "First In", "Last Seen", "Port Usage (In/Out)");
-				printf("%-15s %-8s %-8s %-10s %-10s %s" ZT_EOL_S, "---------------", "--------", "--------", "----------", "----------", "-------------------");
+				printf("%-15s %-12s %-10s %-8s %s" ZT_EOL_S, "Peer Address", "Packets", "First In", "Last In", "Port Usage (In/Out)");
+				printf("%-15s %-12s %-10s %-8s %s" ZT_EOL_S, "---------------", "------------", "----------", "--------", "-------------------");
 
 				if (j.contains("peers") && j["peers"].is_object()) {
 					for (auto& [peerAddr, peerData] : j["peers"].items()) {
@@ -1224,8 +1224,12 @@ static int cli(int argc,char **argv)
 
 						if (!hasAnyTraffic) portUsage = "none";
 
-						printf("%-15s %-8llu %-8llu %-10s %-10s %s" ZT_EOL_S,
-							peerAddr.c_str(), totalIncoming, totalOutgoing, firstIncomingStr, lastSeenStr, portUsage.c_str());
+						// Format combined packet count as "In/Out"
+						char packetStr[32];
+						snprintf(packetStr, sizeof(packetStr), "%llu/%llu", totalIncoming, totalOutgoing);
+
+						printf("%-15s %-12s %-10s %-8s %s" ZT_EOL_S,
+							peerAddr.c_str(), packetStr, firstIncomingStr, lastSeenStr, portUsage.c_str());
 					}
 				}
 			}
