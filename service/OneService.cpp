@@ -1137,6 +1137,21 @@ public:
 			}
 #endif
 
+			// Update iptables rules now that all ports are bound (initial setup)
+			if (_iptablesEnabled && _iptablesManager) {
+				std::vector<unsigned int> udpPorts = _collectUdpPorts();
+				if (!udpPorts.empty()) {
+					if (_iptablesManager->updateUdpPorts(udpPorts)) {
+						fprintf(stderr, "INFO: Updated iptables rules with all bound ports after initialization (%zu ports)" ZT_EOL_S, udpPorts.size());
+						for (unsigned int port : udpPorts) {
+							fprintf(stderr, "INFO:   - UDP port %u" ZT_EOL_S, port);
+						}
+					} else {
+						fprintf(stderr, "WARNING: Failed to update iptables rules with bound ports after initialization" ZT_EOL_S);
+					}
+				}
+			}
+
 			// Delete legacy iddb.d if present (cleanup)
 			OSUtils::rmDashRf((_homePath + ZT_PATH_SEPARATOR_S "iddb.d").c_str());
 
