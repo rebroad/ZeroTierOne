@@ -147,7 +147,8 @@ static void cliPrintHelp(const char *pn,FILE *out)
 	fprintf(out,"  set-iptables-enabled <true|false|auto|interface-name> - Manage iptables rules" ZT_EOL_S);
 	fprintf(out,"  stats                   - Show peer port usage statistics" ZT_EOL_S);
 	fprintf(out,"  dump                    - Debug settings dump for support" ZT_EOL_S);
-	fprintf(out,"  findip <ip_address>     - Find ZeroTier address for given IP" ZT_EOL_S);
+			fprintf(out,"  findztaddr <ip_address> - Find ZeroTier address for given IP" ZT_EOL_S);
+		fprintf(out,"  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
 	fprintf(out,ZT_EOL_S"Available settings:" ZT_EOL_S);
 	fprintf(out,"  Settings to use with [get/set] may include property names from " ZT_EOL_S);
 	fprintf(out,"  the JSON output of \"zerotier-cli -j listnetworks\". Additionally, " ZT_EOL_S);
@@ -1582,9 +1583,9 @@ static int cli(int argc,char **argv)
 			cliPrintHelp(argv[0], stdout);
 			return 1;
 		}
-	} else if (command == "findip") {
+	} else if (command == "findztaddr") {
 		if (arg1.empty()) {
-			printf("usage: zerotier-cli findip <ip_address>" ZT_EOL_S);
+			printf("usage: zerotier-cli findztaddr <ip_address>" ZT_EOL_S);
 			return 2;
 		}
 
@@ -1775,7 +1776,7 @@ static int cli(int argc,char **argv)
 					char ztAddrStr[16];
 					snprintf(ztAddrStr, sizeof(ztAddrStr), "%010llx", (unsigned long long)(ztAddr & 0xffffffffffULL));
 
-					printf("200 findip %s %s (via MAC %s)" ZT_EOL_S, targetIp.c_str(), ztAddrStr, macBuffer);
+					printf("200 findztaddr %s %s (via MAC %s)" ZT_EOL_S, targetIp.c_str(), ztAddrStr, macBuffer);
 					pclose(arpPipe);
 					return 0;
 				}
@@ -1794,6 +1795,116 @@ static int cli(int argc,char **argv)
 		printf("  - Ensure the target device is online and reachable" ZT_EOL_S);
 		printf("  - Try again after some network activity to the target IP" ZT_EOL_S);
 		printf("  - Check 'ip neigh show %s' manually" ZT_EOL_S, targetIp.c_str());
+
+		return 1;
+	} else if (command == "findip") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli findip <zt_address>" ZT_EOL_S);
+			return 2;
+		}
+
+		// Parse the ZeroTier address
+		std::string targetZtAddr = arg1;
+		if (targetZtAddr.length() != 10) {
+			printf("Invalid ZeroTier address format. Expected 10 hex characters." ZT_EOL_S);
+			return 2;
+		}
+
+		// Convert ZeroTier address string to uint64_t
+		uint64_t ztAddr = strtoull(targetZtAddr.c_str(), NULL, 16);
+		if (ztAddr == 0) {
+			printf("Invalid ZeroTier address: %s" ZT_EOL_S, targetZtAddr.c_str());
+			return 2;
+		}
+
+		printf("Searching for IP address for ZeroTier address %s..." ZT_EOL_S, targetZtAddr.c_str());
+
+		// Get network list
+		const unsigned int netscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/network",requestHeaders,responseHeaders,responseBody);
+		if (netscode != 200) {
+			printf("Error getting network list: %u %s" ZT_EOL_S, netscode, responseBody.c_str());
+			return 1;
+		}
+
+		nlohmann::json networks;
+		try {
+			networks = OSUtils::jsonParse(responseBody);
+		} catch (...) {
+			printf("Error parsing network list" ZT_EOL_S);
+			return 1;
+		}
+
+		if (!networks.is_array()) {
+			printf("Invalid network list format" ZT_EOL_S);
+			return 1;
+		}
+
+		// Check each network for this ZeroTier address
+		for (unsigned long i = 0; i < networks.size(); ++i) {
+			nlohmann::json &network = networks[i];
+			std::string networkId = OSUtils::jsonString(network["id"], "");
+			std::string portDeviceName = OSUtils::jsonString(network["portDeviceName"], "");
+			
+			if (networkId.empty()) continue;
+			
+			// Convert network ID to uint64_t
+			uint64_t nwid = strtoull(networkId.c_str(), NULL, 16);
+			
+			// Generate the expected MAC address for this ZeroTier address on this network
+			// Using the same algorithm as MAC::fromAddress()
+			uint64_t expectedMac = ((uint64_t)((unsigned char)((nwid & 0xfe) | 0x02))) << 40; // first octet
+			if (((expectedMac >> 40) & 0xff) == 0x52) { // blacklist 0x52
+				expectedMac = (expectedMac & 0xff0000000000ULL) | (0x32ULL << 40);
+			}
+			expectedMac |= ztAddr; // ZT address goes in lower 40 bits
+			expectedMac ^= ((nwid >> 8) & 0xff) << 32;
+			expectedMac ^= ((nwid >> 16) & 0xff) << 24;
+			expectedMac ^= ((nwid >> 24) & 0xff) << 16;
+			expectedMac ^= ((nwid >> 32) & 0xff) << 8;
+			expectedMac ^= (nwid >> 40) & 0xff;
+			
+			// Format MAC address as string
+			char expectedMacStr[18];
+			snprintf(expectedMacStr, sizeof(expectedMacStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+				(unsigned int)((expectedMac >> 40) & 0xff),
+				(unsigned int)((expectedMac >> 32) & 0xff),
+				(unsigned int)((expectedMac >> 24) & 0xff),
+				(unsigned int)((expectedMac >> 16) & 0xff),
+				(unsigned int)((expectedMac >> 8) & 0xff),
+				(unsigned int)(expectedMac & 0xff));
+			
+			// Search ARP cache for this MAC address
+			std::string arpCmd = "ip neigh show | grep -i " + std::string(expectedMacStr) + " | awk '{print $1}' | head -1";
+			FILE* arpPipe = popen(arpCmd.c_str(), "r");
+			if (arpPipe) {
+				char ipBuffer[64] = {0};
+				if (fgets(ipBuffer, sizeof(ipBuffer), arpPipe)) {
+					// Remove trailing newline
+					char* newline = strchr(ipBuffer, '\n');
+					if (newline) *newline = '\0';
+					
+					if (strlen(ipBuffer) > 0) {
+						printf("200 findip %s %s (network %s, MAC %s)" ZT_EOL_S, 
+							   targetZtAddr.c_str(), ipBuffer, networkId.c_str(), expectedMacStr);
+						pclose(arpPipe);
+						return 0;
+					}
+				}
+				pclose(arpPipe);
+			}
+		}
+
+		printf("No IP address found for ZeroTier address %s" ZT_EOL_S, targetZtAddr.c_str());
+		printf("" ZT_EOL_S);
+		printf("This could mean:" ZT_EOL_S);
+		printf("  - The ZeroTier address is not currently online" ZT_EOL_S);
+		printf("  - No recent network communication has occurred" ZT_EOL_S);
+		printf("  - The address is not a member of any of your networks" ZT_EOL_S);
+		printf("" ZT_EOL_S);
+		printf("Try:" ZT_EOL_S);
+		printf("  - Ensure the target device is online and communicating" ZT_EOL_S);
+		printf("  - Try 'zerotier-cli listpeers' to see if the peer is known" ZT_EOL_S);
+		printf("  - Generate some network traffic to populate ARP cache" ZT_EOL_S);
 
 		return 1;
 	} else {
