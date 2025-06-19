@@ -1137,7 +1137,11 @@ public:
 			}
 #endif
 
-			// Update iptables rules now that all ports are bound (initial setup)
+			// TIMING FIX: Update iptables rules now that secondary/tertiary ports are bound
+			// Background: iptables manager initializes early with only primary port (9993)
+			// Secondary port (_ports[1]) and tertiary port (_ports[2]) are bound later
+			// This is the ONLY chance for tertiary port to get iptables rules (it never changes)
+			// Secondary port gets additional updates during runtime (see line ~1244)
 			if (_iptablesEnabled && _iptablesManager) {
 				std::vector<unsigned int> udpPorts = _collectUdpPorts();
 				if (!udpPorts.empty()) {
@@ -1252,7 +1256,10 @@ public:
 							fprintf(stderr, "Randomized secondary port. Now it's %d\n", _ports[1]);
 #endif
 
-							// Update iptables rules with new port
+							// RUNTIME UPDATE: Update iptables rules when secondary port changes
+							// This handles secondary port randomization during runtime (connectivity issues)
+							// Tertiary port never changes, so this only affects secondary port rules
+							// Initial port binding is handled separately (see line ~1139)
 							if (_iptablesEnabled && _iptablesManager) {
 								std::vector<unsigned int> udpPorts = _collectUdpPorts();
 
@@ -4029,9 +4036,14 @@ public:
 	}
 
 	/**
-	 * Collect all active UDP ports (primary, secondary, tertiary)
+	 * Collect all active UDP ports for iptables rules
+	 * 
+	 * Ports collected:
+	 * - Primary port (_ports[0]): Always 9993 (or configured primary)
+	 * - Secondary port (_ports[1]): Random port, changes during runtime
+	 * - Tertiary port (_ports[2]): UPnP/NAT-PMP port, set once during init
 	 *
-	 * @return Vector of active UDP ports
+	 * @return Vector of active UDP ports (empty during early initialization)
 	 */
 	std::vector<unsigned int> _collectUdpPorts() const
 	{
