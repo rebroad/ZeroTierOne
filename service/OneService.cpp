@@ -1212,6 +1212,7 @@ public:
 			int64_t lastUpdateCheck = clockShouldBe;
 			int64_t lastCleanedPeersDb = 0;
 			int64_t lastLocalConfFileCheck = OSUtils::now();
+			int64_t lastIptablesCheck = OSUtils::now();
 			int64_t lastOnline = lastLocalConfFileCheck;
 			for(;;) {
 				_run_m.lock();
@@ -1251,6 +1252,15 @@ public:
 							readLocalSettings();
 							applyLocalConfig();
 						}
+					}
+				}
+
+				// Check and restore iptables rules if they were deleted by external tools
+				// This handles cases like "sudo iptables-restore < /etc/iptables/rules.v4"
+				if (_iptablesEnabled && _iptablesManager && ((now - lastIptablesCheck) >= 60000)) { // Check every 60 seconds
+					lastIptablesCheck = now;
+					if (!_iptablesManager->checkAndRestoreRules()) {
+						fprintf(stderr, "WARNING: Failed to restore iptables rules after external deletion" ZT_EOL_S);
 					}
 				}
 
@@ -3143,7 +3153,7 @@ public:
 
 			// Only track if this is one of our configured ports
 			if (localPort == _primaryPort || localPort == _tertiaryPort ||
-				(_allowSecondaryPort && localPort == _secondaryPort)) {
+				(_allowSecondaryPort && localPort == _ports[1])) {
 				_trackIncomingPeerPortUsage(fromAddress, localPort, now);
 			}
 		}
@@ -3890,7 +3900,7 @@ public:
 
 				// Only track if this is one of our configured ports
 				if (localPort == _primaryPort || localPort == _tertiaryPort ||
-					(_allowSecondaryPort && localPort == _secondaryPort)) {
+					(_allowSecondaryPort && localPort == _ports[1])) {
 					_trackOutgoingPeerPortUsage(destAddress, localPort, now);
 				}
 			}
@@ -4120,6 +4130,14 @@ public:
 			// Private/local addresses should not need firewall rules
 			if (peerAddress.ipScope() != InetAddress::IP_SCOPE_GLOBAL) {
 				// Skip non-global addresses (private, link-local, loopback, etc.)
+				return;
+			}
+
+			// Ensure iptables rules exist before trying to add/remove peers
+			// This provides immediate recovery if rules were deleted externally
+			lastIptablesCheck = OSUtils::now();
+			if (!_iptablesManager->checkAndRestoreRules()) {
+				fprintf(stderr, "WARNING: Failed to restore iptables rules before peer update" ZT_EOL_S);
 				return;
 			}
 

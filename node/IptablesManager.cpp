@@ -89,10 +89,6 @@ IptablesManager& IptablesManager::operator=(IptablesManager&& other) noexcept
     return *this;
 }
 
-
-
-
-
 bool IptablesManager::updateUdpPorts(const std::vector<unsigned int>& udpPorts)
 {
     // Validate new ports
@@ -147,6 +143,27 @@ bool IptablesManager::updateWanInterface(const std::string& wanInterface)
     // Create new iptables rules with the new interface
     createIptablesRules();
 
+    return true;
+}
+
+bool IptablesManager::checkAndRestoreRules()
+{
+    if (!_initialized) {
+        return false;
+    }
+
+    // Check if our custom chain exists by trying to list it
+    std::string checkChainCmd = "iptables -L zt_rules -n >/dev/null 2>&1";
+    if (executeCommand(checkChainCmd)) {
+        return true;
+    }
+
+    // Chain doesn't exist - restore everything
+    fprintf(stderr, "INFO: zt_rules chain missing, restoring iptables integration" ZT_EOL_S);
+
+    // Recreate iptables rules
+    createIptablesRules();
+    fprintf(stderr, "INFO: Successfully restored iptables integration" ZT_EOL_S);
     return true;
 }
 
