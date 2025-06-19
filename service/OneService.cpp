@@ -4116,6 +4116,13 @@ public:
 	void _handlePeerPathUpdate(const InetAddress& peerAddress, bool isAdd)
 	{
 		if (_iptablesEnabled && _iptablesManager) {
+			// Only add globally routable addresses to iptables ipset
+			// Private/local addresses should not need firewall rules
+			if (peerAddress.ipScope() != InetAddress::IP_SCOPE_GLOBAL) {
+				// Skip non-global addresses (private, link-local, loopback, etc.)
+				return;
+			}
+
 			char ipStr[64];
 			peerAddress.toIpString(ipStr);
 			bool success = isAdd ? _iptablesManager->addPeer(ipStr) : _iptablesManager->removePeer(ipStr);
