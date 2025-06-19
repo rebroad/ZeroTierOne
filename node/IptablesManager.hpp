@@ -97,11 +97,17 @@ public:
     /**
      * Get the current UDP ports
      *
-     * @return Vector of UDP ports
+     * @return Vector of current UDP ports
      */
     inline const std::vector<unsigned int>& getUdpPorts() const noexcept { return _udpPorts; }
 
-
+    /**
+     * Check if iptables rules exist and restore them if they were deleted
+     * This is useful for recovery after iptables-restore or similar commands
+     *
+     * @return True if rules exist or were successfully restored
+     */
+    bool checkAndRestoreRules();
 
 private:
     /**
