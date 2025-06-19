@@ -467,6 +467,12 @@ void Peer::sendHELLO(void *tPtr,const int64_t localSocket,const InetAddress &atA
 
 void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAddress &atAddress,int64_t now,bool sendFullHello)
 {
+	// Proactively notify service about outbound contact attempt (iptables integration)
+	// This ensures ipset rules are in place BEFORE sending packets, allowing responses
+	if (RR->peerPathCallback) {
+		RR->peerPathCallback(RR->peerPathCallbackUserPtr, atAddress, true);
+	}
+
 	if ( (!sendFullHello) && (_vProto >= 5) && (!((_vMajor == 1)&&(_vMinor == 1)&&(_vRevision == 0))) ) {
 		Packet outp(_id.address(),RR->identity.address(),Packet::VERB_ECHO);
 		outp.armor(_key,true,aesKeysIfSupported());
