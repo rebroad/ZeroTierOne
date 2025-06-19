@@ -250,6 +250,7 @@ void IptablesManager::createIptablesRules()
         }
 
         // Add RETURN rule at the end so non-matching packets return to INPUT chain
+        // (applies to both multiport and individual port fallback)
         if (!executeCommand("iptables -A zt_rules -j RETURN")) {
             fprintf(stderr, "WARNING: Failed to add RETURN rule to zt_rules chain" ZT_EOL_S);
         }
@@ -309,11 +310,6 @@ void IptablesManager::createIndividualPortRules()
         }
     }
     fprintf(stderr, "INFO: Created %zu individual iptables LOG+ACCEPT rule pairs (multiport fallback)" ZT_EOL_S, _udpPorts.size());
-
-    // Add RETURN rule at the end so non-matching packets return to INPUT chain
-    if (!executeCommand("iptables -A zt_rules -j RETURN")) {
-        fprintf(stderr, "WARNING: Failed to add RETURN rule to zt_rules chain" ZT_EOL_S);
-    }
 }
 
 void IptablesManager::buildMultiportRules(const std::string& portList, std::stringstream& logRule,
