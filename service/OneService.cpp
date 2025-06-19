@@ -4137,7 +4137,6 @@ public:
 
 			// Ensure iptables rules exist before trying to add/remove peers
 			// This provides immediate recovery if rules were deleted externally
-			lastIptablesCheck = OSUtils::now();
 			if (!_iptablesManager->checkAndRestoreRules()) {
 				fprintf(stderr, "WARNING: Failed to restore iptables rules before peer update" ZT_EOL_S);
 				return;
