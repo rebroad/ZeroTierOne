@@ -1794,7 +1794,7 @@ static int cli(int argc,char **argv)
 		// Trigger ARP resolution by sending a ping
 		printf("Triggering ARP resolution..." ZT_EOL_S);
 		std::string pingCmd = "ping -c 1 -W 1 " + targetIp + " >/dev/null 2>&1";
-		system(pingCmd.c_str());
+		(void)system(pingCmd.c_str());
 
 		// Small delay to allow ARP cache to populate
 		usleep(100000); // 100ms
@@ -2054,7 +2054,7 @@ static int cli(int argc,char **argv)
 									// Use a more reliable approach with seq instead of bash ranges
 									std::string pingCmd = "seq 1 254 | xargs -I {} -P 50 ping -c 1 -W 1 " + baseNetwork + ".{} >/dev/null 2>&1";
 									printf("Running: %s" ZT_EOL_S, pingCmd.c_str());
-									system(pingCmd.c_str());
+									(void)system(pingCmd.c_str());
 
 									// Small delay to let ARP cache populate
 									usleep(500000); // 500ms
