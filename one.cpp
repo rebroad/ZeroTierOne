@@ -183,7 +183,6 @@ static int cli(int argc,char **argv)
 	for(int i=1;i<argc;++i) {
 		if (argv[i][0] == '-') {
 			switch(argv[i][1]) {
-
 				case 'q': // ignore -q used to invoke this personality
 					if (argv[i][2]) {
 						cliPrintHelp(argv[0],stdout);
@@ -1178,17 +1177,23 @@ static int cli(int argc,char **argv)
 
 						char firstIncomingStr[32], lastIncomingStr[32];
 						if (firstIncomingDiff >= 0) {
-							if (firstIncomingDiff < 60) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lds ago", (long)firstIncomingDiff);
-							else if (firstIncomingDiff < 3600) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldm ago", (long)(firstIncomingDiff / 60));
-							else snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldh ago", (long)(firstIncomingDiff / 3600));
+							if (firstIncomingDiff < 60)
+								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lds ago", (long)firstIncomingDiff);
+							else if (firstIncomingDiff < 3600)
+								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldm ago", (long)(firstIncomingDiff / 60));
+							else
+								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldh ago", (long)(firstIncomingDiff / 3600));
 						} else {
 							strcpy(firstIncomingStr, "never");
 						}
 
 						if (lastIncomingDiff >= 0) {
-							if (lastIncomingDiff < 60) snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%lds ago", (long)lastIncomingDiff);
-							else if (lastIncomingDiff < 3600) snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldm ago", (long)(lastIncomingDiff / 60));
-							else snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldh ago", (long)(lastIncomingDiff / 3600));
+							if (lastIncomingDiff < 60)
+								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%lds ago", (long)lastIncomingDiff);
+							else if (lastIncomingDiff < 3600)
+								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldm ago", (long)(lastIncomingDiff / 60));
+							else
+								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldh ago", (long)(lastIncomingDiff / 3600));
 						} else {
 							strcpy(lastIncomingStr, "never");
 						}
@@ -1234,14 +1239,13 @@ static int cli(int argc,char **argv)
 						char packetStr[32];
 						snprintf(packetStr, sizeof(packetStr), "%lu/%lu", (unsigned long)totalIncoming, (unsigned long)totalOutgoing);
 
-						printf("%-15s %-12s %-10s %-8s %s" ZT_EOL_S,
-						peerAddr.c_str(), packetStr, firstIncomingStr, lastIncomingStr, portUsage.c_str());
+						printf("%-15s %-12s %-10s %-8s %s" ZT_EOL_S, peerAddr.c_str(), packetStr, firstIncomingStr, lastIncomingStr, portUsage.c_str());
 					}
 				}
 			}
 			return 0;
 		} else {
-			printf("%u %s %s" ZT_EOL_S,scode,command.c_str(),responseBody.c_str());
+			printf("%u %s %s" ZT_EOL_S, scode, command.c_str(), responseBody.c_str());
 			return 1;
 		}
 	} else if (command == "dump") {
