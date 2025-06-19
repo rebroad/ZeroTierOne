@@ -4157,17 +4157,38 @@ public:
 	}
 
 	/**
-	 * Initialize the iptables manager if enabled and not already initialized
+	 * Initialize or cleanup the iptables manager based on configuration
 	 *
 	 * @param settings The settings object containing iptables configuration
-	 * @return True if initialization was successful or already initialized
+	 * @return True if operation was successful
 	 */
 	bool _initializeIptablesManager(const json& settings)
 	{
-		_iptablesEnabled = OSUtils::jsonBool(settings["iptablesEnabled"], false);
-		if (!_iptablesEnabled || _iptablesManager) {
-			return true; // Already initialized or disabled
+		bool newEnabledState = OSUtils::jsonBool(settings["iptablesEnabled"], false);
+
+		// Handle state transitions
+		if (_iptablesEnabled && !newEnabledState) {
+			// Disabling iptables - cleanup existing manager
+			if (_iptablesManager) {
+				fprintf(stderr, "INFO: Disabling iptables integration - cleaning up rules and ipsets" ZT_EOL_S);
+				_iptablesManager.reset(); // Destructor calls cleanup()
+			}
+			_iptablesEnabled = false;
+			return true;
 		}
+
+		if (!newEnabledState) {
+			// Disabled and should stay disabled
+			return true;
+		}
+
+		if (_iptablesEnabled && _iptablesManager) {
+			// Already enabled and initialized
+			return true;
+		}
+
+		// Enable iptables - initialize manager
+		_iptablesEnabled = true;
 
 		std::string wanInterface = OSUtils::jsonString(settings["iptablesWanInterface"], "auto");
 		if (wanInterface == "auto") {
@@ -4192,11 +4213,11 @@ public:
 
 		if (!udpPorts.empty()) {
 			try {
-				_iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPorts);
-				fprintf(stderr, "INFO: Iptables manager initialized with WAN interface '%s' and %zu UDP ports" ZT_EOL_S, wanInterface.c_str(), udpPorts.size());
+				fprintf(stderr, "INFO: Enabling iptables integration with WAN interface '%s' and %zu UDP ports" ZT_EOL_S, wanInterface.c_str(), udpPorts.size());
 				for (unsigned int port : udpPorts) {
 					fprintf(stderr, "INFO:   - UDP port %u" ZT_EOL_S, port);
 				}
+				_iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPorts);
 				return true;
 			} catch (const std::exception& e) {
 				fprintf(stderr, "ERROR: Failed to initialize iptables manager: %s" ZT_EOL_S, e.what());
