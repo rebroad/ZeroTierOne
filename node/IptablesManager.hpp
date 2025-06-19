@@ -59,7 +59,7 @@ public:
      * Add a peer IP address to the allowed list
      *
      * @param peerAddress IP address of the peer
-     * @return True if peer was added successfully
+     * @return True if peer was actually added (false if already existed)
      */
     bool addPeer(const InetAddress& peerAddress);
 
@@ -67,7 +67,7 @@ public:
      * Remove a peer IP address from the allowed list
      *
      * @param peerAddress IP address of the peer
-     * @return True if peer was removed successfully
+     * @return True if peer was actually removed (false if didn't exist)
      */
     bool removePeer(const InetAddress& peerAddress);
 

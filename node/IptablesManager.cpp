@@ -107,7 +107,7 @@ bool IptablesManager::addPeer(const InetAddress& peerAddress)
 
     // Check if peer already exists
     if (_activePeers.find(peerAddress) != _activePeers.end()) {
-        return true; // Peer already exists
+        return false; // Peer already exists - return false to indicate no change made
     }
 
     // Add peer to ipset
@@ -115,9 +115,11 @@ bool IptablesManager::addPeer(const InetAddress& peerAddress)
     if (executeCommand(command)) {
         _activePeers.insert(peerAddress);
         return true;
+    } else {
+        // Log state inconsistency - we thought the peer didn't exist but ipset says it does
+        fprintf(stderr, "WARNING: State inconsistency detected - tried to add peer %s that may already exist in ipset" ZT_EOL_S, sanitizeIpAddress(peerAddress).c_str());
+        return false;
     }
-
-    return false;
 }
 
 bool IptablesManager::removePeer(const InetAddress& peerAddress)
@@ -130,7 +132,7 @@ bool IptablesManager::removePeer(const InetAddress& peerAddress)
 
     // Check if peer exists
     if (_activePeers.find(peerAddress) == _activePeers.end()) {
-        return true; // Peer doesn't exist, consider it "removed"
+        return false; // Peer doesn't exist - return false to indicate no change made
     }
 
     // Remove peer from ipset
@@ -138,9 +140,11 @@ bool IptablesManager::removePeer(const InetAddress& peerAddress)
     if (executeCommand(command)) {
         _activePeers.erase(peerAddress);
         return true;
+    } else {
+        // Log state inconsistency - we thought the peer existed but ipset says it doesn't
+        fprintf(stderr, "WARNING: State inconsistency detected - tried to remove peer %s that may not exist in ipset" ZT_EOL_S, sanitizeIpAddress(peerAddress).c_str());
+        return false;
     }
-
-    return false;
 }
 
 bool IptablesManager::hasPeer(const InetAddress& peerAddress) const noexcept
@@ -218,11 +222,34 @@ bool IptablesManager::executeCommand(const std::string& command) const
     // Debug: print the command being executed
     fprintf(stderr, "[IptablesManager] Executing: %s\n", command.c_str());
 
-    // Execute the command using system()
-    int result = std::system(command.c_str());
+    // Execute the command and capture both stdout and stderr
+    std::string fullCommand = command + " 2>&1";
+    FILE* pipe = popen(fullCommand.c_str(), "r");
+    if (!pipe) {
+        fprintf(stderr, "[IptablesManager] Failed to execute command\n");
+        return false;
+    }
+
+    // Read the output
+    std::string output;
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+
+    int result = pclose(pipe);
 
     // Debug: print the result
     fprintf(stderr, "[IptablesManager] Result: %d\n", result);
+
+    // If command failed, check for specific error conditions
+    if (result != 0 && !output.empty()) {
+        // Remove trailing newline for cleaner logging
+        if (!output.empty() && output.back() == '\n') {
+            output.pop_back();
+        }
+        fprintf(stderr, "[IptablesManager] Command output: %s\n", output.c_str());
+    }
 
     // system() returns the exit status of the command
     // 0 means success, non-zero means failure
@@ -308,7 +335,7 @@ void IptablesManager::cleanupExistingRules()
 
 void IptablesManager::performCleanup()
 {
-    // NOTE: This method is only called at service startup (cleanupExistingRules) 
+    // NOTE: This method is only called at service startup (cleanupExistingRules)
     // and shutdown (destructor). It should NOT be called during normal operation
     // when only rules need to be updated (use updateUdpPorts/updateWanInterface instead).
 
