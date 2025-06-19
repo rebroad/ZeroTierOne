@@ -176,16 +176,18 @@ bool IptablesManager::updateUdpPorts(const std::vector<unsigned int>& udpPorts)
         return true; // No change needed
     }
 
-    // Remove old iptables rules (but keep the ipset - only startup/shutdown should destroy/flush ipset)
-    removeIptablesRules();
-
-    // Update ports
-    _udpPorts = newPorts;
-
-    // Create new iptables rules
-    createIptablesRules();
-
-    return true;
+    // EFFICIENT UPDATE: Replace just the multiport rule instead of rebuilding everything
+    // This is much faster than the old "nuclear" approach
+    if (_initialized && !_udpPorts.empty() && !newPorts.empty()) {
+        // Replace the multiport rule efficiently
+        return replaceMultiportRule(newPorts);
+    } else {
+        // Fallback to full rebuild (first time setup or edge cases)
+        removeIptablesRules();
+        _udpPorts = newPorts;
+        createIptablesRules();
+        return true;
+    }
 }
 
 bool IptablesManager::updateWanInterface(const std::string& wanInterface)
@@ -294,7 +296,65 @@ void IptablesManager::createIptablesRules()
     // Allow established and related traffic, which handles replies to our outbound packets
     executeCommand("iptables -A zt_rules -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT");
 
-    // Create rules for each UDP port
+    // Create a single multiport rule for all UDP ports (much more efficient)
+    if (!_udpPorts.empty()) {
+        std::stringstream ss;
+        ss << "iptables -A zt_rules -i " << _wanInterface
+           << " -p udp -m multiport --dports ";
+
+        // Build comma-separated port list
+        for (size_t i = 0; i < _udpPorts.size(); ++i) {
+            if (i > 0) ss << ",";
+            ss << _udpPorts[i];
+        }
+
+        ss << " -m set --match-set zt_peers src"
+           << " -m conntrack --ctstate NEW -j ACCEPT";
+
+        if (!executeCommand(ss.str())) {
+            fprintf(stderr, "WARNING: Failed to create multiport iptables rule for ports" ZT_EOL_S);
+            // Fallback to individual rules if multiport fails
+            createIndividualPortRules();
+        } else {
+            fprintf(stderr, "INFO: Created single iptables rule for %zu UDP ports" ZT_EOL_S, _udpPorts.size());
+        }
+    }
+}
+
+bool IptablesManager::replaceMultiportRule(const std::vector<unsigned int>& newPorts)
+{
+    // Build new multiport rule
+    std::stringstream ss;
+    ss << "iptables -R zt_rules 2 -i " << _wanInterface
+       << " -p udp -m multiport --dports ";
+
+    // Build comma-separated port list
+    for (size_t i = 0; i < newPorts.size(); ++i) {
+        if (i > 0) ss << ",";
+        ss << newPorts[i];
+    }
+
+    ss << " -m set --match-set zt_peers src"
+       << " -m conntrack --ctstate NEW -j ACCEPT";
+
+    // Try to replace the rule (rule #2 is the multiport rule, after ESTABLISHED,RELATED)
+    if (executeCommand(ss.str())) {
+        _udpPorts = newPorts;
+        fprintf(stderr, "INFO: Efficiently updated multiport rule with %zu UDP ports (1 command)" ZT_EOL_S, newPorts.size());
+        return true;
+    } else {
+        // If replacement fails, fall back to full rebuild
+        fprintf(stderr, "WARNING: Failed to replace multiport rule, falling back to full rebuild" ZT_EOL_S);
+        removeIptablesRules();
+        _udpPorts = newPorts;
+        createIptablesRules();
+        return true;
+    }
+}
+
+void IptablesManager::createIndividualPortRules()
+{
+    // Fallback: Create individual rules for each UDP port (less efficient but more compatible)
     for (unsigned int port : _udpPorts) {
         std::stringstream ss;
         ss << "iptables -A zt_rules -i " << _wanInterface
@@ -306,6 +366,7 @@ void IptablesManager::createIptablesRules()
             fprintf(stderr, "WARNING: Failed to create iptables rule for port %u" ZT_EOL_S, port);
         }
     }
+    fprintf(stderr, "INFO: Created %zu individual iptables rules (multiport fallback)" ZT_EOL_S, _udpPorts.size());
 }
 
 void IptablesManager::removeIptablesRules()
