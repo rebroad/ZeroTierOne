@@ -1139,6 +1139,8 @@ static int cli(int argc,char **argv)
 
 					if (allowSecondaryPort && secondaryPort > 0) {
 						printf("  Secondary Port: %u (enabled)" ZT_EOL_S, secondaryPort);
+					} else if (allowSecondaryPort) {
+						printf("  Secondary Port: enabled (dynamic port assignment)" ZT_EOL_S);
 					} else {
 						printf("  Secondary Port: disabled (use 'allowSecondaryPort' setting to enable)" ZT_EOL_S);
 					}
