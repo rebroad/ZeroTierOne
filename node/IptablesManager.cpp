@@ -63,8 +63,8 @@ IptablesManager::~IptablesManager() noexcept
 IptablesManager::IptablesManager(IptablesManager&& other) noexcept
     : _wanInterface(std::move(other._wanInterface))
     , _udpPorts(std::move(other._udpPorts))
-    , _activePeers(std::move(other._activePeers))
     , _initialized(other._initialized)
+    , _activePeers(std::move(other._activePeers))
 {
     // Clear the other object's data to prevent double cleanup
     other._initialized = false;
@@ -81,8 +81,8 @@ IptablesManager& IptablesManager::operator=(IptablesManager&& other) noexcept
         // Move data from other
         _wanInterface = std::move(other._wanInterface);
         _udpPorts = std::move(other._udpPorts);
-        _activePeers = std::move(other._activePeers);
         _initialized = other._initialized;
+        _activePeers = std::move(other._activePeers);
 
         // Clear the other object's data
         other._initialized = false;
@@ -92,74 +92,9 @@ IptablesManager& IptablesManager::operator=(IptablesManager&& other) noexcept
     return *this;
 }
 
-bool IptablesManager::addPeer(const InetAddress& peerAddress)
-{
-    if (!peerAddress) {
-        return false;
-    }
 
-    // Only handle IPv4 addresses for now (IPv6 support can be added later)
-    if (peerAddress.ss_family != AF_INET) {
-        return false;
-    }
 
-    Mutex::Lock _l(_peers_mutex);
 
-    // Check if peer already exists
-    if (_activePeers.find(peerAddress) != _activePeers.end()) {
-        return false; // Peer already exists - return false to indicate no change made
-    }
-
-    // Add peer to ipset
-    char ipStr[64];
-    peerAddress.toIpString(ipStr);
-    std::string command = "ipset add zt_peers " + std::string(ipStr);
-    if (executeCommand(command)) {
-        _activePeers.insert(peerAddress);
-        return true;
-    } else {
-        // Log state inconsistency - we thought the peer didn't exist but ipset says it does
-        fprintf(stderr, "WARNING: State inconsistency detected - tried to add peer %s that may already exist in ipset" ZT_EOL_S, ipStr);
-        return false;
-    }
-}
-
-bool IptablesManager::removePeer(const InetAddress& peerAddress)
-{
-    if (!peerAddress) {
-        return false;
-    }
-
-    Mutex::Lock _l(_peers_mutex);
-
-    // Check if peer exists
-    if (_activePeers.find(peerAddress) == _activePeers.end()) {
-        return false; // Peer doesn't exist - return false to indicate no change made
-    }
-
-    // Remove peer from ipset
-    char ipStr[64];
-    peerAddress.toIpString(ipStr);
-    std::string command = "ipset del zt_peers " + std::string(ipStr);
-    if (executeCommand(command)) {
-        _activePeers.erase(peerAddress);
-        return true;
-    } else {
-        // Log state inconsistency - we thought the peer existed but ipset says it doesn't
-        fprintf(stderr, "WARNING: State inconsistency detected - tried to remove peer %s that may not exist in ipset" ZT_EOL_S, ipStr);
-        return false;
-    }
-}
-
-bool IptablesManager::hasPeer(const InetAddress& peerAddress) const noexcept
-{
-    if (!peerAddress) {
-        return false;
-    }
-
-    Mutex::Lock _l(_peers_mutex);
-    return _activePeers.find(peerAddress) != _activePeers.end();
-}
 
 bool IptablesManager::updateUdpPorts(const std::vector<unsigned int>& udpPorts)
 {
@@ -385,6 +320,68 @@ void IptablesManager::removeIptablesRules()
     executeCommand("iptables -X zt_rules 2>/dev/null");
 }
 
+bool IptablesManager::addPeer(const std::string& ipString)
+{
+    if (!_initialized) {
+        return false;
+    }
+
+    // Check if peer is already tracked to avoid unnecessary ipset commands
+    {
+        Mutex::Lock _l(_peers_mutex);
+        if (_activePeers.find(ipString) != _activePeers.end()) {
+            return false; // Already exists, skip expensive ipset command
+        }
+    }
+
+    std::string cmd = "ipset add zt_peers " + ipString;
+    bool success = executeCommand(cmd);
+
+    if (success) {
+        Mutex::Lock _l(_peers_mutex);
+        _activePeers.insert(ipString);
+        fprintf(stderr, "INFO: Added peer %s to iptables ipset" ZT_EOL_S, ipString.c_str());
+    } else {
+        fprintf(stderr, "WARNING: Failed to add peer %s to iptables ipset" ZT_EOL_S, ipString.c_str());
+    }
+
+    return success;
+}
+
+bool IptablesManager::removePeer(const std::string& ipString)
+{
+    if (!_initialized) {
+        return false;
+    }
+
+    // Check if peer is tracked to avoid unnecessary ipset commands
+    {
+        Mutex::Lock _l(_peers_mutex);
+        if (_activePeers.find(ipString) == _activePeers.end()) {
+            return false; // Doesn't exist, skip expensive ipset command
+        }
+    }
+
+    std::string cmd = "ipset del zt_peers " + ipString;
+    bool success = executeCommand(cmd);
+
+    if (success) {
+        Mutex::Lock _l(_peers_mutex);
+        _activePeers.erase(ipString);
+        fprintf(stderr, "INFO: Removed peer %s from iptables ipset" ZT_EOL_S, ipString.c_str());
+    } else {
+        fprintf(stderr, "WARNING: Failed to remove peer %s from iptables ipset" ZT_EOL_S, ipString.c_str());
+    }
+
+    return success;
+}
+
+size_t IptablesManager::getActivePeerCount() const
+{
+    Mutex::Lock _l(_peers_mutex);
+    return _activePeers.size();
+}
+
 void IptablesManager::cleanup()
 {
     Mutex::Lock _l(_peers_mutex);
@@ -414,7 +411,7 @@ void IptablesManager::performCleanup()
         executeCommand("ipset destroy zt_peers 2>/dev/null");
     }
 
-    // Clear our internal tracking
+    // Clear internal state
     _activePeers.clear();
     _initialized = false;
 }

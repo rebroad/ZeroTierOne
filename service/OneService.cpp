@@ -4091,15 +4091,14 @@ public:
 	{
 		if (_iptablesEnabled && _iptablesManager) {
 			char ipStr[64];
-			peerAddress.toIpString(ipStr);  // Much cleaner - gets IP without port directly
+			peerAddress.toIpString(ipStr);  // Convert once for both command and logging
 
-			bool success = isAdd ? _iptablesManager->addPeer(peerAddress) : _iptablesManager->removePeer(peerAddress);
+			bool success = isAdd ? _iptablesManager->addPeer(ipStr) : _iptablesManager->removePeer(ipStr);
 
-			// Only log when an actual change was made (success == true)
+			// Only log when command succeeded (no duplicate detection needed - ipset is idempotent)
 			if (success) {
 				fprintf(stderr, "INFO: %s peer %s to/from iptables ipset" ZT_EOL_S, isAdd ? "Added" : "Removed", ipStr);
 			}
-			// If no change was made (peer already existed/didn't exist), don't log to avoid spam
 		}
 	}
 

@@ -58,26 +58,25 @@ public:
     /**
      * Add a peer IP address to the allowed list
      *
-     * @param peerAddress IP address of the peer
+     * @param ipString IP address string for ipset command
      * @return True if peer was actually added (false if already existed)
      */
-    bool addPeer(const InetAddress& peerAddress);
+    bool addPeer(const std::string& ipString);
 
     /**
      * Remove a peer IP address from the allowed list
      *
-     * @param peerAddress IP address of the peer
+     * @param ipString IP address string for ipset command
      * @return True if peer was actually removed (false if didn't exist)
      */
-    bool removePeer(const InetAddress& peerAddress);
+    bool removePeer(const std::string& ipString);
 
     /**
-     * Check if a peer IP address is in the allowed list
+     * Get count of currently tracked peers
      *
-     * @param peerAddress IP address of the peer
-     * @return True if peer is in the allowed list
+     * @return Number of active peers
      */
-    bool hasPeer(const InetAddress& peerAddress) const noexcept;
+    size_t getActivePeerCount() const;
 
     /**
      * Update the list of UDP ports (e.g., when secondary port changes)
@@ -109,15 +108,7 @@ public:
      */
     inline const std::vector<unsigned int>& getUdpPorts() const noexcept { return _udpPorts; }
 
-    /**
-     * Get the number of active peers
-     *
-     * @return Number of active peers
-     */
-    inline size_t getActivePeerCount() const noexcept {
-        Mutex::Lock _l(_peers_mutex);
-        return _activePeers.size();
-    }
+
 
 private:
     /**
@@ -180,9 +171,11 @@ private:
 
     std::string _wanInterface;
     std::vector<unsigned int> _udpPorts;
-    std::set<InetAddress> _activePeers;
-    mutable Mutex _peers_mutex;
     bool _initialized;
+
+    // Peer tracking to avoid redundant ipset commands
+    std::set<std::string> _activePeers;
+    mutable Mutex _peers_mutex;
 
     // Disable copy constructor and assignment operator
     IptablesManager(const IptablesManager&) = delete;
