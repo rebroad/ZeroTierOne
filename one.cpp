@@ -147,8 +147,9 @@ static void cliPrintHelp(const char *pn,FILE *out)
 	fprintf(out,"  set-iptables-enabled <true|false|auto|interface-name> - Manage iptables rules" ZT_EOL_S);
 	fprintf(out,"  stats                   - Show peer port usage statistics" ZT_EOL_S);
 	fprintf(out,"  dump                    - Debug settings dump for support" ZT_EOL_S);
-			fprintf(out,"  findztaddr <ip_address> - Find ZeroTier address for given IP" ZT_EOL_S);
-		fprintf(out,"  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
+	fprintf(out,"  findztaddr <ip_address> - Find ZeroTier address for given IP" ZT_EOL_S);
+	fprintf(out,"  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
+	fprintf(out,"  set-api-token <token>   - Set ZeroTier Central API token for enhanced lookups" ZT_EOL_S);
 	fprintf(out,ZT_EOL_S"Available settings:" ZT_EOL_S);
 	fprintf(out,"  Settings to use with [get/set] may include property names from " ZT_EOL_S);
 	fprintf(out,"  the JSON output of \"zerotier-cli -j listnetworks\". Additionally, " ZT_EOL_S);
@@ -1680,6 +1681,21 @@ static int cli(int argc,char **argv)
 		// For remote peers, try to resolve by triggering ARP and checking system ARP cache
 		printf("Searching for ZeroTier address for IP %s..." ZT_EOL_S, targetIp.c_str());
 
+		// First try ZeroTier Central API if we have an API token
+		std::string apiToken;
+		char tokenPath[1024];
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", _homePath.c_str());
+		std::string tokenData;
+		if (OSUtils::readFile(tokenPath, tokenData)) {
+			// Remove any whitespace/newlines
+			size_t pos = tokenData.find_first_of(" \t\r\n");
+			if (pos != std::string::npos) {
+				apiToken = tokenData.substr(0, pos);
+			} else {
+				apiToken = tokenData;
+			}
+		}
+
 		// First, determine which network this IP belongs to
 		std::string targetNetworkId;
 		std::string targetInterface;
@@ -1724,6 +1740,56 @@ static int cli(int argc,char **argv)
 		}
 
 		printf("Found IP in network %s (interface %s)" ZT_EOL_S, targetNetworkId.c_str(), targetInterface.c_str());
+
+		// If we have an API token, try the Central API first
+		if (!apiToken.empty()) {
+			printf("Querying ZeroTier Central API..." ZT_EOL_S);
+
+			// Query Central API for network members
+			std::string centralUrl = "https://api.zerotier.com/api/v1/network/" + targetNetworkId + "/member";
+			std::string curlCmd = "curl -s -H 'Authorization: token " + apiToken + "' '" + centralUrl + "'";
+
+			FILE* curlPipe = popen(curlCmd.c_str(), "r");
+			if (curlPipe) {
+				std::string apiResponse;
+				char buffer[4096];
+				while (fgets(buffer, sizeof(buffer), curlPipe)) {
+					apiResponse += buffer;
+				}
+				pclose(curlPipe);
+
+				try {
+					nlohmann::json members = OSUtils::jsonParse(apiResponse);
+					if (members.is_array()) {
+						for (unsigned long j = 0; j < members.size(); ++j) {
+							nlohmann::json &member = members[j];
+							nlohmann::json &ipAssignments = member["config"]["ipAssignments"];
+
+							if (ipAssignments.is_array()) {
+								for (unsigned long k = 0; k < ipAssignments.size(); ++k) {
+									std::string assignedIp = ipAssignments[k];
+									size_t slashPos = assignedIp.find('/');
+									if (slashPos != std::string::npos) {
+										assignedIp = assignedIp.substr(0, slashPos);
+									}
+
+									if (assignedIp == targetIp) {
+										std::string memberId = OSUtils::jsonString(member["nodeId"], "");
+										printf("200 findztaddr %s %s (network %s, via Central API)" ZT_EOL_S,
+											   targetIp.c_str(), memberId.c_str(), targetNetworkId.c_str());
+										return 0;
+									}
+								}
+							}
+						}
+					}
+				} catch (...) {
+					// API query failed, fall back to ARP method
+				}
+			}
+
+			printf("IP not found via Central API, falling back to ARP method..." ZT_EOL_S);
+		}
 
 		// Trigger ARP resolution by sending a ping
 		printf("Triggering ARP resolution..." ZT_EOL_S);
@@ -1819,6 +1885,21 @@ static int cli(int argc,char **argv)
 
 		printf("Searching for IP address for ZeroTier address %s..." ZT_EOL_S, targetZtAddr.c_str());
 
+		// First try ZeroTier Central API if we have an API token
+		std::string apiToken;
+		char tokenPath[1024];
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", _homePath.c_str());
+		std::string tokenData;
+		if (OSUtils::readFile(tokenPath, tokenData)) {
+			// Remove any whitespace/newlines
+			size_t pos = tokenData.find_first_of(" \t\r\n");
+			if (pos != std::string::npos) {
+				apiToken = tokenData.substr(0, pos);
+			} else {
+				apiToken = tokenData;
+			}
+		}
+
 		// Get network list
 		const unsigned int netscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/network",requestHeaders,responseHeaders,responseBody);
 		if (netscode != 200) {
@@ -1837,6 +1918,55 @@ static int cli(int argc,char **argv)
 		if (!networks.is_array()) {
 			printf("Invalid network list format" ZT_EOL_S);
 			return 1;
+		}
+
+		// If we have an API token, try the Central API first
+		if (!apiToken.empty()) {
+			printf("Querying ZeroTier Central API..." ZT_EOL_S);
+
+			for (unsigned long i = 0; i < networks.size(); ++i) {
+				nlohmann::json &network = networks[i];
+				std::string networkId = OSUtils::jsonString(network["id"], "");
+				if (networkId.empty()) continue;
+
+				// Query Central API for network members
+				std::string centralUrl = "https://api.zerotier.com/api/v1/network/" + networkId + "/member";
+				std::string curlCmd = "curl -s -H 'Authorization: token " + apiToken + "' '" + centralUrl + "'";
+
+				FILE* curlPipe = popen(curlCmd.c_str(), "r");
+				if (curlPipe) {
+					std::string apiResponse;
+					char buffer[4096];
+					while (fgets(buffer, sizeof(buffer), curlPipe)) {
+						apiResponse += buffer;
+					}
+					pclose(curlPipe);
+
+					try {
+						nlohmann::json members = OSUtils::jsonParse(apiResponse);
+						if (members.is_array()) {
+							for (unsigned long j = 0; j < members.size(); ++j) {
+								nlohmann::json &member = members[j];
+								std::string memberId = OSUtils::jsonString(member["nodeId"], "");
+
+								if (memberId == targetZtAddr) {
+									nlohmann::json &ipAssignments = member["config"]["ipAssignments"];
+									if (ipAssignments.is_array() && ipAssignments.size() > 0) {
+										std::string assignedIp = ipAssignments[0];
+										printf("200 findip %s %s (network %s, via Central API)" ZT_EOL_S,
+											   targetZtAddr.c_str(), assignedIp.c_str(), networkId.c_str());
+										return 0;
+									}
+								}
+							}
+						}
+					} catch (...) {
+						// API query failed, fall back to ARP method
+					}
+				}
+			}
+
+			printf("ZeroTier address not found via Central API, falling back to ARP method..." ZT_EOL_S);
 		}
 
 		// Check each network for this ZeroTier address
@@ -1872,7 +2002,7 @@ static int cli(int argc,char **argv)
 				(unsigned int)((expectedMac >> 16) & 0xff),
 				(unsigned int)((expectedMac >> 8) & 0xff),
 				(unsigned int)(expectedMac & 0xff));
-			
+
 			printf("Looking for MAC %s in network %s..." ZT_EOL_S, expectedMacStr, networkId.c_str());
 
 			// First check if this MAC is already in ARP cache
@@ -1972,6 +2102,28 @@ static int cli(int argc,char **argv)
 		printf("  - Generate some network traffic to populate ARP cache" ZT_EOL_S);
 
 		return 1;
+	} else if (command == "set-api-token") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli set-api-token <token>" ZT_EOL_S);
+			printf("" ZT_EOL_S);
+			printf("Get your API token from https://my.zerotier.com/account" ZT_EOL_S);
+			return 2;
+		}
+
+		// Save API token to a secure file
+		char tokenPath[1024];
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", _homePath.c_str());
+
+		if (OSUtils::writeFile(tokenPath, arg1.c_str(), arg1.length())) {
+			// Set restrictive permissions (owner read/write only)
+			chmod(tokenPath, 0600);
+			printf("200 set-api-token API token saved successfully" ZT_EOL_S);
+			printf("Enhanced IP/ZeroTier address lookups are now available" ZT_EOL_S);
+			return 0;
+		} else {
+			printf("Error saving API token to %s" ZT_EOL_S, tokenPath);
+			return 1;
+		}
 	} else {
 		cliPrintHelp(argv[0],stderr);
 		return 0;
