@@ -2382,10 +2382,19 @@ public:
 
 			// Add port configuration information
 			json portConfig = json::object();
+
+			// Get actual bound ports
+			std::vector<unsigned int> boundPorts = _collectUdpPorts();
+			json actualPorts = json::array();
+			for (unsigned int port : boundPorts) {
+				actualPorts.push_back(port);
+			}
+
 			portConfig["primaryPort"] = _primaryPort;
 			portConfig["secondaryPort"] = _secondaryPort;
 			portConfig["tertiaryPort"] = _tertiaryPort;
 			portConfig["allowSecondaryPort"] = _allowSecondaryPort;
+			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
 			// Add peer statistics
