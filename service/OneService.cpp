@@ -3882,9 +3882,18 @@ public:
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),ttl);
 			}
 
-			// TODO: Track outgoing peer-port usage for iptables statistics
-			// This requires determining the local port from the socket, which needs
-			// investigation of the Phy interface
+			// Track outgoing peer-port usage for iptables statistics
+			if (_iptablesEnabled) {
+				const uint64_t now = OSUtils::now();
+				const InetAddress destAddress(addr);
+				const unsigned int localPort = _phy.getLocalPort((PhySocket*)((uintptr_t)localSocket));
+
+				// Only track if this is one of our configured ports
+				if (localPort == _primaryPort || localPort == _tertiaryPort ||
+					(_allowSecondaryPort && localPort == _secondaryPort)) {
+					_trackOutgoingPeerPortUsage(destAddress, localPort, now);
+				}
+			}
 
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
