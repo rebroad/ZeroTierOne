@@ -1155,27 +1155,28 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-15s %-7s %-10s %-10s %s" ZT_EOL_S, "Peer Address", "Packets", "First Seen", "Last Seen", "Port Usage");
-				printf("%-15s %-7s %-10s %-10s %s" ZT_EOL_S, "---------------", "-------", "----------", "----------", "----------");
+				printf("%-15s %-8s %-8s %-10s %-10s %s" ZT_EOL_S, "Peer Address", "In", "Out", "First In", "Last Seen", "Port Usage (In/Out)");
+				printf("%-15s %-8s %-8s %-10s %-10s %s" ZT_EOL_S, "---------------", "--------", "--------", "----------", "----------", "-------------------");
 
 				if (j.contains("peers") && j["peers"].is_object()) {
 					for (auto& [peerAddr, peerData] : j["peers"].items()) {
-						uint64_t totalPackets = peerData["totalPackets"];
-						uint64_t firstSeen = peerData["firstSeen"];
-						uint64_t lastSeen = peerData["lastSeen"];
+						uint64_t totalIncoming = peerData.value("totalIncoming", 0ULL);
+						uint64_t totalOutgoing = peerData.value("totalOutgoing", 0ULL);
+						uint64_t firstIncomingSeen = peerData.value("firstIncomingSeen", 0ULL);
+						uint64_t lastSeen = peerData.value("lastSeen", 0ULL);
 
 						// Format timestamps to relative times
 						const uint64_t now = OSUtils::now();
-						int64_t firstSeenDiff = firstSeen ? (now - firstSeen) / 1000 : -1;
+						int64_t firstIncomingDiff = firstIncomingSeen ? (now - firstIncomingSeen) / 1000 : -1;
 						int64_t lastSeenDiff = lastSeen ? (now - lastSeen) / 1000 : -1;
 
-						char firstSeenStr[32], lastSeenStr[32];
-						if (firstSeenDiff >= 0) {
-							if (firstSeenDiff < 60) snprintf(firstSeenStr, sizeof(firstSeenStr), "%llds ago", firstSeenDiff);
-							else if (firstSeenDiff < 3600) snprintf(firstSeenStr, sizeof(firstSeenStr), "%lldm ago", firstSeenDiff / 60);
-							else snprintf(firstSeenStr, sizeof(firstSeenStr), "%lldh ago", firstSeenDiff / 3600);
+						char firstIncomingStr[32], lastSeenStr[32];
+						if (firstIncomingDiff >= 0) {
+							if (firstIncomingDiff < 60) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%llds ago", firstIncomingDiff);
+							else if (firstIncomingDiff < 3600) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lldm ago", firstIncomingDiff / 60);
+							else snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lldh ago", firstIncomingDiff / 3600);
 						} else {
-							strcpy(firstSeenStr, "never");
+							strcpy(firstIncomingStr, "never");
 						}
 
 						if (lastSeenDiff >= 0) {
@@ -1186,20 +1187,45 @@ static int cli(int argc,char **argv)
 							strcpy(lastSeenStr, "never");
 						}
 
-						// Build port usage string
+						// Build port usage string showing both incoming and outgoing
 						std::string portUsage;
-						if (peerData["portUsage"].is_object()) {
-							bool first = true;
-							for (auto& [port, count] : peerData["portUsage"].items()) {
-								if (!first) portUsage += ", ";
-								portUsage += port + ":" + std::to_string((uint64_t)count);
-								first = false;
+						bool hasAnyTraffic = false;
+
+						// Collect all ports from both incoming and outgoing
+						std::set<std::string> allPorts;
+						if (peerData.contains("incomingPorts") && peerData["incomingPorts"].is_object()) {
+							for (auto& [port, count] : peerData["incomingPorts"].items()) {
+								allPorts.insert(port);
 							}
 						}
-						if (portUsage.empty()) portUsage = "none";
+						if (peerData.contains("outgoingPorts") && peerData["outgoingPorts"].is_object()) {
+							for (auto& [port, count] : peerData["outgoingPorts"].items()) {
+								allPorts.insert(port);
+							}
+						}
 
-						printf("%-15s %-7llu %-10s %-10s %s" ZT_EOL_S,
-							peerAddr.c_str(), totalPackets, firstSeenStr, lastSeenStr, portUsage.c_str());
+						// Build the display string
+						bool first = true;
+						for (const auto& port : allPorts) {
+							if (!first) portUsage += ", ";
+
+							uint64_t inCount = 0, outCount = 0;
+							if (peerData.contains("incomingPorts") && peerData["incomingPorts"].contains(port)) {
+								inCount = peerData["incomingPorts"][port];
+							}
+							if (peerData.contains("outgoingPorts") && peerData["outgoingPorts"].contains(port)) {
+								outCount = peerData["outgoingPorts"][port];
+							}
+
+							portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
+							first = false;
+							hasAnyTraffic = true;
+						}
+
+						if (!hasAnyTraffic) portUsage = "none";
+
+						printf("%-15s %-8llu %-8llu %-10s %-10s %s" ZT_EOL_S,
+							peerAddr.c_str(), totalIncoming, totalOutgoing, firstIncomingStr, lastSeenStr, portUsage.c_str());
 					}
 				}
 			}
