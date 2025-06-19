@@ -177,7 +177,6 @@ private:
      * @param addr IP address to sanitize
      * @return Sanitized IP address string
      */
-    std::string sanitizeIpAddress(const InetAddress& addr) const;
 
     std::string _wanInterface;
     std::vector<unsigned int> _udpPorts;
