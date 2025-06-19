@@ -1169,14 +1169,14 @@ static int cli(int argc,char **argv)
 						uint64_t totalIncoming = peerData.value("totalIncoming", 0ULL);
 						uint64_t totalOutgoing = peerData.value("totalOutgoing", 0ULL);
 						uint64_t firstIncomingSeen = peerData.value("firstIncomingSeen", 0ULL);
-						uint64_t lastSeen = peerData.value("lastSeen", 0ULL);
+						uint64_t lastIncomingSeen = peerData.value("lastIncomingSeen", 0ULL);
 
 						// Format timestamps to relative times
 						const uint64_t now = OSUtils::now();
 						int64_t firstIncomingDiff = firstIncomingSeen ? (now - firstIncomingSeen) / 1000 : -1;
-						int64_t lastSeenDiff = lastSeen ? (now - lastSeen) / 1000 : -1;
+						int64_t lastIncomingDiff = lastIncomingSeen ? (now - lastIncomingSeen) / 1000 : -1;
 
-						char firstIncomingStr[32], lastSeenStr[32];
+						char firstIncomingStr[32], lastIncomingStr[32];
 						if (firstIncomingDiff >= 0) {
 							if (firstIncomingDiff < 60) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lds ago", (long)firstIncomingDiff);
 							else if (firstIncomingDiff < 3600) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldm ago", (long)(firstIncomingDiff / 60));
@@ -1185,12 +1185,12 @@ static int cli(int argc,char **argv)
 							strcpy(firstIncomingStr, "never");
 						}
 
-						if (lastSeenDiff >= 0) {
-							if (lastSeenDiff < 60) snprintf(lastSeenStr, sizeof(lastSeenStr), "%lds ago", (long)lastSeenDiff);
-							else if (lastSeenDiff < 3600) snprintf(lastSeenStr, sizeof(lastSeenStr), "%ldm ago", (long)(lastSeenDiff / 60));
-							else snprintf(lastSeenStr, sizeof(lastSeenStr), "%ldh ago", (long)(lastSeenDiff / 3600));
+						if (lastIncomingDiff >= 0) {
+							if (lastIncomingDiff < 60) snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%lds ago", (long)lastIncomingDiff);
+							else if (lastIncomingDiff < 3600) snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldm ago", (long)(lastIncomingDiff / 60));
+							else snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldh ago", (long)(lastIncomingDiff / 3600));
 						} else {
-							strcpy(lastSeenStr, "never");
+							strcpy(lastIncomingStr, "never");
 						}
 
 						// Build port usage string showing both incoming and outgoing
@@ -1235,7 +1235,7 @@ static int cli(int argc,char **argv)
 						snprintf(packetStr, sizeof(packetStr), "%lu/%lu", (unsigned long)totalIncoming, (unsigned long)totalOutgoing);
 
 						printf("%-15s %-12s %-10s %-8s %s" ZT_EOL_S,
-							peerAddr.c_str(), packetStr, firstIncomingStr, lastSeenStr, portUsage.c_str());
+						peerAddr.c_str(), packetStr, firstIncomingStr, lastIncomingStr, portUsage.c_str());
 					}
 				}
 			}
