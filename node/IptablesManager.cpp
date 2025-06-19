@@ -376,12 +376,6 @@ bool IptablesManager::removePeer(const std::string& ipString)
     return success;
 }
 
-size_t IptablesManager::getActivePeerCount() const
-{
-    Mutex::Lock _l(_peers_mutex);
-    return _activePeers.size();
-}
-
 void IptablesManager::cleanup()
 {
     Mutex::Lock _l(_peers_mutex);

@@ -72,13 +72,6 @@ public:
     bool removePeer(const std::string& ipString);
 
     /**
-     * Get count of currently tracked peers
-     *
-     * @return Number of active peers
-     */
-    size_t getActivePeerCount() const;
-
-    /**
      * Update the list of UDP ports (e.g., when secondary port changes)
      *
      * @param udpPorts New list of UDP ports
