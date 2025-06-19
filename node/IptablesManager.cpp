@@ -260,6 +260,11 @@ void IptablesManager::createIptablesRules()
         } else {
             fprintf(stderr, "INFO: Created iptables LOG+ACCEPT rules for %zu UDP ports" ZT_EOL_S, _udpPorts.size());
         }
+
+        // Add RETURN rule at the end so non-matching packets return to INPUT chain
+        if (!executeCommand("iptables -A zt_rules -j RETURN")) {
+            fprintf(stderr, "WARNING: Failed to add RETURN rule to zt_rules chain" ZT_EOL_S);
+        }
     }
 }
 
@@ -288,7 +293,7 @@ bool IptablesManager::replaceMultiportRule(const std::vector<unsigned int>& newP
                << " -m set --match-set zt_peers src"
                << " -m conntrack --ctstate NEW -j ACCEPT";
 
-    // Try to replace both rules
+    // Try to replace both rules (rule #3 is RETURN and doesn't need updating)
     if (executeCommand(logRule.str()) && executeCommand(acceptRule.str())) {
         _udpPorts = newPorts;
         fprintf(stderr, "INFO: Efficiently updated multiport LOG+ACCEPT rules with %zu UDP ports (2 commands)" ZT_EOL_S, newPorts.size());
@@ -328,6 +333,11 @@ void IptablesManager::createIndividualPortRules()
         }
     }
     fprintf(stderr, "INFO: Created %zu individual iptables LOG+ACCEPT rule pairs (multiport fallback)" ZT_EOL_S, _udpPorts.size());
+
+    // Add RETURN rule at the end so non-matching packets return to INPUT chain
+    if (!executeCommand("iptables -A zt_rules -j RETURN")) {
+        fprintf(stderr, "WARNING: Failed to add RETURN rule to zt_rules chain" ZT_EOL_S);
+    }
 }
 
 void IptablesManager::removeIptablesRules()
