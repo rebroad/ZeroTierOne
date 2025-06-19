@@ -826,7 +826,7 @@ static int cli(int argc,char **argv)
 								} else if (status == "OK") {
 									int64_t expiresIn = ((int64_t)authenticationExpiryTime - OSUtils::now()) / 1000LL;
 									if (expiresIn >= 0) {
-										printf("    AUTH OK, expires in: %lld seconds" ZT_EOL_S, expiresIn);
+										printf("    AUTH OK, expires in: %ld seconds" ZT_EOL_S, (long)expiresIn);
 									}
 								}
 							}
@@ -1175,17 +1175,17 @@ static int cli(int argc,char **argv)
 
 						char firstIncomingStr[32], lastSeenStr[32];
 						if (firstIncomingDiff >= 0) {
-							if (firstIncomingDiff < 60) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%llds ago", firstIncomingDiff);
-							else if (firstIncomingDiff < 3600) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lldm ago", firstIncomingDiff / 60);
-							else snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lldh ago", firstIncomingDiff / 3600);
+							if (firstIncomingDiff < 60) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lds ago", (long)firstIncomingDiff);
+							else if (firstIncomingDiff < 3600) snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldm ago", (long)(firstIncomingDiff / 60));
+							else snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldh ago", (long)(firstIncomingDiff / 3600));
 						} else {
 							strcpy(firstIncomingStr, "never");
 						}
 
 						if (lastSeenDiff >= 0) {
-							if (lastSeenDiff < 60) snprintf(lastSeenStr, sizeof(lastSeenStr), "%llds ago", lastSeenDiff);
-							else if (lastSeenDiff < 3600) snprintf(lastSeenStr, sizeof(lastSeenStr), "%lldm ago", lastSeenDiff / 60);
-							else snprintf(lastSeenStr, sizeof(lastSeenStr), "%lldh ago", lastSeenDiff / 3600);
+							if (lastSeenDiff < 60) snprintf(lastSeenStr, sizeof(lastSeenStr), "%lds ago", (long)lastSeenDiff);
+							else if (lastSeenDiff < 3600) snprintf(lastSeenStr, sizeof(lastSeenStr), "%ldm ago", (long)(lastSeenDiff / 60));
+							else snprintf(lastSeenStr, sizeof(lastSeenStr), "%ldh ago", (long)(lastSeenDiff / 3600));
 						} else {
 							strcpy(lastSeenStr, "never");
 						}
@@ -1229,7 +1229,7 @@ static int cli(int argc,char **argv)
 
 						// Format combined packet count as "In/Out"
 						char packetStr[32];
-						snprintf(packetStr, sizeof(packetStr), "%llu/%llu", totalIncoming, totalOutgoing);
+						snprintf(packetStr, sizeof(packetStr), "%lu/%lu", (unsigned long)totalIncoming, (unsigned long)totalOutgoing);
 
 						printf("%-15s %-12s %-10s %-8s %s" ZT_EOL_S,
 							peerAddr.c_str(), packetStr, firstIncomingStr, lastSeenStr, portUsage.c_str());
@@ -1684,7 +1684,7 @@ static int cli(int argc,char **argv)
 		// First try ZeroTier Central API if we have an API token
 		std::string apiToken;
 		char tokenPath[1024];
-		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", _homePath.c_str());
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
 		std::string tokenData;
 		if (OSUtils::readFile(tokenPath, tokenData)) {
 			// Remove any whitespace/newlines
@@ -1888,7 +1888,7 @@ static int cli(int argc,char **argv)
 		// First try ZeroTier Central API if we have an API token
 		std::string apiToken;
 		char tokenPath[1024];
-		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", _homePath.c_str());
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
 		std::string tokenData;
 		if (OSUtils::readFile(tokenPath, tokenData)) {
 			// Remove any whitespace/newlines
@@ -2112,7 +2112,7 @@ static int cli(int argc,char **argv)
 
 		// Save API token to a secure file
 		char tokenPath[1024];
-		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", _homePath.c_str());
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
 
 		if (OSUtils::writeFile(tokenPath, arg1.c_str(), arg1.length())) {
 			// Set restrictive permissions (owner read/write only)
