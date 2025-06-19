@@ -897,6 +897,18 @@ public:
 	std::unique_ptr<IptablesManager> _iptablesManager;
 	bool _iptablesEnabled;
 
+	// Peer-port usage tracking
+	struct PeerPortStats {
+		std::map<unsigned int, uint64_t> portUsageCounts; // port -> count
+		uint64_t totalPackets;
+		uint64_t firstSeen;
+		uint64_t lastSeen;
+		PeerPortStats() : totalPackets(0), firstSeen(0), lastSeen(0) {}
+	};
+	std::map<InetAddress, PeerPortStats> _peerPortStats;
+	std::set<std::pair<InetAddress, unsigned int>> _seenPeerPorts; // For first-time logging
+	Mutex _peerPortStats_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -2364,6 +2376,35 @@ public:
 		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
 
+		// GET /iptables/stats - peer port usage statistics
+		auto iptablesStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+			json stats = json::object();
+			
+			{
+				Mutex::Lock _l(_peerPortStats_m);
+				for (const auto& peerEntry : _peerPortStats) {
+					char peerBuf[64];
+					peerEntry.first.toString(peerBuf);
+					
+					json peerStats = json::object();
+					peerStats["totalPackets"] = peerEntry.second.totalPackets;
+					peerStats["firstSeen"] = peerEntry.second.firstSeen;
+					peerStats["lastSeen"] = peerEntry.second.lastSeen;
+					peerStats["portUsage"] = json::object();
+					
+					for (const auto& portEntry : peerEntry.second.portUsageCounts) {
+						peerStats["portUsage"][std::to_string(portEntry.first)] = portEntry.second;
+					}
+					
+					stats[peerBuf] = peerStats;
+				}
+			}
+			
+			setContent(req, res, stats.dump(2));
+		};
+		_controlPlane.Get("/iptables/stats", iptablesStatsGet);
+		_controlPlaneV6.Get("/iptables/stats", iptablesStatsGet);
+
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
 			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
@@ -3061,6 +3102,20 @@ public:
 		if ((len >= 16) && (reinterpret_cast<const InetAddress*>(from)->ipScope() == InetAddress::IP_SCOPE_GLOBAL)) {
 			_lastDirectReceiveFromGlobal = now;
 		}
+
+		// Track peer-port usage for iptables integration insights
+		if (localAddr && from && len >= 16) { // Valid ZeroTier packet minimum size
+			const InetAddress localAddress(localAddr);
+			const InetAddress fromAddress(from);
+			const unsigned int localPort = localAddress.port();
+			
+			// Only track if this is one of our configured ports
+			if (localPort == _primaryPort || localPort == _tertiaryPort || 
+			    (_allowSecondaryPort && localPort == _secondaryPort)) {
+				_trackPeerPortUsage(fromAddress, localPort, now);
+			}
+		}
+
 		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline);
 		if (ZT_ResultCode_isFatal(rc)) {
 			char tmp[256];
@@ -4032,6 +4087,36 @@ public:
 				fprintf(stderr, "INFO: %s peer %s to/from iptables ipset" ZT_EOL_S, isAdd ? "Added" : "Removed", ipStr.c_str());
 			}
 			// If no change was made (peer already existed/didn't exist), don't log to avoid spam
+		}
+	}
+
+	void _trackPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	{
+		Mutex::Lock _l(_peerPortStats_m);
+		
+		// Extract IP without port for consistent tracking
+		InetAddress peerIP = peerAddress;
+		peerIP.setPort(0);
+		
+		// Check if this is the first time we've seen this peer-port combination
+		auto peerPortKey = std::make_pair(peerIP, localPort);
+		bool isFirstTime = (_seenPeerPorts.find(peerPortKey) == _seenPeerPorts.end());
+		
+		if (isFirstTime) {
+			_seenPeerPorts.insert(peerPortKey);
+			char buf[64];
+			peerIP.toString(buf);
+			fprintf(stderr, "INFO: First contact from peer %s on local port %u" ZT_EOL_S, buf, localPort);
+		}
+		
+		// Update statistics
+		PeerPortStats& stats = _peerPortStats[peerIP];
+		stats.portUsageCounts[localPort]++;
+		stats.totalPackets++;
+		stats.lastSeen = now;
+		
+		if (stats.firstSeen == 0) {
+			stats.firstSeen = now;
 		}
 	}
 
