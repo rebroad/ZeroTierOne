@@ -905,8 +905,9 @@ public:
 		uint64_t totalOutgoing;
 		uint64_t firstIncomingSeen;
 		uint64_t firstOutgoingSeen;
-		uint64_t lastSeen;
-		PeerPortStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0), lastSeen(0) {}
+		uint64_t lastIncomingSeen;
+		uint64_t lastOutgoingSeen;
+		PeerPortStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0), lastIncomingSeen(0), lastOutgoingSeen(0) {}
 	};
 	std::map<InetAddress, PeerPortStats> _peerPortStats;
 	std::set<std::pair<InetAddress, unsigned int>> _seenPeerPorts; // For first-time logging
@@ -2423,7 +2424,8 @@ public:
 					peerData["totalOutgoing"] = peerEntry.second.totalOutgoing;
 					peerData["firstIncomingSeen"] = peerEntry.second.firstIncomingSeen;
 					peerData["firstOutgoingSeen"] = peerEntry.second.firstOutgoingSeen;
-					peerData["lastSeen"] = peerEntry.second.lastSeen;
+					peerData["lastIncomingSeen"] = peerEntry.second.lastIncomingSeen;
+					peerData["lastOutgoingSeen"] = peerEntry.second.lastOutgoingSeen;
 
 					json incomingPorts = json::object();
 					for (const auto& portEntry : peerEntry.second.incomingPortCounts) {
@@ -4170,7 +4172,7 @@ public:
 		PeerPortStats& stats = _peerPortStats[peerIP];
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
-		stats.lastSeen = now;
+		stats.lastIncomingSeen = now;
 
 		if (stats.firstIncomingSeen == 0) {
 			stats.firstIncomingSeen = now;
@@ -4189,7 +4191,7 @@ public:
 		PeerPortStats& stats = _peerPortStats[peerIP];
 		stats.outgoingPortCounts[localPort]++;
 		stats.totalOutgoing++;
-		stats.lastSeen = now;
+		stats.lastOutgoingSeen = now;
 
 		if (stats.firstOutgoingSeen == 0) {
 			stats.firstOutgoingSeen = now;
