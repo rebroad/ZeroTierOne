@@ -44,13 +44,10 @@ IptablesManager::IptablesManager(const std::string& wanInterface, const std::vec
     std::sort(_udpPorts.begin(), _udpPorts.end());
     _udpPorts.erase(std::unique(_udpPorts.begin(), _udpPorts.end()), _udpPorts.end());
 
-    // Clean up any existing rules from previous runs (in case of unclean shutdown)
+    // Initialize the ipset and iptables rules
     // Use a lock to prevent race conditions during initialization
     {
         Mutex::Lock _l(_peers_mutex);
-        cleanupExistingRules();
-
-        // Initialize the ipset and iptables rules
         initializeRules();
     }
 }
@@ -199,6 +196,10 @@ bool IptablesManager::executeCommand(const std::string& command) const
 
 void IptablesManager::initializeRules()
 {
+    // Clean up any existing iptables rules from previous runs (in case of unclean shutdown)
+    // This only affects iptables rules, not the ipset
+    removeIptablesRules();
+
     // Initialize ipset for ZeroTier peers
     // First try to flush existing set (if it exists)
     if (executeCommand("ipset flush zt_peers 2>/dev/null")) {
