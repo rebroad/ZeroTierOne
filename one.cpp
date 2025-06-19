@@ -69,6 +69,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <set>
 
 #include "version.h"
 #include "include/ZeroTierOne.h"
@@ -1921,6 +1922,7 @@ static int cli(int argc,char **argv)
 		}
 
 		std::vector<std::string> foundIps; // Store all found IPs
+		std::set<std::string> networksFoundInAPI; // Track which networks were successfully queried via API
 		bool foundViaAPI = false;
 
 		// If we have an API token, try the Central API first
@@ -1948,6 +1950,9 @@ static int cli(int argc,char **argv)
 					try {
 						nlohmann::json members = OSUtils::jsonParse(apiResponse);
 						if (members.is_array()) {
+							// Mark this network as successfully queried via API
+							networksFoundInAPI.insert(networkId);
+
 							for (unsigned long j = 0; j < members.size(); ++j) {
 								nlohmann::json &member = members[j];
 								std::string memberId = OSUtils::jsonString(member["nodeId"], "");
@@ -1966,23 +1971,30 @@ static int cli(int argc,char **argv)
 							}
 						}
 					} catch (...) {
-						// API query failed, continue with other networks
+						// API query failed for this network, we'll try ARP method for it
 					}
 				}
 			}
 
 			if (!foundViaAPI) {
-				printf("ZeroTier address not found via Central API, falling back to ARP method..." ZT_EOL_S);
+				printf("ZeroTier address not found via Central API, checking local networks..." ZT_EOL_S);
+			} else {
+				printf("Found via Central API. Checking remaining local networks..." ZT_EOL_S);
 			}
 		}
 
-		// Check each network for this ZeroTier address
+		// Check each network for this ZeroTier address (only networks not found via API)
 		for (unsigned long i = 0; i < networks.size(); ++i) {
 			nlohmann::json &network = networks[i];
 			std::string networkId = OSUtils::jsonString(network["id"], "");
 			std::string portDeviceName = OSUtils::jsonString(network["portDeviceName"], "");
 
 			if (networkId.empty()) continue;
+
+			// Skip networks that were already successfully queried via Central API
+			if (networksFoundInAPI.find(networkId) != networksFoundInAPI.end()) {
+				continue;
+			}
 
 			// Convert network ID to uint64_t
 			uint64_t nwid = strtoull(networkId.c_str(), NULL, 16);
