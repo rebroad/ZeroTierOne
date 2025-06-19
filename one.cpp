@@ -1920,6 +1920,9 @@ static int cli(int argc,char **argv)
 			return 1;
 		}
 
+		std::vector<std::string> foundIps; // Store all found IPs
+		bool foundViaAPI = false;
+
 		// If we have an API token, try the Central API first
 		if (!apiToken.empty()) {
 			printf("Querying ZeroTier Central API..." ZT_EOL_S);
@@ -1951,22 +1954,26 @@ static int cli(int argc,char **argv)
 
 								if (memberId == targetZtAddr) {
 									nlohmann::json &ipAssignments = member["config"]["ipAssignments"];
-									if (ipAssignments.is_array() && ipAssignments.size() > 0) {
-										std::string assignedIp = ipAssignments[0];
-										printf("200 findip %s %s (network %s, via Central API)" ZT_EOL_S,
-											   targetZtAddr.c_str(), assignedIp.c_str(), networkId.c_str());
-										return 0;
+									if (ipAssignments.is_array()) {
+										for (unsigned long k = 0; k < ipAssignments.size(); ++k) {
+											std::string assignedIp = ipAssignments[k];
+											std::string result = "200 findip " + targetZtAddr + " " + assignedIp + " (network " + networkId + ", via Central API)";
+											foundIps.push_back(result);
+											foundViaAPI = true;
+										}
 									}
 								}
 							}
 						}
 					} catch (...) {
-						// API query failed, fall back to ARP method
+						// API query failed, continue with other networks
 					}
 				}
 			}
 
-			printf("ZeroTier address not found via Central API, falling back to ARP method..." ZT_EOL_S);
+			if (!foundViaAPI) {
+				printf("ZeroTier address not found via Central API, falling back to ARP method..." ZT_EOL_S);
+			}
 		}
 
 		// Check each network for this ZeroTier address
@@ -2083,10 +2090,17 @@ static int cli(int argc,char **argv)
 			}
 
 			if (!foundIp.empty()) {
-				printf("200 findip %s %s (network %s, MAC %s)" ZT_EOL_S,
-					   targetZtAddr.c_str(), foundIp.c_str(), networkId.c_str(), expectedMacStr);
-				return 0;
+				std::string result = "200 findip " + targetZtAddr + " " + foundIp + " (network " + networkId + ", MAC " + expectedMacStr + ")";
+				foundIps.push_back(result);
 			}
+		}
+
+		// Display all found results
+		if (!foundIps.empty()) {
+			for (const std::string& result : foundIps) {
+				printf("%s" ZT_EOL_S, result.c_str());
+			}
+			return 0;
 		}
 
 		printf("No IP address found for ZeroTier address %s" ZT_EOL_S, targetZtAddr.c_str());
