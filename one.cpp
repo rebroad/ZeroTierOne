@@ -1649,48 +1649,152 @@ static int cli(int argc,char **argv)
 			return 1;
 		}
 
-		// Try to use ARP table to find MAC address, then correlate with ZeroTier
+				// Check if this is our own IP first
+		for (unsigned long i = 0; i < networks.size(); ++i) {
+			nlohmann::json &network = networks[i];
+			nlohmann::json &assignedAddresses = network["assignedAddresses"];
+
+			if (assignedAddresses.is_array()) {
+				for (unsigned long j = 0; j < assignedAddresses.size(); ++j) {
+					std::string assignedIp = assignedAddresses[j];
+					size_t slashPos = assignedIp.find('/');
+					if (slashPos != std::string::npos) {
+						assignedIp = assignedIp.substr(0, slashPos);
+					}
+
+					if (assignedIp == targetIp) {
+						// This IP belongs to our local node
+						const unsigned int statuscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/status",requestHeaders,responseHeaders,responseBody);
+						if (statuscode == 200) {
+							nlohmann::json status = OSUtils::jsonParse(responseBody);
+							std::string ourAddress = OSUtils::jsonString(status["address"], "");
+							printf("200 findip %s %s (local)" ZT_EOL_S, targetIp.c_str(), ourAddress.c_str());
+							return 0;
+						}
+					}
+				}
+			}
+		}
+
+		// For remote peers, try to resolve by triggering ARP and checking system ARP cache
 		printf("Searching for ZeroTier address for IP %s..." ZT_EOL_S, targetIp.c_str());
 
-		// Use system ARP command to find MAC address
-		std::string arpCmd = "arp -n " + targetIp + " 2>/dev/null | grep -v 'incomplete' | awk '{print $3}'";
-		FILE* arpPipe = popen(arpCmd.c_str(), "r");
-		if (!arpPipe) {
-			printf("Failed to execute ARP lookup" ZT_EOL_S);
+		// First, determine which network this IP belongs to
+		std::string targetNetworkId;
+		std::string targetInterface;
+		for (unsigned long i = 0; i < networks.size(); ++i) {
+			nlohmann::json &network = networks[i];
+			nlohmann::json &routes = network["routes"];
+
+			if (routes.is_array()) {
+				for (unsigned long j = 0; j < routes.size(); ++j) {
+					nlohmann::json &route = routes[j];
+					std::string target = OSUtils::jsonString(route["target"], "");
+
+					if (!target.empty() && target.find('/') != std::string::npos) {
+						// Parse network CIDR (e.g., "192.168.192.0/24")
+						std::string networkBase = target.substr(0, target.find('/'));
+						std::string maskStr = target.substr(target.find('/') + 1);
+						int maskBits = atoi(maskStr.c_str());
+
+						// Convert IP strings to integers for subnet matching
+						uint32_t targetIpInt = 0, networkInt = 0;
+						inet_pton(AF_INET, targetIp.c_str(), &targetIpInt);
+						inet_pton(AF_INET, networkBase.c_str(), &networkInt);
+
+						// Create subnet mask
+						uint32_t mask = (maskBits == 0) ? 0 : (~0U << (32 - maskBits));
+
+						// Check if target IP is in this subnet
+						if ((ntohl(targetIpInt) & mask) == (ntohl(networkInt) & mask)) {
+							targetNetworkId = OSUtils::jsonString(network["id"], "");
+							targetInterface = OSUtils::jsonString(network["portDeviceName"], "");
+							break;
+						}
+					}
+				}
+				if (!targetNetworkId.empty()) break;
+			}
+		}
+
+		if (targetNetworkId.empty()) {
+			printf("Could not determine which ZeroTier network contains this IP" ZT_EOL_S);
 			return 1;
 		}
 
-		char macBuffer[64] = {0};
+		printf("Found IP in network %s (interface %s)" ZT_EOL_S, targetNetworkId.c_str(), targetInterface.c_str());
+
+		// Trigger ARP resolution by sending a ping
+		printf("Triggering ARP resolution..." ZT_EOL_S);
+		std::string pingCmd = "ping -c 1 -W 1 " + targetIp + " >/dev/null 2>&1";
+		system(pingCmd.c_str());
+
+		// Small delay to allow ARP cache to populate
+		usleep(100000); // 100ms
+
+		// Now check ARP cache for the MAC address
+		std::string arpCmd = "ip neigh show " + targetIp + " 2>/dev/null | awk '{print $5}' | head -1";
+		FILE* arpPipe = popen(arpCmd.c_str(), "r");
+		if (!arpPipe) {
+			printf("Failed to check ARP cache" ZT_EOL_S);
+			return 1;
+		}
+
+		char macBuffer[32] = {0};
 		if (fgets(macBuffer, sizeof(macBuffer), arpPipe)) {
 			// Remove trailing newline
 			char* newline = strchr(macBuffer, '\n');
 			if (newline) *newline = '\0';
 
-			// Now correlate MAC with ZeroTier networks
-			for (unsigned long i = 0; i < networks.size(); ++i) {
-				nlohmann::json &network = networks[i];
-				std::string networkMac = OSUtils::jsonString(network["mac"], "");
+			// Parse MAC address and convert to ZeroTier address
+			if (strlen(macBuffer) >= 17) { // MAC format: XX:XX:XX:XX:XX:XX
+				uint64_t macInt = 0;
+				unsigned int macBytes[6];
+				if (sscanf(macBuffer, "%02x:%02x:%02x:%02x:%02x:%02x",
+						   &macBytes[0], &macBytes[1], &macBytes[2],
+						   &macBytes[3], &macBytes[4], &macBytes[5]) == 6) {
 
-				if (networkMac == macBuffer) {
-					// This IP belongs to our local node
-					const unsigned int statuscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/status",requestHeaders,responseHeaders,responseBody);
-					if (statuscode == 200) {
-						nlohmann::json status = OSUtils::jsonParse(responseBody);
-						std::string ourAddress = OSUtils::jsonString(status["address"], "");
-						printf("200 findip %s %s (local)" ZT_EOL_S, targetIp.c_str(), ourAddress.c_str());
-						pclose(arpPipe);
-						return 0;
+					// Convert to 64-bit MAC
+					for (int i = 0; i < 6; i++) {
+						macInt = (macInt << 8) | (macBytes[i] & 0xFF);
 					}
+
+					// Convert network ID string to uint64_t
+					uint64_t nwid = strtoull(targetNetworkId.c_str(), NULL, 16);
+
+					// Convert MAC back to ZeroTier address using the reverse algorithm
+					// This reverses the fromAddress() function in MAC.hpp
+					uint64_t ztAddr = macInt & 0xffffffffffULL; // least significant 40 bits
+					ztAddr ^= ((nwid >> 8) & 0xff) << 32;
+					ztAddr ^= ((nwid >> 16) & 0xff) << 24;
+					ztAddr ^= ((nwid >> 24) & 0xff) << 16;
+					ztAddr ^= ((nwid >> 32) & 0xff) << 8;
+					ztAddr ^= (nwid >> 40) & 0xff;
+
+					// Format as 10-character hex string (40 bits = 5 bytes)
+					char ztAddrStr[16];
+					snprintf(ztAddrStr, sizeof(ztAddrStr), "%010llx", (unsigned long long)(ztAddr & 0xffffffffffULL));
+
+					printf("200 findip %s %s (via MAC %s)" ZT_EOL_S, targetIp.c_str(), ztAddrStr, macBuffer);
+					pclose(arpPipe);
+					return 0;
 				}
 			}
-
-			printf("Found MAC %s for IP %s, but unable to determine ZeroTier address" ZT_EOL_S, macBuffer, targetIp.c_str());
-			printf("Note: This feature requires advanced network analysis or controller access" ZT_EOL_S);
-		} else {
-			printf("No ARP entry found for %s - device may be offline or not recently communicated with" ZT_EOL_S, targetIp.c_str());
 		}
-
 		pclose(arpPipe);
+
+		printf("Could not resolve IP to MAC address via ARP" ZT_EOL_S);
+		printf("" ZT_EOL_S);
+		printf("This could mean:" ZT_EOL_S);
+		printf("  - The device is offline or unreachable" ZT_EOL_S);
+		printf("  - ARP cache has expired and device didn't respond to ping" ZT_EOL_S);
+		printf("  - The IP address is not currently assigned to any ZeroTier peer" ZT_EOL_S);
+		printf("" ZT_EOL_S);
+		printf("Try:" ZT_EOL_S);
+		printf("  - Ensure the target device is online and reachable" ZT_EOL_S);
+		printf("  - Try again after some network activity to the target IP" ZT_EOL_S);
+		printf("  - Check 'ip neigh show %s' manually" ZT_EOL_S, targetIp.c_str());
+
 		return 1;
 	} else {
 		cliPrintHelp(argv[0],stderr);
