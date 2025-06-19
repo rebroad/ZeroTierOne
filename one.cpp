@@ -1844,12 +1844,12 @@ static int cli(int argc,char **argv)
 			nlohmann::json &network = networks[i];
 			std::string networkId = OSUtils::jsonString(network["id"], "");
 			std::string portDeviceName = OSUtils::jsonString(network["portDeviceName"], "");
-			
+
 			if (networkId.empty()) continue;
-			
+
 			// Convert network ID to uint64_t
 			uint64_t nwid = strtoull(networkId.c_str(), NULL, 16);
-			
+
 			// Generate the expected MAC address for this ZeroTier address on this network
 			// Using the same algorithm as MAC::fromAddress()
 			uint64_t expectedMac = ((uint64_t)((unsigned char)((nwid & 0xfe) | 0x02))) << 40; // first octet
@@ -1862,7 +1862,7 @@ static int cli(int argc,char **argv)
 			expectedMac ^= ((nwid >> 24) & 0xff) << 16;
 			expectedMac ^= ((nwid >> 32) & 0xff) << 8;
 			expectedMac ^= (nwid >> 40) & 0xff;
-			
+
 			// Format MAC address as string
 			char expectedMacStr[18];
 			snprintf(expectedMacStr, sizeof(expectedMacStr), "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -1873,24 +1873,89 @@ static int cli(int argc,char **argv)
 				(unsigned int)((expectedMac >> 8) & 0xff),
 				(unsigned int)(expectedMac & 0xff));
 			
-			// Search ARP cache for this MAC address
+			printf("Looking for MAC %s in network %s..." ZT_EOL_S, expectedMacStr, networkId.c_str());
+
+			// First check if this MAC is already in ARP cache
 			std::string arpCmd = "ip neigh show | grep -i " + std::string(expectedMacStr) + " | awk '{print $1}' | head -1";
 			FILE* arpPipe = popen(arpCmd.c_str(), "r");
+			std::string foundIp;
+
 			if (arpPipe) {
 				char ipBuffer[64] = {0};
 				if (fgets(ipBuffer, sizeof(ipBuffer), arpPipe)) {
 					// Remove trailing newline
 					char* newline = strchr(ipBuffer, '\n');
 					if (newline) *newline = '\0';
-					
+
 					if (strlen(ipBuffer) > 0) {
-						printf("200 findip %s %s (network %s, MAC %s)" ZT_EOL_S, 
-							   targetZtAddr.c_str(), ipBuffer, networkId.c_str(), expectedMacStr);
-						pclose(arpPipe);
-						return 0;
+						foundIp = std::string(ipBuffer);
 					}
 				}
 				pclose(arpPipe);
+			}
+
+			// If not found in ARP cache, try to discover it by scanning the network
+			if (foundIp.empty()) {
+				printf("MAC not in ARP cache, scanning network %s..." ZT_EOL_S, networkId.c_str());
+
+				// Get the network routes to determine what IP ranges to scan
+				nlohmann::json &routes = network["routes"];
+				if (routes.is_array()) {
+					for (unsigned long j = 0; j < routes.size(); ++j) {
+						nlohmann::json &route = routes[j];
+						std::string target = OSUtils::jsonString(route["target"], "");
+
+						if (!target.empty() && target.find('/') != std::string::npos) {
+							// Parse network CIDR (e.g., "192.168.193.0/24")
+							std::string networkBase = target.substr(0, target.find('/'));
+							std::string maskStr = target.substr(target.find('/') + 1);
+							int maskBits = atoi(maskStr.c_str());
+
+							// For small networks (>= /24), do a quick ping sweep
+							if (maskBits >= 24) {
+								printf("Ping sweeping %s..." ZT_EOL_S, target.c_str());
+
+								// Extract base network (e.g., "192.168.193" from "192.168.193.0")
+								size_t lastDot = networkBase.rfind('.');
+								if (lastDot != std::string::npos) {
+									std::string baseNetwork = networkBase.substr(0, lastDot);
+
+									// Ping sweep the network (parallel pings for speed)
+									// Use a more reliable approach with seq instead of bash ranges
+									std::string pingCmd = "seq 1 254 | xargs -I {} -P 50 ping -c 1 -W 1 " + baseNetwork + ".{} >/dev/null 2>&1";
+									printf("Running: %s" ZT_EOL_S, pingCmd.c_str());
+									system(pingCmd.c_str());
+
+									// Small delay to let ARP cache populate
+									usleep(500000); // 500ms
+
+									// Check ARP cache again
+									FILE* arpPipe2 = popen(arpCmd.c_str(), "r");
+									if (arpPipe2) {
+										char ipBuffer2[64] = {0};
+										if (fgets(ipBuffer2, sizeof(ipBuffer2), arpPipe2)) {
+											char* newline = strchr(ipBuffer2, '\n');
+											if (newline) *newline = '\0';
+
+											if (strlen(ipBuffer2) > 0) {
+												foundIp = std::string(ipBuffer2);
+											}
+										}
+										pclose(arpPipe2);
+									}
+								}
+							}
+
+							if (!foundIp.empty()) break;
+						}
+					}
+				}
+			}
+
+			if (!foundIp.empty()) {
+				printf("200 findip %s %s (network %s, MAC %s)" ZT_EOL_S,
+					   targetZtAddr.c_str(), foundIp.c_str(), networkId.c_str(), expectedMacStr);
+				return 0;
 			}
 		}
 
