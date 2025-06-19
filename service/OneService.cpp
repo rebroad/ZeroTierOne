@@ -2394,7 +2394,7 @@ public:
 			}
 
 			portConfig["primaryPort"] = _primaryPort;
-			portConfig["secondaryPort"] = _secondaryPort;
+			portConfig["secondaryPort"] = (_allowSecondaryPort && _ports[1] != 0) ? _ports[1] : 0;
 			portConfig["tertiaryPort"] = _tertiaryPort;
 			portConfig["allowSecondaryPort"] = _allowSecondaryPort;
 			portConfig["actualBoundPorts"] = actualPorts;
