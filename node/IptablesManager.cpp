@@ -228,58 +228,74 @@ void IptablesManager::createIptablesRules()
     // Jump to our chain from INPUT
     executeCommand("iptables -I INPUT 1 -j zt_rules 2>/dev/null");
 
-    // Allow established and related traffic, which handles replies to our outbound packets
-    executeCommand("iptables -A zt_rules -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT");
-
     // Create a single multiport rule for all UDP ports (much more efficient)
     if (!_udpPorts.empty()) {
-        std::stringstream ss;
-        ss << "iptables -A zt_rules -i " << _wanInterface
-           << " -p udp -m multiport --dports ";
+        std::stringstream logRule, acceptRule;
 
-        // Build comma-separated port list
+        // Build port list for both LOG and ACCEPT rules
+        std::string portList;
         for (size_t i = 0; i < _udpPorts.size(); ++i) {
-            if (i > 0) ss << ",";
-            ss << _udpPorts[i];
+            if (i > 0) portList += ",";
+            portList += std::to_string(_udpPorts[i]);
         }
 
-        ss << " -m set --match-set zt_peers src"
-           << " -m conntrack --ctstate NEW -j ACCEPT";
+        // Create LOG rule first (rate-limited to avoid spam)
+        logRule << "iptables -A zt_rules -i " << _wanInterface
+                << " -p udp -m multiport --dports " << portList
+                << " -m set --match-set zt_peers src"
+                << " -m conntrack --ctstate NEW"
+                << " -m limit --limit 10/min --limit-burst 5"
+                << " -j LOG --log-prefix \"ZT-ALLOW: \"";
 
-        if (!executeCommand(ss.str())) {
-            fprintf(stderr, "WARNING: Failed to create multiport iptables rule for ports" ZT_EOL_S);
+        // Create ACCEPT rule
+        acceptRule << "iptables -A zt_rules -i " << _wanInterface
+                   << " -p udp -m multiport --dports " << portList
+                   << " -m set --match-set zt_peers src"
+                   << " -m conntrack --ctstate NEW -j ACCEPT";
+
+        if (!executeCommand(logRule.str()) || !executeCommand(acceptRule.str())) {
+            fprintf(stderr, "WARNING: Failed to create multiport iptables rules, trying fallback" ZT_EOL_S);
             // Fallback to individual rules if multiport fails
             createIndividualPortRules();
         } else {
-            fprintf(stderr, "INFO: Created single iptables rule for %zu UDP ports" ZT_EOL_S, _udpPorts.size());
+            fprintf(stderr, "INFO: Created iptables LOG+ACCEPT rules for %zu UDP ports" ZT_EOL_S, _udpPorts.size());
         }
     }
 }
 
 bool IptablesManager::replaceMultiportRule(const std::vector<unsigned int>& newPorts)
 {
-    // Build new multiport rule
-    std::stringstream ss;
-    ss << "iptables -R zt_rules 2 -i " << _wanInterface
-       << " -p udp -m multiport --dports ";
-
-    // Build comma-separated port list
+    // Build port list
+    std::string portList;
     for (size_t i = 0; i < newPorts.size(); ++i) {
-        if (i > 0) ss << ",";
-        ss << newPorts[i];
+        if (i > 0) portList += ",";
+        portList += std::to_string(newPorts[i]);
     }
 
-    ss << " -m set --match-set zt_peers src"
-       << " -m conntrack --ctstate NEW -j ACCEPT";
+    // Build new LOG rule (rule #1)
+    std::stringstream logRule;
+    logRule << "iptables -R zt_rules 1 -i " << _wanInterface
+            << " -p udp -m multiport --dports " << portList
+            << " -m set --match-set zt_peers src"
+            << " -m conntrack --ctstate NEW"
+            << " -m limit --limit 10/min --limit-burst 5"
+            << " -j LOG --log-prefix \"ZT-ALLOW: \"";
 
-    // Try to replace the rule (rule #2 is the multiport rule, after ESTABLISHED,RELATED)
-    if (executeCommand(ss.str())) {
+    // Build new ACCEPT rule (rule #2)
+    std::stringstream acceptRule;
+    acceptRule << "iptables -R zt_rules 2 -i " << _wanInterface
+               << " -p udp -m multiport --dports " << portList
+               << " -m set --match-set zt_peers src"
+               << " -m conntrack --ctstate NEW -j ACCEPT";
+
+    // Try to replace both rules
+    if (executeCommand(logRule.str()) && executeCommand(acceptRule.str())) {
         _udpPorts = newPorts;
-        fprintf(stderr, "INFO: Efficiently updated multiport rule with %zu UDP ports (1 command)" ZT_EOL_S, newPorts.size());
+        fprintf(stderr, "INFO: Efficiently updated multiport LOG+ACCEPT rules with %zu UDP ports (2 commands)" ZT_EOL_S, newPorts.size());
         return true;
     } else {
         // If replacement fails, fall back to full rebuild
-        fprintf(stderr, "WARNING: Failed to replace multiport rule, falling back to full rebuild" ZT_EOL_S);
+        fprintf(stderr, "WARNING: Failed to replace multiport rules, falling back to full rebuild" ZT_EOL_S);
         removeIptablesRules();
         _udpPorts = newPorts;
         createIptablesRules();
@@ -291,17 +307,27 @@ void IptablesManager::createIndividualPortRules()
 {
     // Fallback: Create individual rules for each UDP port (less efficient but more compatible)
     for (unsigned int port : _udpPorts) {
-        std::stringstream ss;
-        ss << "iptables -A zt_rules -i " << _wanInterface
-           << " -p udp --dport " << port
-           << " -m set --match-set zt_peers src"
-           << " -m conntrack --ctstate NEW -j ACCEPT";
+        std::stringstream logRule, acceptRule;
 
-        if (!executeCommand(ss.str())) {
-            fprintf(stderr, "WARNING: Failed to create iptables rule for port %u" ZT_EOL_S, port);
+        // Create LOG rule for this port (rate-limited)
+        logRule << "iptables -A zt_rules -i " << _wanInterface
+                << " -p udp --dport " << port
+                << " -m set --match-set zt_peers src"
+                << " -m conntrack --ctstate NEW"
+                << " -m limit --limit 10/min --limit-burst 5"
+                << " -j LOG --log-prefix \"ZT-ALLOW: \"";
+
+        // Create ACCEPT rule for this port
+        acceptRule << "iptables -A zt_rules -i " << _wanInterface
+                   << " -p udp --dport " << port
+                   << " -m set --match-set zt_peers src"
+                   << " -m conntrack --ctstate NEW -j ACCEPT";
+
+        if (!executeCommand(logRule.str()) || !executeCommand(acceptRule.str())) {
+            fprintf(stderr, "WARNING: Failed to create iptables LOG+ACCEPT rules for port %u" ZT_EOL_S, port);
         }
     }
-    fprintf(stderr, "INFO: Created %zu individual iptables rules (multiport fallback)" ZT_EOL_S, _udpPorts.size());
+    fprintf(stderr, "INFO: Created %zu individual iptables LOG+ACCEPT rule pairs (multiport fallback)" ZT_EOL_S, _udpPorts.size());
 }
 
 void IptablesManager::removeIptablesRules()
