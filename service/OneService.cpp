@@ -2379,27 +2379,38 @@ public:
 		// GET /iptables/stats - peer port usage statistics
 		auto iptablesStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			json stats = json::object();
-			
+
+			// Add port configuration information
+			json portConfig = json::object();
+			portConfig["primaryPort"] = _primaryPort;
+			portConfig["secondaryPort"] = _secondaryPort;
+			portConfig["tertiaryPort"] = _tertiaryPort;
+			portConfig["allowSecondaryPort"] = _allowSecondaryPort;
+			stats["portConfiguration"] = portConfig;
+
+			// Add peer statistics
+			json peerStats = json::object();
 			{
 				Mutex::Lock _l(_peerPortStats_m);
 				for (const auto& peerEntry : _peerPortStats) {
 					char peerBuf[64];
 					peerEntry.first.toString(peerBuf);
-					
-					json peerStats = json::object();
-					peerStats["totalPackets"] = peerEntry.second.totalPackets;
-					peerStats["firstSeen"] = peerEntry.second.firstSeen;
-					peerStats["lastSeen"] = peerEntry.second.lastSeen;
-					peerStats["portUsage"] = json::object();
-					
+
+					json peerData = json::object();
+					peerData["totalPackets"] = peerEntry.second.totalPackets;
+					peerData["firstSeen"] = peerEntry.second.firstSeen;
+					peerData["lastSeen"] = peerEntry.second.lastSeen;
+					peerData["portUsage"] = json::object();
+
 					for (const auto& portEntry : peerEntry.second.portUsageCounts) {
-						peerStats["portUsage"][std::to_string(portEntry.first)] = portEntry.second;
+						peerData["portUsage"][std::to_string(portEntry.first)] = portEntry.second;
 					}
-					
-					stats[peerBuf] = peerStats;
+
+					peerStats[peerBuf] = peerData;
 				}
 			}
-			
+			stats["peers"] = peerStats;
+
 			setContent(req, res, stats.dump(2));
 		};
 		_controlPlane.Get("/iptables/stats", iptablesStatsGet);
@@ -3108,10 +3119,10 @@ public:
 			const InetAddress localAddress(localAddr);
 			const InetAddress fromAddress(from);
 			const unsigned int localPort = localAddress.port();
-			
+
 			// Only track if this is one of our configured ports
-			if (localPort == _primaryPort || localPort == _tertiaryPort || 
-			    (_allowSecondaryPort && localPort == _secondaryPort)) {
+			if (localPort == _primaryPort || localPort == _tertiaryPort ||
+				(_allowSecondaryPort && localPort == _secondaryPort)) {
 				_trackPeerPortUsage(fromAddress, localPort, now);
 			}
 		}
@@ -4093,28 +4104,28 @@ public:
 	void _trackPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
 		Mutex::Lock _l(_peerPortStats_m);
-		
+
 		// Extract IP without port for consistent tracking
 		InetAddress peerIP = peerAddress;
 		peerIP.setPort(0);
-		
+
 		// Check if this is the first time we've seen this peer-port combination
 		auto peerPortKey = std::make_pair(peerIP, localPort);
 		bool isFirstTime = (_seenPeerPorts.find(peerPortKey) == _seenPeerPorts.end());
-		
+
 		if (isFirstTime) {
 			_seenPeerPorts.insert(peerPortKey);
 			char buf[64];
 			peerIP.toString(buf);
 			fprintf(stderr, "INFO: First contact from peer %s on local port %u" ZT_EOL_S, buf, localPort);
 		}
-		
+
 		// Update statistics
 		PeerPortStats& stats = _peerPortStats[peerIP];
 		stats.portUsageCounts[localPort]++;
 		stats.totalPackets++;
 		stats.lastSeen = now;
-		
+
 		if (stats.firstSeen == 0) {
 			stats.firstSeen = now;
 		}

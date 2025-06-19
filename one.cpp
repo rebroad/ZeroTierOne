@@ -1121,20 +1121,37 @@ static int cli(int argc,char **argv)
 				printf("%s" ZT_EOL_S,OSUtils::jsonDump(j).c_str());
 			} else {
 				printf("200 stats - Peer Port Usage Statistics" ZT_EOL_S);
-				printf("%-18s %-12s %-12s %-12s %s" ZT_EOL_S, "Peer Address", "Total Packets", "First Seen", "Last Seen", "Port Usage");
-				printf("%-18s %-12s %-12s %-12s %s" ZT_EOL_S, "------------", "-------------", "----------", "---------", "----------");
-				
-				if (j.is_object()) {
-					for (auto& [peerAddr, peerData] : j.items()) {
+
+				// Show port configuration
+				if (j.contains("portConfiguration")) {
+					auto& portConfig = j["portConfiguration"];
+					uint32_t primaryPort = portConfig["primaryPort"];
+					uint32_t secondaryPort = portConfig["secondaryPort"];
+					uint32_t tertiaryPort = portConfig["tertiaryPort"];
+					bool allowSecondaryPort = portConfig["allowSecondaryPort"];
+
+					printf("Port Configuration:" ZT_EOL_S);
+					printf("  Primary Port:   %u (always active)" ZT_EOL_S, primaryPort);
+					printf("  Secondary Port: %u (%s)" ZT_EOL_S, secondaryPort,
+						allowSecondaryPort ? "enabled" : "disabled - use 'allowSecondaryPort' setting to enable");
+					printf("  Tertiary Port:  %u (always active - NAT traversal & failover)" ZT_EOL_S, tertiaryPort);
+					printf(ZT_EOL_S);
+				}
+
+				printf("%-20s %-12s %-12s %-12s %s" ZT_EOL_S, "Peer Address", "Total Packets", "First Seen", "Last Seen", "Port Usage");
+				printf("%-20s %-12s %-12s %-12s %s" ZT_EOL_S, "--------------------", "-------------", "----------", "---------", "----------");
+
+				if (j.contains("peers") && j["peers"].is_object()) {
+					for (auto& [peerAddr, peerData] : j["peers"].items()) {
 						uint64_t totalPackets = peerData["totalPackets"];
 						uint64_t firstSeen = peerData["firstSeen"];
 						uint64_t lastSeen = peerData["lastSeen"];
-						
+
 						// Format timestamps to relative times
 						const uint64_t now = OSUtils::now();
 						int64_t firstSeenDiff = firstSeen ? (now - firstSeen) / 1000 : -1;
 						int64_t lastSeenDiff = lastSeen ? (now - lastSeen) / 1000 : -1;
-						
+
 						char firstSeenStr[32], lastSeenStr[32];
 						if (firstSeenDiff >= 0) {
 							if (firstSeenDiff < 60) snprintf(firstSeenStr, sizeof(firstSeenStr), "%llds ago", firstSeenDiff);
@@ -1143,7 +1160,7 @@ static int cli(int argc,char **argv)
 						} else {
 							strcpy(firstSeenStr, "never");
 						}
-						
+
 						if (lastSeenDiff >= 0) {
 							if (lastSeenDiff < 60) snprintf(lastSeenStr, sizeof(lastSeenStr), "%llds ago", lastSeenDiff);
 							else if (lastSeenDiff < 3600) snprintf(lastSeenStr, sizeof(lastSeenStr), "%lldm ago", lastSeenDiff / 60);
@@ -1151,7 +1168,7 @@ static int cli(int argc,char **argv)
 						} else {
 							strcpy(lastSeenStr, "never");
 						}
-						
+
 						// Build port usage string
 						std::string portUsage;
 						if (peerData["portUsage"].is_object()) {
@@ -1163,8 +1180,8 @@ static int cli(int argc,char **argv)
 							}
 						}
 						if (portUsage.empty()) portUsage = "none";
-						
-						printf("%-18s %-12llu %-12s %-12s %s" ZT_EOL_S, 
+
+						printf("%-20s %-12llu %-12s %-12s %s" ZT_EOL_S,
 							peerAddr.c_str(), totalPackets, firstSeenStr, lastSeenStr, portUsage.c_str());
 					}
 				}
