@@ -3996,13 +3996,20 @@ public:
 			char buf[64];
 			peerAddress.toString(buf);
 
+			// Extract just the IP address without port for logging
+			std::string ipStr(buf);
+			size_t slashPos = ipStr.find('/');
+			if (slashPos != std::string::npos) {
+				ipStr = ipStr.substr(0, slashPos);
+			}
+
 			bool success = isAdd ? _iptablesManager->addPeer(peerAddress) : _iptablesManager->removePeer(peerAddress);
 
+			// Only log when an actual change was made (success == true)
 			if (success) {
-				fprintf(stderr, "INFO: %s iptables rule for peer %s" ZT_EOL_S, isAdd ? "Added" : "Removed", buf);
-			} else {
-				fprintf(stderr, "WARNING: Failed to %s iptables rule for peer %s" ZT_EOL_S, isAdd ? "add" : "remove", buf);
+				fprintf(stderr, "INFO: %s peer %s to/from iptables ipset" ZT_EOL_S, isAdd ? "Added" : "Removed", ipStr.c_str());
 			}
+			// If no change was made (peer already existed/didn't exist), don't log to avoid spam
 		}
 	}
 
@@ -4086,8 +4093,8 @@ public:
 	}
 };
 
-static int SnodeVirtualNetworkConfigFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t nwid,void **nuptr,enum ZT_VirtualNetworkConfigOperation op,const ZT_VirtualNetworkConfig *nwconf)
-{ return reinterpret_cast<OneServiceImpl *>(uptr)->nodeVirtualNetworkConfigFunction(nwid,nuptr,op,nwconf); }
+static int SnodeVirtualNetworkConfigFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t nwid,void **nuptr,enum ZT_VirtualNetworkConfigOperation op,const ZT_VirtualNetworkConfig *nwc)
+{ return reinterpret_cast<OneServiceImpl *>(uptr)->nodeVirtualNetworkConfigFunction(nwid,nuptr,op,nwc); }
 static void SnodeEventCallback(ZT_Node *node,void *uptr,void *tptr,enum ZT_Event event,const void *metaData)
 { reinterpret_cast<OneServiceImpl *>(uptr)->nodeEventCallback(event,metaData); }
 static void SnodeStatePutFunction(ZT_Node *node,void *uptr,void *tptr,enum ZT_StateObjectType type,const uint64_t id[2],const void *data,int len)

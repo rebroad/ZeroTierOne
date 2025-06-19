@@ -163,9 +163,11 @@ sudo ipset destroy zt_peers 2>/dev/null
 Look for messages like:
 - "INFO: Iptables manager initialized with WAN interface 'X' and N UDP ports"
 - "INFO: Auto-detected WAN interface 'X' for iptables"
-- "INFO: Added iptables rule for peer X"
-- "INFO: Removed iptables rule for peer X"
-- "WARNING: Failed to add/remove iptables rule for peer X"
+- "INFO: Added peer X to/from iptables ipset"
+- "INFO: Removed peer X to/from iptables ipset"
+- "WARNING: State inconsistency detected - tried to add peer X that may already exist in ipset"
+- "WARNING: State inconsistency detected - tried to remove peer X that may not exist in ipset"
+- "WARNING: Failed to create iptables rule for port X"
 
 ## Example Configurations
 
@@ -200,7 +202,7 @@ sudo zerotier-cli info
 # Enable
 sudo zerotier-cli set-iptables-enabled auto
 
-# Disable  
+# Disable
 sudo zerotier-cli set-iptables-enabled false
 ```
 
@@ -216,4 +218,4 @@ sudo zerotier-cli listpeers
 - IPv4 only (IPv6 support can be added later)
 - Uses modern iptables features (ipset, conntrack)
 - Automatically handles port changes and interface updates
-- Configuration changes take effect immediately without service restart 
+- Configuration changes take effect immediately without service restart
