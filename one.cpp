@@ -147,6 +147,7 @@ static void cliPrintHelp(const char *pn,FILE *out)
 	fprintf(out,"  set-iptables-enabled <true|false|auto|interface-name> - Manage iptables rules" ZT_EOL_S);
 	fprintf(out,"  stats                   - Show peer port usage statistics" ZT_EOL_S);
 	fprintf(out,"  dump                    - Debug settings dump for support" ZT_EOL_S);
+	fprintf(out,"  findip <ip_address>     - Find ZeroTier address for given IP" ZT_EOL_S);
 	fprintf(out,ZT_EOL_S"Available settings:" ZT_EOL_S);
 	fprintf(out,"  Settings to use with [get/set] may include property names from " ZT_EOL_S);
 	fprintf(out,"  the JSON output of \"zerotier-cli -j listnetworks\". Additionally, " ZT_EOL_S);
@@ -1581,6 +1582,116 @@ static int cli(int argc,char **argv)
 			cliPrintHelp(argv[0], stdout);
 			return 1;
 		}
+	} else if (command == "findip") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli findip <ip_address>" ZT_EOL_S);
+			return 2;
+		}
+
+		// Parse the target IP address
+		std::string targetIp = arg1;
+		size_t slashPos = targetIp.find('/');
+		if (slashPos != std::string::npos) {
+			targetIp = targetIp.substr(0, slashPos); // Remove CIDR suffix if present
+		}
+
+		// Get network list to find which networks we're on
+		const unsigned int netscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/network",requestHeaders,responseHeaders,responseBody);
+		if (netscode != 200) {
+			printf("Error getting network list: %u %s" ZT_EOL_S, netscode, responseBody.c_str());
+			return 1;
+		}
+
+		nlohmann::json networks;
+		try {
+			networks = OSUtils::jsonParse(responseBody);
+		} catch (...) {
+			printf("Error parsing network JSON" ZT_EOL_S);
+			return 1;
+		}
+
+		std::string foundNetwork;
+		bool ipInOurNetwork = false;
+
+		// Check if the target IP is in any of our networks
+		if (networks.is_array()) {
+			for (unsigned long i = 0; i < networks.size(); ++i) {
+				nlohmann::json &network = networks[i];
+				std::string nwid = OSUtils::jsonString(network["id"], "");
+				nlohmann::json &routes = network["routes"];
+
+				if (routes.is_array()) {
+					for (unsigned long j = 0; j < routes.size(); ++j) {
+						nlohmann::json &route = routes[j];
+						std::string target = OSUtils::jsonString(route["target"], "");
+
+						// Simple check if IP is in network range
+						if (!target.empty()) {
+							size_t slashPos = target.find('/');
+							if (slashPos != std::string::npos) {
+								std::string networkBase = target.substr(0, slashPos);
+								// Basic prefix matching for demonstration
+								if (targetIp.find(networkBase.substr(0, networkBase.rfind('.'))) == 0) {
+									foundNetwork = nwid;
+									ipInOurNetwork = true;
+									break;
+								}
+							}
+						}
+					}
+				}
+				if (ipInOurNetwork) break;
+			}
+		}
+
+		if (!ipInOurNetwork) {
+			printf("IP %s does not appear to be in any of your ZeroTier networks" ZT_EOL_S, targetIp.c_str());
+			return 1;
+		}
+
+		// Try to use ARP table to find MAC address, then correlate with ZeroTier
+		printf("Searching for ZeroTier address for IP %s..." ZT_EOL_S, targetIp.c_str());
+
+		// Use system ARP command to find MAC address
+		std::string arpCmd = "arp -n " + targetIp + " 2>/dev/null | grep -v 'incomplete' | awk '{print $3}'";
+		FILE* arpPipe = popen(arpCmd.c_str(), "r");
+		if (!arpPipe) {
+			printf("Failed to execute ARP lookup" ZT_EOL_S);
+			return 1;
+		}
+
+		char macBuffer[64] = {0};
+		if (fgets(macBuffer, sizeof(macBuffer), arpPipe)) {
+			// Remove trailing newline
+			char* newline = strchr(macBuffer, '\n');
+			if (newline) *newline = '\0';
+
+			// Now correlate MAC with ZeroTier networks
+			for (unsigned long i = 0; i < networks.size(); ++i) {
+				nlohmann::json &network = networks[i];
+				std::string networkMac = OSUtils::jsonString(network["mac"], "");
+
+				if (networkMac == macBuffer) {
+					// This IP belongs to our local node
+					const unsigned int statuscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/status",requestHeaders,responseHeaders,responseBody);
+					if (statuscode == 200) {
+						nlohmann::json status = OSUtils::jsonParse(responseBody);
+						std::string ourAddress = OSUtils::jsonString(status["address"], "");
+						printf("200 findip %s %s (local)" ZT_EOL_S, targetIp.c_str(), ourAddress.c_str());
+						pclose(arpPipe);
+						return 0;
+					}
+				}
+			}
+
+			printf("Found MAC %s for IP %s, but unable to determine ZeroTier address" ZT_EOL_S, macBuffer, targetIp.c_str());
+			printf("Note: This feature requires advanced network analysis or controller access" ZT_EOL_S);
+		} else {
+			printf("No ARP entry found for %s - device may be offline or not recently communicated with" ZT_EOL_S, targetIp.c_str());
+		}
+
+		pclose(arpPipe);
+		return 1;
 	} else {
 		cliPrintHelp(argv[0],stderr);
 		return 0;
