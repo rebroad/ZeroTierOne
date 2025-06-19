@@ -899,11 +899,14 @@ public:
 
 	// Peer-port usage tracking
 	struct PeerPortStats {
-		std::map<unsigned int, uint64_t> portUsageCounts; // port -> count
-		uint64_t totalPackets;
-		uint64_t firstSeen;
+		std::map<unsigned int, uint64_t> incomingPortCounts; // port -> incoming count
+		std::map<unsigned int, uint64_t> outgoingPortCounts; // port -> outgoing count
+		uint64_t totalIncoming;
+		uint64_t totalOutgoing;
+		uint64_t firstIncomingSeen;
+		uint64_t firstOutgoingSeen;
 		uint64_t lastSeen;
-		PeerPortStats() : totalPackets(0), firstSeen(0), lastSeen(0) {}
+		PeerPortStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0), lastSeen(0) {}
 	};
 	std::map<InetAddress, PeerPortStats> _peerPortStats;
 	std::set<std::pair<InetAddress, unsigned int>> _seenPeerPorts; // For first-time logging
@@ -2406,14 +2409,23 @@ public:
 					peerEntry.first.toIpString(peerBuf);  // Use toIpString() instead of toString() to avoid "/0"
 
 					json peerData = json::object();
-					peerData["totalPackets"] = peerEntry.second.totalPackets;
-					peerData["firstSeen"] = peerEntry.second.firstSeen;
+					peerData["totalIncoming"] = peerEntry.second.totalIncoming;
+					peerData["totalOutgoing"] = peerEntry.second.totalOutgoing;
+					peerData["firstIncomingSeen"] = peerEntry.second.firstIncomingSeen;
+					peerData["firstOutgoingSeen"] = peerEntry.second.firstOutgoingSeen;
 					peerData["lastSeen"] = peerEntry.second.lastSeen;
-					peerData["portUsage"] = json::object();
 
-					for (const auto& portEntry : peerEntry.second.portUsageCounts) {
-						peerData["portUsage"][std::to_string(portEntry.first)] = portEntry.second;
+					json incomingPorts = json::object();
+					for (const auto& portEntry : peerEntry.second.incomingPortCounts) {
+						incomingPorts[std::to_string(portEntry.first)] = portEntry.second;
 					}
+					peerData["incomingPorts"] = incomingPorts;
+
+					json outgoingPorts = json::object();
+					for (const auto& portEntry : peerEntry.second.outgoingPortCounts) {
+						outgoingPorts[std::to_string(portEntry.first)] = portEntry.second;
+					}
+					peerData["outgoingPorts"] = outgoingPorts;
 
 					peerStats[peerBuf] = peerData;
 				}
@@ -3132,7 +3144,7 @@ public:
 			// Only track if this is one of our configured ports
 			if (localPort == _primaryPort || localPort == _tertiaryPort ||
 				(_allowSecondaryPort && localPort == _secondaryPort)) {
-				_trackPeerPortUsage(fromAddress, localPort, now);
+				_trackIncomingPeerPortUsage(fromAddress, localPort, now);
 			}
 		}
 
@@ -3869,6 +3881,11 @@ public:
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),ttl);
 			}
+
+			// TODO: Track outgoing peer-port usage for iptables statistics
+			// This requires determining the local port from the socket, which needs
+			// investigation of the Phy interface
+
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
@@ -4096,7 +4113,7 @@ public:
 		}
 	}
 
-	void _trackPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	void _trackIncomingPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
 		Mutex::Lock _l(_peerPortStats_m);
 
@@ -4104,25 +4121,44 @@ public:
 		InetAddress peerIP = peerAddress;
 		peerIP.setPort(0);
 
-		// Check if this is the first time we've seen this peer-port combination
+		// Check if this is the first time we've seen this peer-port combination for incoming
 		auto peerPortKey = std::make_pair(peerIP, localPort);
-		bool isFirstTime = (_seenPeerPorts.find(peerPortKey) == _seenPeerPorts.end());
+		bool isFirstIncoming = (_seenPeerPorts.find(peerPortKey) == _seenPeerPorts.end());
 
-		if (isFirstTime) {
+		if (isFirstIncoming) {
 			_seenPeerPorts.insert(peerPortKey);
 			char buf[64];
 			peerIP.toIpString(buf);
-			fprintf(stderr, "INFO: First contact from peer %s on local port %u" ZT_EOL_S, buf, localPort);
+			fprintf(stderr, "INFO: First incoming packet from peer %s on local port %u" ZT_EOL_S, buf, localPort);
 		}
 
 		// Update statistics
 		PeerPortStats& stats = _peerPortStats[peerIP];
-		stats.portUsageCounts[localPort]++;
-		stats.totalPackets++;
+		stats.incomingPortCounts[localPort]++;
+		stats.totalIncoming++;
 		stats.lastSeen = now;
 
-		if (stats.firstSeen == 0) {
-			stats.firstSeen = now;
+		if (stats.firstIncomingSeen == 0) {
+			stats.firstIncomingSeen = now;
+		}
+	}
+
+	void _trackOutgoingPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	{
+		Mutex::Lock _l(_peerPortStats_m);
+
+		// Extract IP without port for consistent tracking
+		InetAddress peerIP = peerAddress;
+		peerIP.setPort(0);
+
+		// Update statistics
+		PeerPortStats& stats = _peerPortStats[peerIP];
+		stats.outgoingPortCounts[localPort]++;
+		stats.totalOutgoing++;
+		stats.lastSeen = now;
+
+		if (stats.firstOutgoingSeen == 0) {
+			stats.firstOutgoingSeen = now;
 		}
 	}
 
