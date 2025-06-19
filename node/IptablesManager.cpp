@@ -111,13 +111,15 @@ bool IptablesManager::addPeer(const InetAddress& peerAddress)
     }
 
     // Add peer to ipset
-    std::string command = "ipset add zt_peers " + sanitizeIpAddress(peerAddress);
+    char ipStr[64];
+    peerAddress.toIpString(ipStr);
+    std::string command = "ipset add zt_peers " + std::string(ipStr);
     if (executeCommand(command)) {
         _activePeers.insert(peerAddress);
         return true;
     } else {
         // Log state inconsistency - we thought the peer didn't exist but ipset says it does
-        fprintf(stderr, "WARNING: State inconsistency detected - tried to add peer %s that may already exist in ipset" ZT_EOL_S, sanitizeIpAddress(peerAddress).c_str());
+        fprintf(stderr, "WARNING: State inconsistency detected - tried to add peer %s that may already exist in ipset" ZT_EOL_S, ipStr);
         return false;
     }
 }
@@ -136,13 +138,15 @@ bool IptablesManager::removePeer(const InetAddress& peerAddress)
     }
 
     // Remove peer from ipset
-    std::string command = "ipset del zt_peers " + sanitizeIpAddress(peerAddress);
+    char ipStr[64];
+    peerAddress.toIpString(ipStr);
+    std::string command = "ipset del zt_peers " + std::string(ipStr);
     if (executeCommand(command)) {
         _activePeers.erase(peerAddress);
         return true;
     } else {
         // Log state inconsistency - we thought the peer existed but ipset says it doesn't
-        fprintf(stderr, "WARNING: State inconsistency detected - tried to remove peer %s that may not exist in ipset" ZT_EOL_S, sanitizeIpAddress(peerAddress).c_str());
+        fprintf(stderr, "WARNING: State inconsistency detected - tried to remove peer %s that may not exist in ipset" ZT_EOL_S, ipStr);
         return false;
     }
 }
@@ -413,31 +417,6 @@ void IptablesManager::performCleanup()
     // Clear our internal tracking
     _activePeers.clear();
     _initialized = false;
-}
-
-std::string IptablesManager::sanitizeIpAddress(const InetAddress& addr) const
-{
-    if (!addr) {
-        return "";
-    }
-
-    // Convert to string representation
-    char tmp[128];
-    addr.toString(tmp);
-
-    // Extract only the IP address part (remove port if present)
-    std::string result(tmp);
-    size_t slashPos = result.find('/');
-    if (slashPos != std::string::npos) {
-        result = result.substr(0, slashPos);
-    }
-
-    // Additional sanitization - only allow valid IP characters
-    if (result.find_first_not_of("0123456789.") != std::string::npos) {
-        return ""; // Invalid characters found
-    }
-
-    return result;
 }
 
 } // namespace ZeroTier
