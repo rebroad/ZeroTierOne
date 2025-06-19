@@ -199,20 +199,18 @@ bool IptablesManager::executeCommand(const std::string& command) const
 
 void IptablesManager::initializeRules()
 {
-    // Create the ipset for ZeroTier peers
-    // Use hash:ip family inet with reasonable size limits
-    std::string createIpsetCmd = "ipset create zt_peers hash:ip family inet hashsize 1024 maxelem 65536";
-    if (!executeCommand(createIpsetCmd)) {
-        // If creation fails, the set might already exist (from a previous flush)
-        // Try to flush it first to ensure it's clean, then try creation again
-        executeCommand("ipset flush zt_peers 2>/dev/null");
+    // Initialize ipset for ZeroTier peers
+    // First try to flush existing set (if it exists)
+    if (executeCommand("ipset flush zt_peers 2>/dev/null")) {
+        // Flush succeeded, ipset already exists and is now empty
+        fprintf(stderr, "INFO: Reusing existing ipset 'zt_peers'" ZT_EOL_S);
+    } else {
+        // Flush failed, ipset doesn't exist - create it
+        std::string createIpsetCmd = "ipset create zt_peers hash:ip family inet hashsize 1024 maxelem 65536";
         if (!executeCommand(createIpsetCmd)) {
-            // If it still fails, try to destroy and recreate
-            executeCommand("ipset destroy zt_peers 2>/dev/null");
-            if (!executeCommand(createIpsetCmd)) {
-                throw std::runtime_error("Failed to create ipset 'zt_peers'");
-            }
+            throw std::runtime_error("Failed to create ipset 'zt_peers'");
         }
+        fprintf(stderr, "INFO: Created new ipset 'zt_peers'" ZT_EOL_S);
     }
 
     // Create iptables rules for each UDP port
@@ -223,9 +221,6 @@ void IptablesManager::initializeRules()
 
 void IptablesManager::createIptablesRules()
 {
-    // Clean up any existing rules first
-    removeIptablesRules();
-
     // Create a new chain for our rules to keep things clean
     executeCommand("iptables -N zt_rules 2>/dev/null");
 

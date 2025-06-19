@@ -4091,14 +4091,8 @@ public:
 	{
 		if (_iptablesEnabled && _iptablesManager) {
 			char ipStr[64];
-			peerAddress.toIpString(ipStr);  // Convert once for both command and logging
-
+			peerAddress.toIpString(ipStr);
 			bool success = isAdd ? _iptablesManager->addPeer(ipStr) : _iptablesManager->removePeer(ipStr);
-
-			// Only log when command succeeded (no duplicate detection needed - ipset is idempotent)
-			if (success) {
-				fprintf(stderr, "INFO: %s peer %s to/from iptables ipset" ZT_EOL_S, isAdd ? "Added" : "Removed", ipStr);
-			}
 		}
 	}
 
@@ -4117,7 +4111,7 @@ public:
 		if (isFirstTime) {
 			_seenPeerPorts.insert(peerPortKey);
 			char buf[64];
-			peerIP.toString(buf);
+			peerIP.toIpString(buf);
 			fprintf(stderr, "INFO: First contact from peer %s on local port %u" ZT_EOL_S, buf, localPort);
 		}
 
