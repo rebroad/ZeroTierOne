@@ -4037,7 +4037,7 @@ public:
 
 	/**
 	 * Collect all active UDP ports for iptables rules
-	 * 
+	 *
 	 * Ports collected:
 	 * - Primary port (_ports[0]): Always 9993 (or configured primary)
 	 * - Secondary port (_ports[1]): Random port, changes during runtime
