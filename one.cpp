@@ -1132,14 +1132,31 @@ static int cli(int argc,char **argv)
 
 					printf("Port Configuration:" ZT_EOL_S);
 					printf("  Primary Port:   %u (always active)" ZT_EOL_S, primaryPort);
-					printf("  Secondary Port: %u (%s)" ZT_EOL_S, secondaryPort,
-						allowSecondaryPort ? "enabled" : "disabled - use 'allowSecondaryPort' setting to enable");
+
+					if (allowSecondaryPort && secondaryPort > 0) {
+						printf("  Secondary Port: %u (enabled)" ZT_EOL_S, secondaryPort);
+					} else {
+						printf("  Secondary Port: disabled (use 'allowSecondaryPort' setting to enable)" ZT_EOL_S);
+					}
+
 					printf("  Tertiary Port:  %u (always active - NAT traversal & failover)" ZT_EOL_S, tertiaryPort);
+
+					// Show actual bound ports if available
+					if (portConfig.contains("actualBoundPorts") && portConfig["actualBoundPorts"].is_array()) {
+						printf("  Actually Bound: ");
+						bool first = true;
+						for (auto& port : portConfig["actualBoundPorts"]) {
+							if (!first) printf(", ");
+							printf("%u", (unsigned int)port);
+							first = false;
+						}
+						printf(ZT_EOL_S);
+					}
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-20s %-12s %-12s %-12s %s" ZT_EOL_S, "Peer Address", "Total Packets", "First Seen", "Last Seen", "Port Usage");
-				printf("%-20s %-12s %-12s %-12s %s" ZT_EOL_S, "--------------------", "-------------", "----------", "---------", "----------");
+				printf("%-20s %-8s %-12s %-12s %s" ZT_EOL_S, "Peer Address", "Packets", "First Seen", "Last Seen", "Port Usage");
+				printf("%-20s %-8s %-12s %-12s %s" ZT_EOL_S, "--------------------", "--------", "----------", "---------", "----------");
 
 				if (j.contains("peers") && j["peers"].is_object()) {
 					for (auto& [peerAddr, peerData] : j["peers"].items()) {
@@ -1181,7 +1198,7 @@ static int cli(int argc,char **argv)
 						}
 						if (portUsage.empty()) portUsage = "none";
 
-						printf("%-20s %-12llu %-12s %-12s %s" ZT_EOL_S,
+						printf("%-20s %-8llu %-12s %-12s %s" ZT_EOL_S,
 							peerAddr.c_str(), totalPackets, firstSeenStr, lastSeenStr, portUsage.c_str());
 					}
 				}
