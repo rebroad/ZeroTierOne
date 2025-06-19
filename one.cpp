@@ -145,6 +145,7 @@ static void cliPrintHelp(const char *pn,FILE *out)
 	fprintf(out,"  orbit <world ID> <seed> - Join a moon via any member root" ZT_EOL_S);
 	fprintf(out,"  deorbit <world ID>      - Leave a moon" ZT_EOL_S);
 	fprintf(out,"  set-iptables-enabled <true|false|auto|interface-name> - Manage iptables rules" ZT_EOL_S);
+	fprintf(out,"  stats                   - Show peer port usage statistics" ZT_EOL_S);
 	fprintf(out,"  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out,ZT_EOL_S"Available settings:" ZT_EOL_S);
 	fprintf(out,"  Settings to use with [get/set] may include property names from " ZT_EOL_S);
@@ -1091,6 +1092,83 @@ static int cli(int argc,char **argv)
 			fprintf(stderr,"unknown network ID, check that you are a member of the network\n");
 		}
 		if (scode == 200) {
+			return 0;
+		} else {
+			printf("%u %s %s" ZT_EOL_S,scode,command.c_str(),responseBody.c_str());
+			return 1;
+		}
+	} else if (command == "stats") {
+		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/iptables/stats",requestHeaders,responseHeaders,responseBody);
+
+		if (scode == 0) {
+			printf("Error connecting to the ZeroTier service: %s\n\nPlease check that the service is running and that TCP port 9993 can be contacted via 127.0.0.1." ZT_EOL_S, responseBody.c_str());
+			return 1;
+		}
+
+		nlohmann::json j;
+		try {
+			j = OSUtils::jsonParse(responseBody);
+		} catch (std::exception &exc) {
+			printf("%u %s invalid JSON response (%s)" ZT_EOL_S,scode,command.c_str(),exc.what());
+			return 1;
+		} catch ( ... ) {
+			printf("%u %s invalid JSON response (unknown exception)" ZT_EOL_S,scode,command.c_str());
+			return 1;
+		}
+
+		if (scode == 200) {
+			if (json) {
+				printf("%s" ZT_EOL_S,OSUtils::jsonDump(j).c_str());
+			} else {
+				printf("200 stats - Peer Port Usage Statistics" ZT_EOL_S);
+				printf("%-18s %-12s %-12s %-12s %s" ZT_EOL_S, "Peer Address", "Total Packets", "First Seen", "Last Seen", "Port Usage");
+				printf("%-18s %-12s %-12s %-12s %s" ZT_EOL_S, "------------", "-------------", "----------", "---------", "----------");
+				
+				if (j.is_object()) {
+					for (auto& [peerAddr, peerData] : j.items()) {
+						uint64_t totalPackets = peerData["totalPackets"];
+						uint64_t firstSeen = peerData["firstSeen"];
+						uint64_t lastSeen = peerData["lastSeen"];
+						
+						// Format timestamps to relative times
+						const uint64_t now = OSUtils::now();
+						int64_t firstSeenDiff = firstSeen ? (now - firstSeen) / 1000 : -1;
+						int64_t lastSeenDiff = lastSeen ? (now - lastSeen) / 1000 : -1;
+						
+						char firstSeenStr[32], lastSeenStr[32];
+						if (firstSeenDiff >= 0) {
+							if (firstSeenDiff < 60) snprintf(firstSeenStr, sizeof(firstSeenStr), "%llds ago", firstSeenDiff);
+							else if (firstSeenDiff < 3600) snprintf(firstSeenStr, sizeof(firstSeenStr), "%lldm ago", firstSeenDiff / 60);
+							else snprintf(firstSeenStr, sizeof(firstSeenStr), "%lldh ago", firstSeenDiff / 3600);
+						} else {
+							strcpy(firstSeenStr, "never");
+						}
+						
+						if (lastSeenDiff >= 0) {
+							if (lastSeenDiff < 60) snprintf(lastSeenStr, sizeof(lastSeenStr), "%llds ago", lastSeenDiff);
+							else if (lastSeenDiff < 3600) snprintf(lastSeenStr, sizeof(lastSeenStr), "%lldm ago", lastSeenDiff / 60);
+							else snprintf(lastSeenStr, sizeof(lastSeenStr), "%lldh ago", lastSeenDiff / 3600);
+						} else {
+							strcpy(lastSeenStr, "never");
+						}
+						
+						// Build port usage string
+						std::string portUsage;
+						if (peerData["portUsage"].is_object()) {
+							bool first = true;
+							for (auto& [port, count] : peerData["portUsage"].items()) {
+								if (!first) portUsage += ", ";
+								portUsage += port + ":" + std::to_string((uint64_t)count);
+								first = false;
+							}
+						}
+						if (portUsage.empty()) portUsage = "none";
+						
+						printf("%-18s %-12llu %-12s %-12s %s" ZT_EOL_S, 
+							peerAddr.c_str(), totalPackets, firstSeenStr, lastSeenStr, portUsage.c_str());
+					}
+				}
+			}
 			return 0;
 		} else {
 			printf("%u %s %s" ZT_EOL_S,scode,command.c_str(),responseBody.c_str());
