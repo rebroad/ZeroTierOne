@@ -230,28 +230,16 @@ void IptablesManager::createIptablesRules()
 
     // Create a single multiport rule for all UDP ports (much more efficient)
     if (!_udpPorts.empty()) {
-        std::stringstream logRule, acceptRule;
-
-        // Build port list for both LOG and ACCEPT rules
+        // Build port list
         std::string portList;
         for (size_t i = 0; i < _udpPorts.size(); ++i) {
             if (i > 0) portList += ",";
             portList += std::to_string(_udpPorts[i]);
         }
 
-        // Create LOG rule first (rate-limited to avoid spam)
-        logRule << "iptables -A zt_rules -i " << _wanInterface
-                << " -p udp -m multiport --dports " << portList
-                << " -m set --match-set zt_peers src"
-                << " -m conntrack --ctstate NEW"
-                << " -m limit --limit 10/min --limit-burst 5"
-                << " -j LOG --log-prefix \"ZT-ALLOW: \"";
-
-        // Create ACCEPT rule
-        acceptRule << "iptables -A zt_rules -i " << _wanInterface
-                   << " -p udp -m multiport --dports " << portList
-                   << " -m set --match-set zt_peers src"
-                   << " -m conntrack --ctstate NEW -j ACCEPT";
+        // Build LOG and ACCEPT rules using helper function
+        std::stringstream logRule, acceptRule;
+        buildMultiportRules(portList, logRule, acceptRule, true);
 
         if (!executeCommand(logRule.str()) || !executeCommand(acceptRule.str())) {
             fprintf(stderr, "WARNING: Failed to create multiport iptables rules, trying fallback" ZT_EOL_S);
@@ -277,21 +265,9 @@ bool IptablesManager::replaceMultiportRule(const std::vector<unsigned int>& newP
         portList += std::to_string(newPorts[i]);
     }
 
-    // Build new LOG rule (rule #1)
-    std::stringstream logRule;
-    logRule << "iptables -R zt_rules 1 -i " << _wanInterface
-            << " -p udp -m multiport --dports " << portList
-            << " -m set --match-set zt_peers src"
-            << " -m conntrack --ctstate NEW"
-            << " -m limit --limit 10/min --limit-burst 5"
-            << " -j LOG --log-prefix \"ZT-ALLOW: \"";
-
-    // Build new ACCEPT rule (rule #2)
-    std::stringstream acceptRule;
-    acceptRule << "iptables -R zt_rules 2 -i " << _wanInterface
-               << " -p udp -m multiport --dports " << portList
-               << " -m set --match-set zt_peers src"
-               << " -m conntrack --ctstate NEW -j ACCEPT";
+    // Build LOG and ACCEPT rules using helper function (replace mode)
+    std::stringstream logRule, acceptRule;
+    buildMultiportRules(portList, logRule, acceptRule, false, 1, 2);
 
     // Try to replace both rules (rule #3 is RETURN and doesn't need updating)
     if (executeCommand(logRule.str()) && executeCommand(acceptRule.str())) {
@@ -338,6 +314,29 @@ void IptablesManager::createIndividualPortRules()
     if (!executeCommand("iptables -A zt_rules -j RETURN")) {
         fprintf(stderr, "WARNING: Failed to add RETURN rule to zt_rules chain" ZT_EOL_S);
     }
+}
+
+void IptablesManager::buildMultiportRules(const std::string& portList, std::stringstream& logRule,
+                                        std::stringstream& acceptRule, bool useAppend,
+                                        int logRuleNumber, int acceptRuleNumber)
+{
+    // Build LOG rule
+    logRule << "iptables " << (useAppend ? "-A" : "-R") << " zt_rules";
+    if (!useAppend) logRule << " " << logRuleNumber;
+    logRule << " -i " << _wanInterface
+            << " -p udp -m multiport --dports " << portList
+            << " -m set --match-set zt_peers src"
+            << " -m conntrack --ctstate NEW"
+            << " -m limit --limit 10/min --limit-burst 5"
+            << " -j LOG --log-prefix \"ZT-ALLOW: \"";
+
+    // Build ACCEPT rule
+    acceptRule << "iptables " << (useAppend ? "-A" : "-R") << " zt_rules";
+    if (!useAppend) acceptRule << " " << acceptRuleNumber;
+    acceptRule << " -i " << _wanInterface
+               << " -p udp -m multiport --dports " << portList
+               << " -m set --match-set zt_peers src"
+               << " -m conntrack --ctstate NEW -j ACCEPT";
 }
 
 void IptablesManager::removeIptablesRules()

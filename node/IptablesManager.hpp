@@ -156,11 +156,17 @@ private:
     void removeIptablesRules();
 
     /**
-     * Sanitize IP address for use in shell commands
+     * Build multiport rule strings for LOG and ACCEPT
      *
-     * @param addr IP address to sanitize
-     * @return Sanitized IP address string
+     * @param portList Comma-separated list of ports
+     * @param logRule Output stream for LOG rule
+     * @param acceptRule Output stream for ACCEPT rule
+     * @param useAppend If true, use -A (append), if false, use -R (replace)
+     * @param ruleNumbers If using replace, the rule numbers (1 for LOG, 2 for ACCEPT)
      */
+    void buildMultiportRules(const std::string& portList, std::stringstream& logRule,
+                           std::stringstream& acceptRule, bool useAppend = true,
+                           int logRuleNumber = 1, int acceptRuleNumber = 2);
 
     std::string _wanInterface;
     std::vector<unsigned int> _udpPorts;
