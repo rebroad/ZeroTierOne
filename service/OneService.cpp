@@ -48,6 +48,7 @@
 #include "../node/Peer.hpp"
 #include "../node/PacketMultiplexer.hpp"
 #include "../node/IptablesManager.hpp"
+#include "../node/SecurityMonitor.hpp"
 
 #include "../osdep/Phy.hpp"
 #include "../osdep/OSUtils.hpp"
@@ -4230,7 +4231,7 @@ public:
 
 			char ipStr[64];
 			peerAddress.toIpString(ipStr);
-			bool success = isAdd ? _iptablesManager->addPeer(ipStr) : _iptablesManager->removePeer(ipStr);
+			isAdd ? _iptablesManager->addPeer(ipStr) : _iptablesManager->removePeer(ipStr);
 		}
 	}
 
