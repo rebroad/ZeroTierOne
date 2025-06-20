@@ -460,14 +460,6 @@ void Peer::sendHELLO(void *tPtr,const int64_t localSocket,const InetAddress &atA
 		RR->node->expectReplyTo(outp.packetId());
 		int64_t actualSocket = RR->node->lowBandwidthModeEnabled() ? localSocket : -1;
 		RR->node->putPacket(tPtr,actualSocket,atAddress,outp.data(),outp.size());
-
-		// Track outgoing packet for port usage statistics
-		if ((RR->peerEventCallback) && (localSocket > 0)) {
-			// Extract local port from socket - for UDP sockets, localSocket is the port
-			unsigned int localPort = (unsigned int)localSocket;
-			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-								  atAddress, _id.address(), Address(), true, localPort);
-		}
 	} else {
 		RR->node->expectReplyTo(outp.packetId());
 		RR->sw->send(tPtr,outp,false); // false == don't encrypt full payload, but add MAC
@@ -488,16 +480,16 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 		Metrics::pkt_echo_out++;
 		RR->node->expectReplyTo(outp.packetId());
 		RR->node->putPacket(tPtr,localSocket,atAddress,outp.data(),outp.size());
-
-		// Track outgoing packet for port usage statistics
-		if ((RR->peerEventCallback) && (localSocket > 0)) {
-			// Extract local port from socket - for UDP sockets, localSocket is the port
-			unsigned int localPort = (unsigned int)localSocket;
-			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-								  atAddress, _id.address(), Address(), true, localPort);
-		}
 	} else {
 		sendHELLO(tPtr,localSocket,atAddress,now);
+	}
+
+	// Track outgoing packet for port usage statistics (covers both ECHO and HELLO packets)
+	if ((RR->peerEventCallback) && (localSocket > 0) && (atAddress)) {
+		// Extract local port from socket - for UDP sockets, localSocket is the port
+		unsigned int localPort = (unsigned int)localSocket;
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
+							  atAddress, _id.address(), Address(), true, localPort);
 	}
 }
 
