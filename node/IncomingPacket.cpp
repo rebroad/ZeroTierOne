@@ -767,13 +767,18 @@ bool IncomingPacket::_doRENDEZVOUS(const RuntimeEnvironment *RR,void *tPtr,const
 				InetAddress atAddr(field(ZT_PROTO_VERB_RENDEZVOUS_IDX_ADDRESS,addrlen),addrlen,port);
 				if (RR->node->shouldUsePathForZeroTierTraffic(tPtr,with,_path->localSocket(),atAddr)) {
 					// Track peer introduction for misbehavior detection
-					if (RR->peerIntroductionCallback) {
-						RR->peerIntroductionCallback(RR->peerIntroductionCallbackUserPtr, atAddr, with, peer->address());
+					if (RR->peerEventCallback) {
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_INTRODUCTION, atAddr, with, peer->address(), false);
 					}
 
 					const uint64_t junk = RR->node->prng();
 					RR->node->putPacket(tPtr,_path->localSocket(),atAddr,&junk,4,2); // send low-TTL junk packet to 'open' local NAT(s) and stateful firewalls
 					rendezvousWith->attemptToContactAt(tPtr,_path->localSocket(),atAddr,RR->node->now(),false);
+
+					// Track connection attempt (assume failure initially, will be updated on success)
+					if (RR->peerEventCallback) {
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT, atAddr, with, peer->address(), false);
+					}
 				}
 			}
 		}

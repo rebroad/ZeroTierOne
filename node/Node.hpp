@@ -286,27 +286,15 @@ public:
 	void initMultithreading(unsigned int concurrency, bool cpuPinningEnabled);
 
 	/**
-	 * Set callback for peer path events (iptables integration)
+	 * Set unified callback for all peer events (iptables, introductions, connection attempts)
 	 *
-	 * @param callback Function to call when peer paths are added/removed
+	 * @param callback Function to call for peer events
 	 * @param userPtr User pointer to pass to callback
 	 */
-	inline void setPeerPathCallback(RuntimeEnvironment::PeerPathCallback callback, void* userPtr)
+	inline void setPeerEventCallback(RuntimeEnvironment::PeerEventCallback callback, void* userPtr)
 	{
-		_RR.peerPathCallback = callback;
-		_RR.peerPathCallbackUserPtr = userPtr;
-	}
-
-	/**
-	 * Set callback for peer introduction events (misbehavior detection)
-	 *
-	 * @param callback Function to call when peers introduce other peers
-	 * @param userPtr User pointer to pass to callback
-	 */
-	inline void setPeerIntroductionCallback(RuntimeEnvironment::PeerIntroductionCallback callback, void* userPtr)
-	{
-		_RR.peerIntroductionCallback = callback;
-		_RR.peerIntroductionCallbackUserPtr = userPtr;
+		_RR.peerEventCallback = callback;
+		_RR.peerEventCallbackUserPtr = userPtr;
 	}
 
 public:
