@@ -2390,6 +2390,92 @@ public:
 		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
 
+		// GET /security/events - recent security events
+		auto securityEventsGet = [this](const httplib::Request &req, httplib::Response &res) {
+			if (!_node) {
+				res.status = 500;
+				return;
+			}
+
+			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+			if (!RR || !RR->sm) {
+				res.set_content("[]", "application/json");
+				return;
+			}
+
+			size_t maxEvents = 100;
+			if (req.has_param("limit")) {
+				maxEvents = std::min((size_t)std::stoul(req.get_param_value("limit")), (size_t)1000);
+			}
+
+			auto events = RR->sm->getRecentEvents(maxEvents);
+			json j = json::array();
+
+			for (const auto &event : events) {
+				json eventJson;
+				eventJson["timestamp"] = event.timestamp;
+				char ipBuf[64];
+				eventJson["sourceIP"] = event.sourceIP.toString(ipBuf);
+				char ztBuf[11];
+				eventJson["sourceZTAddr"] = event.sourceZTAddr.toString(ztBuf);
+				eventJson["eventType"] = event.eventType;
+				eventJson["threatLevel"] = event.threatLevel;
+				eventJson["description"] = event.description;
+				if (!event.packetInfo.empty()) {
+					eventJson["packetInfo"] = event.packetInfo;
+				}
+				j.push_back(eventJson);
+			}
+
+			res.set_content(j.dump(), "application/json");
+		};
+		_controlPlane.Get("/security/events", securityEventsGet);
+		_controlPlaneV6.Get("/security/events", securityEventsGet);
+
+		// GET /security/metrics - security metrics in Prometheus format
+		auto securityMetricsGet = [this](const httplib::Request &req, httplib::Response &res) {
+			if (!_node) {
+				res.status = 500;
+				return;
+			}
+
+			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+			if (!RR || !RR->sm) {
+				res.set_content("", "text/plain");
+				return;
+			}
+
+			std::string metrics = RR->sm->exportPrometheusMetrics();
+			res.set_content(metrics, "text/plain");
+		};
+		_controlPlane.Get("/security/metrics", securityMetricsGet);
+		_controlPlaneV6.Get("/security/metrics", securityMetricsGet);
+
+		// GET /security/threats - current threat level summary
+		auto securityThreatsGet = [this](const httplib::Request &req, httplib::Response &res) {
+			if (!_node) {
+				res.status = 500;
+				return;
+			}
+
+			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+			if (!RR || !RR->sm) {
+				json j;
+				j["status"] = "disabled";
+				j["message"] = "Security monitoring not available";
+				res.set_content(j.dump(), "application/json");
+				return;
+			}
+
+			json j;
+			j["status"] = "ok";
+			j["message"] = "Security monitoring active";
+			j["documentation"] = "Use /security/events for recent events, /security/metrics for Prometheus metrics";
+			res.set_content(j.dump(), "application/json");
+		};
+		_controlPlane.Get("/security/threats", securityThreatsGet);
+		_controlPlaneV6.Get("/security/threats", securityThreatsGet);
+
 		// GET /iptables/stats - peer port usage statistics
 		auto iptablesStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			json stats = json::object();
