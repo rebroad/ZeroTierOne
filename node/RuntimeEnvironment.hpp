@@ -49,12 +49,8 @@ public:
 		,mc((Multicaster *)0)
 		,topology((Topology *)0)
 		,sa((SelfAwareness *)0)
-		,peerPathCallback((PeerPathCallback)0)
-		,peerPathCallbackUserPtr((void *)0)
-		,peerIntroductionCallback((PeerIntroductionCallback)0)
-		,peerIntroductionCallbackUserPtr((void *)0)
-		,connectionAttemptCallback((ConnectionAttemptCallback)0)
-		,connectionAttemptCallbackUserPtr((void *)0)
+		,peerEventCallback((PeerEventCallback)0)
+		,peerEventCallbackUserPtr((void *)0)
 	{
 		publicIdentityStr[0] = (char)0;
 		secretIdentityStr[0] = (char)0;
@@ -94,20 +90,17 @@ public:
 	char publicIdentityStr[ZT_IDENTITY_STRING_BUFFER_LENGTH];
 	char secretIdentityStr[ZT_IDENTITY_STRING_BUFFER_LENGTH];
 
-	// Callback for peer path events (iptables integration)
-	typedef void (*PeerPathCallback)(void* userPtr, const InetAddress& peerAddress, bool isAdd);
-	PeerPathCallback peerPathCallback;
-	void* peerPathCallbackUserPtr;
+	// Unified peer event callback for all peer-related events
+	enum PeerEventType {
+		PEER_EVENT_PATH_ADD,        // Peer path added (for iptables)
+		PEER_EVENT_PATH_REMOVE,     // Peer path removed (for iptables)
+		PEER_EVENT_INTRODUCTION,    // Peer introduced another peer's IP
+		PEER_EVENT_CONNECTION_ATTEMPT // Connection attempt made to introduced IP
+	};
 
-	// Callback for peer introduction events (misbehavior detection)
-	typedef void (*PeerIntroductionCallback)(void* userPtr, const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy);
-	PeerIntroductionCallback peerIntroductionCallback;
-	void* peerIntroductionCallbackUserPtr;
-
-	// Callback for connection attempt events (misbehavior detection)
-	typedef void (*ConnectionAttemptCallback)(void* userPtr, const InetAddress& targetIP, bool successful);
-	ConnectionAttemptCallback connectionAttemptCallback;
-	void* connectionAttemptCallbackUserPtr;
+	typedef void (*PeerEventCallback)(void* userPtr, PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful);
+	PeerEventCallback peerEventCallback;
+	void* peerEventCallbackUserPtr;
 };
 
 } // namespace ZeroTier

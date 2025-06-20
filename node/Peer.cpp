@@ -176,8 +176,8 @@ void Peer::received(
 					}
 
 					// Notify service about new peer path (iptables integration)
-					if (RR->peerPathCallback) {
-						RR->peerPathCallback(RR->peerPathCallbackUserPtr, path->address(), true);
+					if (RR->peerEventCallback) {
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true);
 					}
 				}
 			} else {
@@ -469,8 +469,8 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 {
 	// Proactively notify service about outbound contact attempt (iptables integration)
 	// This ensures ipset rules are in place BEFORE sending packets, allowing responses
-	if (RR->peerPathCallback) {
-		RR->peerPathCallback(RR->peerPathCallbackUserPtr, atAddress, true);
+	if (RR->peerEventCallback) {
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true);
 	}
 
 	if ( (!sendFullHello) && (_vProto >= 5) && (!((_vMajor == 1)&&(_vMinor == 1)&&(_vRevision == 0))) ) {
@@ -577,8 +577,8 @@ unsigned int Peer::doPingAndKeepalive(void *tPtr,int64_t now)
 					}
 				} else {
 					// Notify service about removed peer path (iptables integration)
-					if (RR->peerPathCallback && _paths[i].p) {
-						RR->peerPathCallback(RR->peerPathCallbackUserPtr, _paths[i].p->address(), false);
+					if (RR->peerEventCallback && _paths[i].p) {
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_REMOVE, _paths[i].p->address(), _id.address(), Address(), false);
 					}
 					_paths[i] = _PeerPath();
 					deletionOccurred = true;
