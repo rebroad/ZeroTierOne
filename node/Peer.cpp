@@ -23,6 +23,7 @@
 #include "RingBuffer.hpp"
 #include "Utils.hpp"
 #include "Metrics.hpp"
+#include "../osdep/Phy.hpp"
 
 namespace ZeroTier {
 
@@ -696,6 +697,18 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path> &path, const uint64_t pack
 #endif
 	if (_localMultipathSupported && _bond) {
 		_bond->recordOutgoingPacket(path, packetId, payloadLength, verb, flowId, now);
+	}
+
+	// Track outgoing packet for port usage statistics (only for established peers)
+	if (RR->peerEventCallback && path) {
+		// Get the local port from the path's socket using the static method
+		PhySocket* sock = reinterpret_cast<PhySocket*>((uintptr_t)path->localSocket());
+		// Use the Phy template's static method to get the local port
+		unsigned int localPort = Phy<void*>::getLocalPort(sock);
+		if (localPort > 0) {
+			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
+								  path->address(), _id.address(), Address(), true, localPort);
+		}
 	}
 }
 
