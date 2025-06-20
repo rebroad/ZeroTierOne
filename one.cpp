@@ -1177,12 +1177,15 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, "ZT Address", "Peer Address", "First In", "Last In", "Port Usage (In/Out)");
+				printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, "ZT Address", "IP Address", "First In", "Last In", "Port Usage (In/Out)");
 				printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, "------------", "---------------", "----------", "--------", "-------------------");
 
-				// Process aggregated peer data from the /stats endpoint
-				if (j.contains("peersByZtAddress") && j["peersByZtAddress"].is_object()) {
-					for (auto& [ztaddr, peerData] : j["peersByZtAddress"].items()) {
+				// Process per-IP peer data from the /stats endpoint
+				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_object()) {
+					for (auto& [combinedKey, peerData] : j["peersByZtAddressAndIP"].items()) {
+						std::string ztaddr = peerData.value("ztAddress", "unknown");
+						std::string ipAddress = peerData.value("ipAddress", "-");
+
 						// Format timestamps
 						const uint64_t now = OSUtils::now();
 						uint64_t firstSeen = peerData.value("firstIncomingSeen", 0ULL);
@@ -1294,22 +1297,7 @@ static int cli(int argc,char **argv)
 
 						if (!hasAnyTraffic) portUsage = "none";
 
-						// Format peer IPs for display
-						std::string peerAddrsStr = "";
-						if (peerData.contains("peerIPs") && peerData["peerIPs"].is_array()) {
-							auto peerIPs = peerData["peerIPs"];
-							if (!peerIPs.empty()) {
-								peerAddrsStr = peerIPs[0].get<std::string>();
-								if (peerIPs.size() > 1) {
-									peerAddrsStr += "+" + std::to_string(peerIPs.size() - 1);
-								}
-							}
-						}
-						if (peerAddrsStr.empty()) {
-							peerAddrsStr = "-";
-						}
-
-						printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, ztaddr.c_str(), peerAddrsStr.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
+						printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
 					}
 				}
 

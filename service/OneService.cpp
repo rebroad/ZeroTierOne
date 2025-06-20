@@ -899,11 +899,11 @@ public:
 	std::unique_ptr<IptablesManager> _iptablesManager;
 	bool _iptablesEnabled;
 
-	// Peer-port usage tracking
+	// Peer-port usage tracking (now per ZT address + IP address combination)
 	struct PeerPortStats {
 		std::map<unsigned int, uint64_t> incomingPortCounts; // port -> incoming count
 		std::map<unsigned int, uint64_t> outgoingPortCounts; // port -> outgoing count
-		std::set<std::string> peerIPs; // All IP addresses seen for this peer
+		std::string peerIP; // The specific IP address for this stats entry
 		uint64_t totalIncoming;
 		uint64_t totalOutgoing;
 		uint64_t firstIncomingSeen;
@@ -912,8 +912,8 @@ public:
 		uint64_t lastOutgoingSeen;
 		PeerPortStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0), lastIncomingSeen(0), lastOutgoingSeen(0) {}
 	};
-	std::map<Address, PeerPortStats> _peerPortStats; // Track by ZT address instead of IP
-	std::set<std::pair<Address, unsigned int>> _seenPeerPorts; // For first-time logging
+	std::map<std::pair<Address, std::string>, PeerPortStats> _peerPortStats; // Track by ZT address + IP string
+	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenPeerPorts; // For first-time logging
 	Mutex _peerPortStats_m;
 
 	// Peer introduction tracking for misbehavior detection
@@ -2519,28 +2519,27 @@ public:
 			{
 				Mutex::Lock _l(_peerPortStats_m);
 				for (const auto& peerEntry : _peerPortStats) {
-					const Address& ztAddr = peerEntry.first;
+					const std::pair<Address, std::string>& peerKey = peerEntry.first;
+					const Address& ztAddr = peerKey.first;
+					const std::string& ipAddr = peerKey.second;
 					const PeerPortStats& stats = peerEntry.second;
 
 					char ztAddrBuf[32];
 					ztAddr.toString(ztAddrBuf);
 					std::string ztAddrStr(ztAddrBuf);
 
+					// Create unique key for this ZT address + IP combination
+					std::string combinedKey = ztAddrStr + "@" + stats.peerIP;
+
 					json peerStat = json::object();
 					peerStat["ztAddress"] = ztAddrStr;
+					peerStat["ipAddress"] = stats.peerIP;
 					peerStat["totalIncoming"] = stats.totalIncoming;
 					peerStat["totalOutgoing"] = stats.totalOutgoing;
 					peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
 					peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
 					peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
 					peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
-
-					// Add peer IP addresses (collected when packets were processed)
-					json ipArray = json::array();
-					for (const auto& ip : stats.peerIPs) {
-						ipArray.push_back(ip);
-					}
-					peerStat["peerIPs"] = ipArray;
 
 					// Port usage statistics
 					json incomingPorts = json::object();
@@ -2555,15 +2554,104 @@ public:
 					}
 					peerStat["outgoingPorts"] = outgoingPorts;
 
-					peerStats[ztAddrStr] = peerStat;
+					peerStats[combinedKey] = peerStat;
 				}
 			}
-			stats["peersByZtAddress"] = peerStats;
+			stats["peersByZtAddressAndIP"] = peerStats;
 
 			setContent(req, res, stats.dump(2));
 		};
 		_controlPlane.Get("/stats", statsGet);
 		_controlPlaneV6.Get("/stats", statsGet);
+
+		// Debug endpoint to validate ZT addresses and check peer status
+		auto debugPeerGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
+				res.status = 403;
+				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
+				return;
+			}
+
+			std::string ztAddrStr = req.get_param_value("ztaddr");
+			if (ztAddrStr.empty()) {
+				res.status = 400;
+				setContent(req, res, "{\"error\":\"Missing ztaddr parameter\"}");
+				return;
+			}
+
+			try {
+				Address ztAddr((uint64_t)strtoull(ztAddrStr.c_str(), nullptr, 16));
+
+				json result = json::object();
+				result["ztAddress"] = ztAddrStr;
+				result["isValidAddress"] = true;
+
+				// Check if peer exists in topology (only if node is initialized)
+				SharedPtr<Peer> peer;
+				bool nodeReady = false;
+				if (_node) {
+					try {
+						const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+						peer = RR->topology->getPeer(nullptr, ztAddr);
+						nodeReady = true;
+					} catch (...) {
+						// Node not ready yet
+					}
+				}
+
+				result["nodeReady"] = nodeReady;
+				result["existsInTopology"] = nodeReady ? (peer != nullptr) : false;
+
+				if (peer) {
+					result["isAlive"] = peer->isAlive(OSUtils::now());
+					result["hasDirectPath"] = !peer->paths(OSUtils::now()).empty();
+					result["remoteVersionKnown"] = peer->remoteVersionKnown();
+					if (peer->remoteVersionKnown()) {
+						result["remoteVersion"] = std::to_string(peer->remoteVersionMajor()) + "." +
+												std::to_string(peer->remoteVersionMinor()) + "." +
+												std::to_string(peer->remoteVersionRevision());
+					}
+				}
+
+				// Check if we have stats for this peer (now per IP address)
+				{
+					Mutex::Lock _l(_peerPortStats_m);
+					json statsEntries = json::array();
+					uint64_t totalIncoming = 0, totalOutgoing = 0;
+
+					for (const auto& entry : _peerPortStats) {
+						if (entry.first.first == ztAddr) {  // Match ZT address
+							const PeerPortStats& stats = entry.second;
+							json statsEntry = json::object();
+							statsEntry["ipAddress"] = stats.peerIP;
+							statsEntry["totalIncoming"] = stats.totalIncoming;
+							statsEntry["totalOutgoing"] = stats.totalOutgoing;
+							statsEntry["firstIncomingSeen"] = stats.firstIncomingSeen;
+							statsEntry["lastIncomingSeen"] = stats.lastIncomingSeen;
+							statsEntries.push_back(statsEntry);
+
+							totalIncoming += stats.totalIncoming;
+							totalOutgoing += stats.totalOutgoing;
+						}
+					}
+
+					result["hasStatsEntry"] = !statsEntries.empty();
+					result["totalIncoming"] = totalIncoming;
+					result["totalOutgoing"] = totalOutgoing;
+					result["ipAddressCount"] = statsEntries.size();
+					result["statsPerIP"] = statsEntries;
+				}
+
+				setContent(req, res, result.dump(2));
+			} catch (...) {
+				json result = json::object();
+				result["ztAddress"] = ztAddrStr;
+				result["isValidAddress"] = false;
+				result["error"] = "Invalid ZT address format";
+				setContent(req, res, result.dump(2));
+			}
+		};
+		_controlPlane.Get("/debug/peer", debugPeerGet);
 
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
@@ -4372,8 +4460,11 @@ public:
 	{
 		Mutex::Lock _l(_peerPortStats_m);
 
-		// Check if this is the first time we've seen this peer-port combination for incoming
-		auto peerPortKey = std::make_pair(ztAddr, localPort);
+		// Create key for this specific ZT address + IP address combination
+		char ipBuf[64];
+		peerAddress.toIpString(ipBuf);
+		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstIncoming = (_seenPeerPorts.find(peerPortKey) == _seenPeerPorts.end());
 
 		if (isFirstIncoming) {
@@ -4381,19 +4472,62 @@ public:
 			char ztBuf[64], ipBuf[64];
 			ztAddr.toString(ztBuf);
 			peerAddress.toIpString(ipBuf);
-			fprintf(stderr, "INFO: First incoming packet from peer %s (%s) on local port %u" ZT_EOL_S, ztBuf, ipBuf, localPort);
+
+			// Enhanced logging for incoming-only peers with full details
+			const char* peerRole = "UNKNOWN";
+			const char* peerVersion = "unknown";
+			bool isAlive = false;
+			bool hasDirectPath = false;
+			bool existsInTopology = false;
+
+			// Only access node internals if node is fully initialized
+			if (_node) {
+				try {
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+					SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
+					existsInTopology = (existingPeer != nullptr);
+
+					if (existingPeer) {
+						// Get peer role
+						ZT_PeerRole role = RR->topology->role(ztAddr);
+						switch (role) {
+							case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
+							case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
+							case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
+							default: peerRole = "UNKNOWN"; break;
+						}
+
+						isAlive = existingPeer->isAlive(now);
+						hasDirectPath = !existingPeer->paths(now).empty();
+
+						// Get version if known
+						if (existingPeer->remoteVersionKnown()) {
+							static char versionBuf[64];
+							snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
+								existingPeer->remoteVersionMajor(),
+								existingPeer->remoteVersionMinor(),
+								existingPeer->remoteVersionRevision());
+							peerVersion = versionBuf;
+						}
+					}
+				} catch (...) {
+					// Ignore errors during node initialization
+				}
+			}
+
+			fprintf(stderr, "INCOMING_PEER: %s (%s) port %u - role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				ztBuf, ipBuf, localPort, peerRole, peerVersion,
+				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 		}
 
-		// Update statistics and collect IP address
-		PeerPortStats& stats = _peerPortStats[ztAddr];
+		// Update statistics for this specific ZT address + IP combination
+		PeerPortStats& stats = _peerPortStats[peerKey];
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
 
-		// Add peer IP address to the set (automatically deduplicates)
-		char ipBuf[64];
-		peerAddress.toIpString(ipBuf);
-		stats.peerIPs.insert(std::string(ipBuf));
+		// Store the IP address for this stats entry (already have it in ipBuf)
+		stats.peerIP = std::string(ipBuf);
 
 		if (stats.firstIncomingSeen == 0) {
 			stats.firstIncomingSeen = now;
@@ -4404,23 +4538,44 @@ public:
 	{
 		Mutex::Lock _l(_peerPortStats_m);
 
+		// Create key for this specific ZT address + IP address combination
+		char ipBuf[64];
+		peerAddress.toIpString(ipBuf);
+		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+
 		// Only track outgoing stats for peers we've already received packets from
 		// This prevents creating stats entries for peers that never respond
-		auto it = _peerPortStats.find(ztAddr);
+		auto it = _peerPortStats.find(peerKey);
 		if (it != _peerPortStats.end()) {
 			PeerPortStats& stats = it->second;
 			stats.outgoingPortCounts[localPort]++;
 			stats.totalOutgoing++;
 			stats.lastOutgoingSeen = now;
 
-			// Add peer IP address to the set (automatically deduplicates)
-			char ipBuf[64];
-			peerAddress.toIpString(ipBuf);
-			stats.peerIPs.insert(std::string(ipBuf));
+			// IP address is already stored in stats.peerIP
 
 			if (stats.firstOutgoingSeen == 0) {
 				stats.firstOutgoingSeen = now;
 			}
+		} else {
+			// Log ghost peer creation - this helps understand how peers with only outgoing packets are created
+			char ztBuf[64];
+			ztAddr.toString(ztBuf);
+
+			// Check if this is a real peer in the topology
+			bool isRealPeer = false;
+			if (_node) {
+				try {
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+					SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
+					isRealPeer = (existingPeer != nullptr);
+				} catch (...) {
+					// Ignore errors during node initialization
+				}
+			}
+
+			fprintf(stderr, "GHOST_PEER: Outgoing packet to %s (%s) port %u - real_peer=%s, no_incoming_yet=true" ZT_EOL_S,
+				ztBuf, ipBuf, localPort, isRealPeer ? "yes" : "no");
 		}
 		// If we haven't received any packets from this peer yet, don't create a stats entry
 	}
