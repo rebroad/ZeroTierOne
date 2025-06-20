@@ -147,7 +147,7 @@ Node::Node(void *uptr,void *tptr,const struct ZT_Node_Callbacks *callbacks,int64
 		RR->bc = new (m) Bond(RR);
 		m += bcs;
 		RR->pm = new (m) PacketMultiplexer(RR);
-		m += pms; // Use pre-calculated aligned size from above, consistent with other components
+		m += pms;
 		RR->sm = new (m) SecurityMonitor(RR);
 	} catch ( ... ) {
 		if (RR->sa) {
