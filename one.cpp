@@ -1149,16 +1149,30 @@ static int cli(int argc,char **argv)
 
 					printf("  Tertiary Port:  %u (always active - NAT traversal & failover)" ZT_EOL_S, tertiaryPort);
 
-					// Show actual bound ports if available
+					// Show actual bound ports only if they differ from configured ports
 					if (portConfig.contains("actualBoundPorts") && portConfig["actualBoundPorts"].is_array()) {
-						printf("  Actually Bound: ");
-						bool first = true;
-						for (auto& port : portConfig["actualBoundPorts"]) {
-							if (!first) printf(", ");
-							printf("%u", (unsigned int)port);
-							first = false;
+						auto actualPorts = portConfig["actualBoundPorts"];
+						std::set<unsigned int> expectedPorts = {primaryPort, tertiaryPort};
+						if (allowSecondaryPort && secondaryPort > 0) {
+							expectedPorts.insert(secondaryPort);
 						}
-						printf(ZT_EOL_S);
+
+						std::set<unsigned int> actualPortsSet;
+						for (auto& port : actualPorts) {
+							actualPortsSet.insert((unsigned int)port);
+						}
+
+						// Only show if different from expected
+						if (actualPortsSet != expectedPorts) {
+							printf("  Actually Bound: ");
+							bool first = true;
+							for (auto& port : actualPorts) {
+								if (!first) printf(", ");
+								printf("%u", (unsigned int)port);
+								first = false;
+							}
+							printf(ZT_EOL_S);
+						}
 					}
 					printf(ZT_EOL_S);
 				}
