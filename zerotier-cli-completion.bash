@@ -25,7 +25,7 @@ _zerotier-cli_completions()
 
     case ${COMP_CWORD} in
         1)
-            COMPREPLY=($(compgen -W "info listpeers peers listnetworks join leave set get listmoons orbit deorbit findztaddr findip set-api-token" -- ${cur}))
+            COMPREPLY=($(compgen -W "info listpeers peers listnetworks join leave set get listmoons orbit deorbit findztaddr findip security set-api-token" -- ${cur}))
             ;;
         2)
             case ${prev} in
