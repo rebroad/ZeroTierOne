@@ -2514,76 +2514,76 @@ public:
 			stats["portConfiguration"] = portConfig;
 
 			// Get peer statistics with IP addresses from live peer list
-		json peerStats = json::object();
-		ZT_PeerList *pl = _node->peers();
+			json peerStats = json::object();
+			ZT_PeerList* pl = _node->peers();
 
-		// First collect all known peer IP addresses
-		std::map<Address, std::vector<std::string>> peerIPs;
-		for(unsigned long i=0; i<pl->peerCount; ++i) {
-			Address peerAddr(pl->peers[i].address);
-			std::vector<std::string> ips;
+			// First collect all known peer IP addresses
+			std::map<Address, std::vector<std::string> > peerIPs;
+			for (unsigned long i = 0; i < pl->peerCount; ++i) {
+				Address peerAddr(pl->peers[i].address);
+				std::vector<std::string> ips;
 
-			// Get all paths for this peer
-			for(unsigned int j=0; j<pl->peers[i].pathCount; ++j) {
-				char ipBuf[64];
-				InetAddress addr(pl->peers[i].paths[j].address);
-				addr.toIpString(ipBuf);
-				ips.push_back(std::string(ipBuf));
+				// Get all paths for this peer
+				for (unsigned int j = 0; j < pl->peers[i].pathCount; ++j) {
+					char ipBuf[64];
+					InetAddress addr(pl->peers[i].paths[j].address);
+					addr.toIpString(ipBuf);
+					ips.push_back(std::string(ipBuf));
+				}
+				peerIPs[peerAddr] = ips;
 			}
-			peerIPs[peerAddr] = ips;
-		}
 
-		// Now build stats with IP information
-		{
-			Mutex::Lock _l(_peerPortStats_m);
-			for (const auto& peerEntry : _peerPortStats) {
-				const Address& ztAddr = peerEntry.first;
-				const PeerPortStats& stats = peerEntry.second;
+			// Now build stats with IP information
+			{
+				Mutex::Lock _l(_peerPortStats_m);
+				for (const auto& peerEntry : _peerPortStats) {
+					const Address& ztAddr = peerEntry.first;
+					const PeerPortStats& stats = peerEntry.second;
 
-				char ztAddrBuf[32];
-				ztAddr.toString(ztAddrBuf);
-				std::string ztAddrStr(ztAddrBuf);
+					char ztAddrBuf[32];
+					ztAddr.toString(ztAddrBuf);
+					std::string ztAddrStr(ztAddrBuf);
 
-				json peerStat = json::object();
-				peerStat["ztAddress"] = ztAddrStr;
-				peerStat["totalIncoming"] = stats.totalIncoming;
-				peerStat["totalOutgoing"] = stats.totalOutgoing;
-				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
-				peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
-				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
-				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
+					json peerStat = json::object();
+					peerStat["ztAddress"] = ztAddrStr;
+					peerStat["totalIncoming"] = stats.totalIncoming;
+					peerStat["totalOutgoing"] = stats.totalOutgoing;
+					peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
+					peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
+					peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
+					peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
 
-				// Add peer IP addresses
-				auto ipIt = peerIPs.find(ztAddr);
-				if (ipIt != peerIPs.end()) {
-					json ipArray = json::array();
-					for (const auto& ip : ipIt->second) {
-						ipArray.push_back(ip);
+					// Add peer IP addresses
+					auto ipIt = peerIPs.find(ztAddr);
+					if (ipIt != peerIPs.end()) {
+						json ipArray = json::array();
+						for (const auto& ip : ipIt->second) {
+							ipArray.push_back(ip);
+						}
+						peerStat["peerIPs"] = ipArray;
+					} else {
+						peerStat["peerIPs"] = json::array();
 					}
-					peerStat["peerIPs"] = ipArray;
-				} else {
-					peerStat["peerIPs"] = json::array();
-				}
 
-				// Port usage statistics
-				json incomingPorts = json::object();
-				for (const auto& portCount : stats.incomingPortCounts) {
-					incomingPorts[std::to_string(portCount.first)] = portCount.second;
-				}
-				peerStat["incomingPorts"] = incomingPorts;
+					// Port usage statistics
+					json incomingPorts = json::object();
+					for (const auto& portCount : stats.incomingPortCounts) {
+						incomingPorts[std::to_string(portCount.first)] = portCount.second;
+					}
+					peerStat["incomingPorts"] = incomingPorts;
 
-				json outgoingPorts = json::object();
-				for (const auto& portCount : stats.outgoingPortCounts) {
-					outgoingPorts[std::to_string(portCount.first)] = portCount.second;
-				}
-				peerStat["outgoingPorts"] = outgoingPorts;
+					json outgoingPorts = json::object();
+					for (const auto& portCount : stats.outgoingPortCounts) {
+						outgoingPorts[std::to_string(portCount.first)] = portCount.second;
+					}
+					peerStat["outgoingPorts"] = outgoingPorts;
 
-				peerStats[ztAddrStr] = peerStat;
+					peerStats[ztAddrStr] = peerStat;
+				}
 			}
-		}
 
-		_node->freeQueryResult((void*)pl);
-		stats["peersByZtAddress"] = peerStats;
+			_node->freeQueryResult((void*)pl);
+			stats["peersByZtAddress"] = peerStats;
 
 			// Add peer introduction information
 			json introStats = json::array();
