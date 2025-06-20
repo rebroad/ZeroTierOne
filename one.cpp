@@ -150,6 +150,7 @@ static void cliPrintHelp(const char *pn,FILE *out)
 	fprintf(out,"  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out,"  findztaddr <ip_address> - Find ZeroTier address for given IP" ZT_EOL_S);
 	fprintf(out,"  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
+	fprintf(out,"  security <subcmd>       - Security monitoring (events, threats, metrics)" ZT_EOL_S);
 	fprintf(out,"  set-api-token <token>   - Set ZeroTier Central API token for enhanced lookups" ZT_EOL_S);
 	fprintf(out,ZT_EOL_S"Available settings:" ZT_EOL_S);
 	fprintf(out,"  Settings to use with [get/set] may include property names from " ZT_EOL_S);
@@ -1870,6 +1871,110 @@ static int cli(int argc,char **argv)
 		printf("  - Check 'ip neigh show %s' manually" ZT_EOL_S, targetIp.c_str());
 
 		return 1;
+	} else if (command == "security") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli security [events|threats|metrics] [limit]" ZT_EOL_S);
+			printf("  events [limit]  - Show recent security events (default: 100)" ZT_EOL_S);
+			printf("  threats         - Show current threat level summary" ZT_EOL_S);
+			printf("  metrics         - Show security metrics in Prometheus format" ZT_EOL_S);
+			return 2;
+		}
+
+		std::string subcommand = arg1;
+
+		if (subcommand == "events") {
+			// Show recent security events
+			std::string url = "/security/events";
+			if (!arg2.empty()) {
+				url += "?limit=" + arg2;
+			}
+
+			const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,url.c_str(),requestHeaders,responseHeaders,responseBody);
+			if (scode == 200) {
+				nlohmann::json events;
+				try {
+					events = OSUtils::jsonParse(responseBody);
+					if (events.is_array() && !events.empty()) {
+						printf("Recent Security Events:" ZT_EOL_S);
+						printf("%-20s %-15s %-12s %-8s %s" ZT_EOL_S, "Timestamp", "Source IP", "ZT Address", "Threat", "Description");
+						printf("%-20s %-15s %-12s %-8s %s" ZT_EOL_S, "--------------------", "---------------", "------------", "--------", "-----------");
+
+						for (const auto& event : events) {
+							if (event.is_object()) {
+								// Convert timestamp to readable format
+								uint64_t ts = OSUtils::jsonInt(event["timestamp"], 0ULL);
+								time_t timestamp = (time_t)(ts / 1000); // Convert ms to seconds
+								struct tm* timeinfo = localtime(&timestamp);
+								char timeStr[32];
+								strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", timeinfo);
+
+								std::string sourceIP = OSUtils::jsonString(event["sourceIP"], "unknown");
+								std::string sourceZT = OSUtils::jsonString(event["sourceZTAddr"], "unknown");
+								int threatLevel = (int)OSUtils::jsonInt(event["threatLevel"], 1);
+								std::string description = OSUtils::jsonString(event["description"], "");
+
+								const char* threatStr = "LOW";
+								switch (threatLevel) {
+									case 2: threatStr = "MEDIUM"; break;
+									case 3: threatStr = "HIGH"; break;
+									case 4: threatStr = "CRITICAL"; break;
+								}
+
+								printf("%-20s %-15s %-12s %-8s %s" ZT_EOL_S,
+									   timeStr, sourceIP.c_str(), sourceZT.c_str(), threatStr, description.c_str());
+							}
+						}
+					} else {
+						printf("No recent security events found." ZT_EOL_S);
+					}
+				} catch (...) {
+					printf("Error parsing security events response" ZT_EOL_S);
+					return 1;
+				}
+			} else {
+				printf("Error: Unable to retrieve security events (HTTP %u)" ZT_EOL_S, scode);
+				return 1;
+			}
+		}
+		else if (subcommand == "threats") {
+			// Show threat summary
+			const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/security/threats",requestHeaders,responseHeaders,responseBody);
+			if (scode == 200) {
+				nlohmann::json threats;
+				try {
+					threats = OSUtils::jsonParse(responseBody);
+					printf("Security Monitoring Status: %s" ZT_EOL_S, OSUtils::jsonString(threats["status"], "unknown").c_str());
+					printf("Message: %s" ZT_EOL_S, OSUtils::jsonString(threats["message"], "").c_str());
+					printf(ZT_EOL_S "For detailed information:" ZT_EOL_S);
+					printf("  zerotier-cli security events     - Show recent security events" ZT_EOL_S);
+					printf("  zerotier-cli security metrics    - Show Prometheus metrics" ZT_EOL_S);
+				} catch (...) {
+					printf("Error parsing security threats response" ZT_EOL_S);
+					return 1;
+				}
+			} else {
+				printf("Error: Unable to retrieve security threat information (HTTP %u)" ZT_EOL_S, scode);
+				return 1;
+			}
+		}
+		else if (subcommand == "metrics") {
+			// Show security metrics
+			const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/security/metrics",requestHeaders,responseHeaders,responseBody);
+			if (scode == 200) {
+				printf("Security Metrics (Prometheus format):" ZT_EOL_S);
+				printf("%s", responseBody.c_str());
+			} else {
+				printf("Error: Unable to retrieve security metrics (HTTP %u)" ZT_EOL_S, scode);
+				return 1;
+			}
+		}
+		else {
+			printf("usage: zerotier-cli security [events|threats|metrics] [limit]" ZT_EOL_S);
+			printf("  events [limit]  - Show recent security events (default: 100)" ZT_EOL_S);
+			printf("  threats         - Show current threat level summary" ZT_EOL_S);
+			printf("  metrics         - Show security metrics in Prometheus format" ZT_EOL_S);
+			return 1;
+		}
 	} else if (command == "findip") {
 		if (arg1.empty()) {
 			printf("usage: zerotier-cli findip <zt_address>" ZT_EOL_S);
