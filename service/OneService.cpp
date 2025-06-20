@@ -49,6 +49,7 @@
 #include "../node/PacketMultiplexer.hpp"
 #include "../node/IptablesManager.hpp"
 #include "../node/SecurityMonitor.hpp"
+#include "../node/Topology.hpp"
 
 #include "../osdep/Phy.hpp"
 #include "../osdep/OSUtils.hpp"
@@ -699,7 +700,7 @@ static int SnodePathCheckFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t z
 static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int family,struct sockaddr_storage *result);
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len);
 static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, bool isAdd);
-static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& introducedBy);
+static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy);
 
 static int ShttpOnMessageBegin(http_parser *parser);
 static int ShttpOnUrl(http_parser *parser,const char *ptr,size_t length);
@@ -917,6 +918,7 @@ public:
 
 	// Peer introduction tracking for misbehavior detection
 	struct PeerIntroduction {
+		Address targetPeerAddr;    // ZT address of the peer at the introduced IP
 		Address introducedBy;      // Which peer introduced this IP
 		uint64_t firstIntroduced;  // When first introduced
 		uint64_t lastIntroduced;   // When last introduced
@@ -2753,8 +2755,11 @@ public:
 		}
 
 		_controlPlane.set_logger([](const httplib::Request &req, const httplib::Response &res) {
+			// Only log errors and non-standard requests to reduce verbosity
+			if (res.status > 200 || (req.path != "/peer" && req.path != "/stats" && req.path != "/status")) {
 				fprintf(stderr, "INFO: control plane: %s %s %d" ZT_EOL_S, req.method.c_str(), req.path.c_str(), res.status);
-			});
+			}
+		});
 	}
 
 	// Must be called after _localConfig is read or modified
@@ -4316,28 +4321,52 @@ public:
 	}
 
 	// Track peer introductions for misbehavior detection
-	void _trackPeerIntroduction(const InetAddress& introducedIP, const Address& introducedBy, uint64_t now)
+	void _trackPeerIntroduction(const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy, uint64_t now)
 	{
 		Mutex::Lock _l(_peerIntroductions_m);
 		auto& intro = _peerIntroductions[introducedIP];
 
 		if (intro.firstIntroduced == 0) {
 			intro.firstIntroduced = now;
+			intro.targetPeerAddr = targetPeerAddr;
 			intro.introducedBy = introducedBy;
 		}
 		intro.lastIntroduced = now;
 		intro.introductionCount++;
 
-		// Log new introductions
-		char ipBuf[64], addrBuf[16];
+		// Log new introductions with peer type information
+		char ipBuf[64], addrBuf[16], targetBuf[16];
 		introducedIP.toString(ipBuf);
 		introducedBy.toString(addrBuf);
+		targetPeerAddr.toString(targetBuf);
+
+		// Determine peer type for more informative logging (for the target peer, not the introducer)
+		const char* targetPeerType = "UNKNOWN";
+		const char* introducerType = "UNKNOWN";
+		const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+
+		ZT_PeerRole targetRole = RR->topology->role(targetPeerAddr);
+		switch (targetRole) {
+			case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
+			case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
+			case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
+			default: targetPeerType = "UNKNOWN"; break;
+		}
+
+		ZT_PeerRole introducerRole = RR->topology->role(introducedBy);
+		switch (introducerRole) {
+			case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
+			case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
+			case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
+			default: introducerType = "UNKNOWN"; break;
+		}
 
 		if (intro.introductionCount == 1) {
-			fprintf(stderr, "PEER_INTRO: %s introduced by %s" ZT_EOL_S, ipBuf, addrBuf);
+			fprintf(stderr, "PEER_INTRO: %s (%s %s) introduced by %s %s" ZT_EOL_S,
+				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf);
 		} else if (intro.introductionCount > 1) {
-			fprintf(stderr, "PEER_INTRO: %s re-introduced by %s (count: %u)" ZT_EOL_S,
-				ipBuf, addrBuf, intro.introductionCount);
+			fprintf(stderr, "PEER_INTRO: %s (%s %s) re-introduced by %s %s (count: %u)" ZT_EOL_S,
+				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf, intro.introductionCount);
 		}
 	}
 
@@ -4357,12 +4386,34 @@ public:
 
 				// Detect misbehavior: many failed attempts to introduced IP
 				if (intro.failedAttempts >= 10 && !intro.hasEverConnected) {
-					char ipBuf[64], introducerBuf[16];
+					char ipBuf[64], introducerBuf[16], targetBuf[16];
 					targetIP.toString(ipBuf);
 					intro.introducedBy.toString(introducerBuf);
+					intro.targetPeerAddr.toString(targetBuf);
 
-					fprintf(stderr, "PEER_MISBEHAVIOR: IP %s introduced by %s has failed %u connection attempts without success" ZT_EOL_S,
-						ipBuf, introducerBuf, intro.failedAttempts);
+					// Determine peer type for misbehavior logging
+					const char* targetPeerType = "UNKNOWN";
+					const char* introducerType = "UNKNOWN";
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+
+					ZT_PeerRole targetRole = RR->topology->role(intro.targetPeerAddr);
+					switch (targetRole) {
+						case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
+						case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
+						case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
+						default: targetPeerType = "UNKNOWN"; break;
+					}
+
+					ZT_PeerRole introducerRole = RR->topology->role(intro.introducedBy);
+					switch (introducerRole) {
+						case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
+						case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
+						case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
+						default: introducerType = "UNKNOWN"; break;
+					}
+
+					fprintf(stderr, "PEER_MISBEHAVIOR: IP %s (%s %s) introduced by %s %s has failed %u connection attempts without success" ZT_EOL_S,
+						ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
 				}
 			}
 		}
@@ -4546,9 +4597,9 @@ static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, boo
 	reinterpret_cast<OneServiceImpl*>(userPtr)->_handlePeerPathUpdate(peerAddress, isAdd);
 }
 
-static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& introducedBy)
+static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy)
 {
-	reinterpret_cast<OneServiceImpl*>(userPtr)->_trackPeerIntroduction(introducedIP, introducedBy, OSUtils::now());
+	reinterpret_cast<OneServiceImpl*>(userPtr)->_trackPeerIntroduction(introducedIP, targetPeerAddr, introducedBy, OSUtils::now());
 }
 
 static int ShttpOnMessageBegin(http_parser *parser)
