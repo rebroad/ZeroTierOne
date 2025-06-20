@@ -4482,38 +4482,44 @@ public:
 			bool hasDirectPath = false;
 			bool existsInTopology = false;
 
-			// Only access node internals if node is fully initialized
+			// Only access node internals if node is fully initialized AND we have a valid runtime environment
 			if (_node) {
 				try {
-					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
-					SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
-					existsInTopology = (existingPeer != nullptr);
+					// Check if the node is in a safe state for topology access
+					const Node* node = reinterpret_cast<const Node*>(_node);
+					if (node && node->online()) {  // Only access if node is online
+						const RuntimeEnvironment *RR = &(node->_RR);
+						if (RR && RR->topology) {  // Verify topology exists
+							SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
+							existsInTopology = (existingPeer.ptr() != nullptr);
 
-					if (existingPeer) {
-						// Get peer role
-						ZT_PeerRole role = RR->topology->role(ztAddr);
-						switch (role) {
-							case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
-							case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
-							case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
-							default: peerRole = "UNKNOWN"; break;
-						}
+							if (existingPeer) {
+								// Get peer role
+								ZT_PeerRole role = RR->topology->role(ztAddr);
+								switch (role) {
+									case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
+									case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
+									case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
+									default: peerRole = "UNKNOWN"; break;
+								}
 
-						isAlive = existingPeer->isAlive(now);
-						hasDirectPath = !existingPeer->paths(now).empty();
+								isAlive = existingPeer->isAlive(now);
+								hasDirectPath = !existingPeer->paths(now).empty();
 
-						// Get version if known
-						if (existingPeer->remoteVersionKnown()) {
-							static char versionBuf[64];
-							snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
-								existingPeer->remoteVersionMajor(),
-								existingPeer->remoteVersionMinor(),
-								existingPeer->remoteVersionRevision());
-							peerVersion = versionBuf;
+								// Get version if known
+								if (existingPeer->remoteVersionKnown()) {
+									static char versionBuf[64];
+									snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
+										existingPeer->remoteVersionMajor(),
+										existingPeer->remoteVersionMinor(),
+										existingPeer->remoteVersionRevision());
+									peerVersion = versionBuf;
+								}
+							}
 						}
 					}
 				} catch (...) {
-					// Ignore errors during node initialization
+					// Ignore errors during node initialization - topology not ready yet
 				}
 			}
 
