@@ -4220,13 +4220,6 @@ public:
 				return;
 			}
 
-			// Ensure iptables rules exist before trying to add/remove peers
-			// This provides immediate recovery if rules were deleted externally
-			if (!_iptablesManager->checkAndRestoreRules()) {
-				fprintf(stderr, "WARNING: Failed to restore iptables rules before peer update" ZT_EOL_S);
-				return;
-			}
-
 			char ipStr[64];
 			peerAddress.toIpString(ipStr);
 			isAdd ? _iptablesManager->addPeer(ipStr) : _iptablesManager->removePeer(ipStr);
