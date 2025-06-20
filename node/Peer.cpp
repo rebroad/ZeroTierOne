@@ -484,13 +484,8 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 		sendHELLO(tPtr,localSocket,atAddress,now);
 	}
 
-	// Track outgoing packet for port usage statistics (covers both ECHO and HELLO packets)
-	if ((RR->peerEventCallback) && (localSocket > 0) && (atAddress)) {
-		// Extract local port from socket - for UDP sockets, localSocket is the port
-		unsigned int localPort = (unsigned int)localSocket;
-		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-							  atAddress, _id.address(), Address(), true, localPort);
-	}
+	// Outgoing packet tracking is now handled in nodeWirePacketSendFunction()
+	// where we have access to both the socket and destination information
 }
 
 void Peer::tryMemorizedPath(void *tPtr,int64_t now)

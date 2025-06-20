@@ -2513,8 +2513,27 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
-					// Get peer statistics (now tracked directly by ZT address - no aggregation needed!)
+			// Get peer statistics with IP addresses from live peer list
 		json peerStats = json::object();
+		ZT_PeerList *pl = _node->peers();
+
+		// First collect all known peer IP addresses
+		std::map<Address, std::vector<std::string>> peerIPs;
+		for(unsigned long i=0; i<pl->peerCount; ++i) {
+			Address peerAddr(pl->peers[i].address);
+			std::vector<std::string> ips;
+
+			// Get all paths for this peer
+			for(unsigned int j=0; j<pl->peers[i].pathCount; ++j) {
+				char ipBuf[64];
+				InetAddress addr(pl->peers[i].paths[j].address);
+				addr.toIpString(ipBuf);
+				ips.push_back(std::string(ipBuf));
+			}
+			peerIPs[peerAddr] = ips;
+		}
+
+		// Now build stats with IP information
 		{
 			Mutex::Lock _l(_peerPortStats_m);
 			for (const auto& peerEntry : _peerPortStats) {
@@ -2534,6 +2553,18 @@ public:
 				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
 				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
 
+				// Add peer IP addresses
+				auto ipIt = peerIPs.find(ztAddr);
+				if (ipIt != peerIPs.end()) {
+					json ipArray = json::array();
+					for (const auto& ip : ipIt->second) {
+						ipArray.push_back(ip);
+					}
+					peerStat["peerIPs"] = ipArray;
+				} else {
+					peerStat["peerIPs"] = json::array();
+				}
+
 				// Port usage statistics
 				json incomingPorts = json::object();
 				for (const auto& portCount : stats.incomingPortCounts) {
@@ -2550,6 +2581,8 @@ public:
 				peerStats[ztAddrStr] = peerStat;
 			}
 		}
+
+		_node->freeQueryResult((void*)pl);
 		stats["peersByZtAddress"] = peerStats;
 
 			// Add peer introduction information
@@ -4034,6 +4067,28 @@ public:
 			}
 
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
+
+			// Track outgoing packet for port usage statistics
+			if (r && len >= 16) {  // Only track successfully sent ZeroTier packets
+				PhySocket* sock = (PhySocket *)((uintptr_t)localSocket);
+				unsigned int localPort = _phy.getLocalPort(sock);
+
+				// Extract destination peer ZT address from packet if possible
+				// ZT packets start with the destination address (first 8 bytes after header)
+				if (len >= 13) {  // Minimum for a packet with destination address
+					// The ZT address is at offset 5 in the packet (after 5 byte header)
+					uint64_t destAddr = Utils::ntoh(*(uint64_t*)(((const uint8_t*)data) + 5)) >> 24;  // First 5 bytes of address
+					Address peerZtAddr(destAddr);
+
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+					if (RR->peerEventCallback && localPort > 0) {
+						InetAddress destAddress(addr);
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
+											  destAddress, peerZtAddr, Address(), true, localPort);
+					}
+				}
+			}
+
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
 			}
