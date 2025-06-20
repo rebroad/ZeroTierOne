@@ -31,7 +31,7 @@ class RuntimeEnvironment;
 
 /**
  * Security monitoring and DoS detection system
- * 
+ *
  * Tracks suspicious activities, rate limit violations, and potential attacks
  * from internet sources. Provides logging and metrics for security analysis.
  */
@@ -75,7 +75,7 @@ public:
         uint64_t lastActivity;
         uint64_t firstSeen;
         ThreatLevel currentThreatLevel;
-        
+
         IPStats() : totalPackets(0), authFailures(0), rateLimitViolations(0),
                    invalidPackets(0), protocolViolations(0), lastActivity(0),
                    firstSeen(0), currentThreatLevel(THREAT_LOW) {}
@@ -92,7 +92,7 @@ public:
         ThreatLevel threatLevel;
         std::string description;
         std::string packetInfo;
-        
+
         SecurityEvent(uint64_t ts, const InetAddress& ip, const Address& zt,
                      SecurityEventType type, ThreatLevel level, const std::string& desc) :
             timestamp(ts), sourceIP(ip), sourceZTAddr(zt), eventType(type),
@@ -101,18 +101,18 @@ public:
 
 private:
     const RuntimeEnvironment *RR;
-    
+
     // IP-based tracking (for internet sources)
     std::unordered_map<std::string, IPStats> _ipStats;
-    
+
     // ZeroTier address-based tracking (for known peers)
     Hashtable<Address, IPStats> _ztAddrStats;
-    
+
     // Recent security events (circular buffer)
     std::vector<SecurityEvent> _recentEvents;
     size_t _eventBufferPos;
     static const size_t MAX_RECENT_EVENTS = 1000;
-    
+
     // Thresholds for threat detection
     static const uint64_t AUTH_FAILURE_THRESHOLD_LOW = 5;    // per hour
     static const uint64_t AUTH_FAILURE_THRESHOLD_HIGH = 20;  // per hour
@@ -120,13 +120,13 @@ private:
     static const uint64_t RATE_LIMIT_THRESHOLD_HIGH = 50;    // per hour
     static const uint64_t INVALID_PACKET_THRESHOLD_LOW = 10; // per hour
     static const uint64_t INVALID_PACKET_THRESHOLD_HIGH = 50; // per hour
-    
+
     // Time windows for analysis
-    static const uint64_t THREAT_ANALYSIS_WINDOW = 3600000; // 1 hour in ms
-    static const uint64_t CLEANUP_INTERVAL = 86400000;      // 24 hours in ms
-    
+    static constexpr uint64_t THREAT_ANALYSIS_WINDOW = 3600000; // 1 hour in ms
+    static constexpr uint64_t CLEANUP_INTERVAL = 86400000;      // 24 hours in ms
+
     uint64_t _lastCleanup;
-    
+
     Mutex _lock;
 
 public:
@@ -135,7 +135,7 @@ public:
 
     /**
      * Record a security event from an internet source
-     * 
+     *
      * @param tPtr Thread pointer
      * @param sourceIP Source IP address
      * @param sourceZT Source ZeroTier address (may be null)
@@ -143,13 +143,13 @@ public:
      * @param description Human-readable description
      * @param packetInfo Additional packet information
      */
-    void recordSecurityEvent(void *tPtr, const InetAddress &sourceIP, 
+    void recordSecurityEvent(void *tPtr, const InetAddress &sourceIP,
                            const Address &sourceZT, SecurityEventType eventType,
                            const char *description, const char *packetInfo = nullptr);
 
     /**
      * Check if an IP address should be considered suspicious
-     * 
+     *
      * @param sourceIP IP address to check
      * @return Current threat level for this IP
      */
@@ -157,7 +157,7 @@ public:
 
     /**
      * Get statistics for an IP address
-     * 
+     *
      * @param sourceIP IP address to query
      * @return Pointer to stats or nullptr if not found
      */
@@ -165,7 +165,7 @@ public:
 
     /**
      * Get recent security events
-     * 
+     *
      * @param maxEvents Maximum number of events to return
      * @return Vector of recent security events
      */
@@ -173,14 +173,14 @@ public:
 
     /**
      * Export security statistics in Prometheus format
-     * 
+     *
      * @return Prometheus-formatted metrics string
      */
     std::string exportPrometheusMetrics();
 
     /**
      * Periodic maintenance - cleanup old entries, analyze patterns
-     * 
+     *
      * @param tPtr Thread pointer
      * @param now Current timestamp
      */
@@ -189,7 +189,7 @@ public:
 private:
     /**
      * Update threat level based on current statistics
-     * 
+     *
      * @param stats IP statistics to analyze
      * @param now Current timestamp
      * @return Updated threat level
@@ -198,14 +198,14 @@ private:
 
     /**
      * Log security event to system logs
-     * 
+     *
      * @param event Security event to log
      */
     void _logSecurityEvent(const SecurityEvent &event);
 
     /**
      * Clean up old statistics entries
-     * 
+     *
      * @param now Current timestamp
      */
     void _cleanupOldEntries(uint64_t now);
@@ -223,4 +223,4 @@ private:
 
 } // namespace ZeroTier
 
-#endif // ZT_SECURITYMONITOR_HPP 
+#endif // ZT_SECURITYMONITOR_HPP

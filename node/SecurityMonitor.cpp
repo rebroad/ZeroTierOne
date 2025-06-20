@@ -250,7 +250,7 @@ void SecurityMonitor::doPeriodicMaintenance(void *tPtr, uint64_t now)
 SecurityMonitor::ThreatLevel SecurityMonitor::_calculateThreatLevel(IPStats &stats, uint64_t now)
 {
     // Calculate rates per hour for recent activity
-    const uint64_t timeWindow = std::min(now - stats.firstSeen, THREAT_ANALYSIS_WINDOW);
+    const uint64_t timeWindow = std::min(now - stats.firstSeen, SecurityMonitor::THREAT_ANALYSIS_WINDOW);
     if (timeWindow == 0) return THREAT_LOW;
 
     const double hoursActive = timeWindow / 3600000.0; // Convert ms to hours
