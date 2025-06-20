@@ -699,6 +699,7 @@ static int SnodePathCheckFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t z
 static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int family,struct sockaddr_storage *result);
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len);
 static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, bool isAdd);
+static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& introducedBy);
 
 static int ShttpOnMessageBegin(http_parser *parser);
 static int ShttpOnUrl(http_parser *parser,const char *ptr,size_t length);
@@ -914,6 +915,21 @@ public:
 	std::set<std::pair<InetAddress, unsigned int>> _seenPeerPorts; // For first-time logging
 	Mutex _peerPortStats_m;
 
+	// Peer introduction tracking for misbehavior detection
+	struct PeerIntroduction {
+		Address introducedBy;      // Which peer introduced this IP
+		uint64_t firstIntroduced;  // When first introduced
+		uint64_t lastIntroduced;   // When last introduced
+		uint32_t introductionCount; // How many times introduced
+		uint32_t failedAttempts;   // How many connection attempts failed
+		uint64_t lastConnectionAttempt; // When we last tried to connect
+		bool hasEverConnected;     // Whether this IP ever successfully connected
+		PeerIntroduction() : firstIntroduced(0), lastIntroduced(0), introductionCount(0),
+							failedAttempts(0), lastConnectionAttempt(0), hasEverConnected(false) {}
+	};
+	std::map<InetAddress, PeerIntroduction> _peerIntroductions;
+	Mutex _peerIntroductions_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -1083,6 +1099,9 @@ public:
 
 			// Set up peer path callback for iptables integration
 			_node->setPeerPathCallback(SpeerPathCallback, this);
+
+			// Set up peer introduction callback for misbehavior detection
+			_node->setPeerIntroductionCallback(SpeerIntroductionCallback, this);
 
 			// local.conf
 			readLocalSettings();
@@ -4296,6 +4315,59 @@ public:
 		}
 	}
 
+	// Track peer introductions for misbehavior detection
+	void _trackPeerIntroduction(const InetAddress& introducedIP, const Address& introducedBy, uint64_t now)
+	{
+		Mutex::Lock _l(_peerIntroductions_m);
+		auto& intro = _peerIntroductions[introducedIP];
+
+		if (intro.firstIntroduced == 0) {
+			intro.firstIntroduced = now;
+			intro.introducedBy = introducedBy;
+		}
+		intro.lastIntroduced = now;
+		intro.introductionCount++;
+
+		// Log new introductions
+		char ipBuf[64], addrBuf[16];
+		introducedIP.toString(ipBuf);
+		introducedBy.toString(addrBuf);
+
+		if (intro.introductionCount == 1) {
+			fprintf(stderr, "PEER_INTRO: %s introduced by %s" ZT_EOL_S, ipBuf, addrBuf);
+		} else if (intro.introductionCount > 1) {
+			fprintf(stderr, "PEER_INTRO: %s re-introduced by %s (count: %u)" ZT_EOL_S,
+				ipBuf, addrBuf, intro.introductionCount);
+		}
+	}
+
+	// Track connection attempts and detect misbehavior
+	void _trackConnectionAttempt(const InetAddress& targetIP, bool successful, uint64_t now)
+	{
+		Mutex::Lock _l(_peerIntroductions_m);
+		auto it = _peerIntroductions.find(targetIP);
+		if (it != _peerIntroductions.end()) {
+			auto& intro = it->second;
+			intro.lastConnectionAttempt = now;
+
+			if (successful) {
+				intro.hasEverConnected = true;
+			} else {
+				intro.failedAttempts++;
+
+				// Detect misbehavior: many failed attempts to introduced IP
+				if (intro.failedAttempts >= 10 && !intro.hasEverConnected) {
+					char ipBuf[64], introducerBuf[16];
+					targetIP.toString(ipBuf);
+					intro.introducedBy.toString(introducerBuf);
+
+					fprintf(stderr, "PEER_MISBEHAVIOR: IP %s introduced by %s has failed %u connection attempts without success" ZT_EOL_S,
+						ipBuf, introducerBuf, intro.failedAttempts);
+				}
+			}
+		}
+	}
+
 	void _trackIncomingPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
 		Mutex::Lock _l(_peerPortStats_m);
@@ -4472,6 +4544,11 @@ static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from
 static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, bool isAdd)
 {
 	reinterpret_cast<OneServiceImpl*>(userPtr)->_handlePeerPathUpdate(peerAddress, isAdd);
+}
+
+static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& introducedBy)
+{
+	reinterpret_cast<OneServiceImpl*>(userPtr)->_trackPeerIntroduction(introducedIP, introducedBy, OSUtils::now());
 }
 
 static int ShttpOnMessageBegin(http_parser *parser)
