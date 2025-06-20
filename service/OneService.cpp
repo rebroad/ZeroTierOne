@@ -4017,27 +4017,6 @@ public:
 
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 
-			// Track outgoing packet for port usage statistics
-			if (r && len >= 16) {  // Only track successfully sent ZeroTier packets
-				PhySocket* sock = (PhySocket *)((uintptr_t)localSocket);
-				unsigned int localPort = _phy.getLocalPort(sock);
-
-				// Extract destination peer ZT address from packet if possible
-				// ZT packets start with the destination address (first 8 bytes after header)
-				if (len >= 13) {  // Minimum for a packet with destination address
-					// The ZT address is at offset 5 in the packet (after 5 byte header)
-					uint64_t destAddr = Utils::ntoh(*(uint64_t*)(((const uint8_t*)data) + 5)) >> 24;  // First 5 bytes of address
-					Address peerZtAddr(destAddr);
-
-					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
-					if (RR->peerEventCallback && localPort > 0) {
-						InetAddress destAddress(addr);
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-											  destAddress, peerZtAddr, Address(), true, localPort);
-					}
-				}
-			}
-
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
 			}
@@ -4425,20 +4404,25 @@ public:
 	{
 		Mutex::Lock _l(_peerPortStats_m);
 
-		// Update statistics and collect IP address
-		PeerPortStats& stats = _peerPortStats[ztAddr];
-		stats.outgoingPortCounts[localPort]++;
-		stats.totalOutgoing++;
-		stats.lastOutgoingSeen = now;
+		// Only track outgoing stats for peers we've already received packets from
+		// This prevents creating stats entries for peers that never respond
+		auto it = _peerPortStats.find(ztAddr);
+		if (it != _peerPortStats.end()) {
+			PeerPortStats& stats = it->second;
+			stats.outgoingPortCounts[localPort]++;
+			stats.totalOutgoing++;
+			stats.lastOutgoingSeen = now;
 
-		// Add peer IP address to the set (automatically deduplicates)
-		char ipBuf[64];
-		peerAddress.toIpString(ipBuf);
-		stats.peerIPs.insert(std::string(ipBuf));
+			// Add peer IP address to the set (automatically deduplicates)
+			char ipBuf[64];
+			peerAddress.toIpString(ipBuf);
+			stats.peerIPs.insert(std::string(ipBuf));
 
-		if (stats.firstOutgoingSeen == 0) {
-			stats.firstOutgoingSeen = now;
+			if (stats.firstOutgoingSeen == 0) {
+				stats.firstOutgoingSeen = now;
+			}
 		}
+		// If we haven't received any packets from this peer yet, don't create a stats entry
 	}
 
 	/**
