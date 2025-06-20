@@ -2541,6 +2541,7 @@ public:
 			std::map<std::string, json> ztAddrStats;
 			{
 				Mutex::Lock _l(_peerPortStats_m);
+				Mutex::Lock _l2(_peerIntroductions_m);
 				for (const auto& peerEntry : _peerPortStats) {
 					char peerBuf[64];
 					peerEntry.first.toIpString(peerBuf);
@@ -2549,7 +2550,16 @@ public:
 					// Find ZT address for this IP
 					std::string ztAddr = "unknown";
 					if (ipToZtAddr.count(peerIP)) {
+						// First check established peers
 						ztAddr = ipToZtAddr[peerIP];
+					} else {
+						// Check peer introductions for IPs that were introduced but never connected
+						auto introIt = _peerIntroductions.find(peerEntry.first);
+						if (introIt != _peerIntroductions.end()) {
+							char ztBuf[16];
+							introIt->second.targetPeerAddr.toString(ztBuf);
+							ztAddr = std::string(ztBuf);
+						}
 					}
 
 					// Initialize ZT address entry if not exists
@@ -2619,6 +2629,32 @@ public:
 				peerStats[ztAddr] = data;
 			}
 			stats["peersByZtAddress"] = peerStats;
+
+			// Add peer introduction information
+			json introStats = json::array();
+			{
+				Mutex::Lock _l2(_peerIntroductions_m);
+				for (const auto& [ip, intro] : _peerIntroductions) {
+					char ipBuf[64], targetBuf[16], introducerBuf[16];
+					ip.toString(ipBuf);
+					intro.targetPeerAddr.toString(targetBuf);
+					intro.introducedBy.toString(introducerBuf);
+
+					json introInfo = json::object();
+					introInfo["ip"] = std::string(ipBuf);
+					introInfo["targetZtAddress"] = std::string(targetBuf);
+					introInfo["introducedBy"] = std::string(introducerBuf);
+					introInfo["introductionCount"] = intro.introductionCount;
+					introInfo["failedAttempts"] = intro.failedAttempts;
+					introInfo["hasEverConnected"] = intro.hasEverConnected;
+					introInfo["firstIntroduced"] = intro.firstIntroduced;
+					introInfo["lastIntroduced"] = intro.lastIntroduced;
+					introInfo["lastConnectionAttempt"] = intro.lastConnectionAttempt;
+
+					introStats.push_back(introInfo);
+				}
+			}
+			stats["peerIntroductions"] = introStats;
 
 			setContent(req, res, stats.dump(2));
 		};
