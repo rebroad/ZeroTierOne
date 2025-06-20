@@ -699,7 +699,7 @@ static void SnodeVirtualNetworkFrameFunction(ZT_Node *node,void *uptr,void *tptr
 static int SnodePathCheckFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int64_t localSocket,const struct sockaddr_storage *remoteAddr);
 static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int family,struct sockaddr_storage *result);
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len);
-static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful);
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort = 0);
 
 static int ShttpOnMessageBegin(http_parser *parser);
 static int ShttpOnUrl(http_parser *parser,const char *ptr,size_t length);
@@ -4033,19 +4033,6 @@ public:
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),ttl);
 			}
 
-			// Track outgoing peer-port usage for iptables statistics
-			if (_iptablesEnabled) {
-				const uint64_t now = OSUtils::now();
-				const InetAddress destAddress(addr);
-				const unsigned int localPort = _phy.getLocalPort((PhySocket*)((uintptr_t)localSocket));
-
-				// Only track if this is one of our configured ports
-				if (localPort == _primaryPort || localPort == _tertiaryPort ||
-					(_allowSecondaryPort && localPort == _ports[1])) {
-					_trackOutgoingPeerPortUsage(destAddress, localPort, now);
-				}
-			}
-
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
@@ -4564,7 +4551,7 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodePathLookupFunction(ztaddr,family,result); }
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
-static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful)
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort)
 {
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
@@ -4581,7 +4568,9 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
-
+		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
+			service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localPort, OSUtils::now());
+			break;
 	}
 }
 

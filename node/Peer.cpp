@@ -177,7 +177,7 @@ void Peer::received(
 
 					// Notify service about new peer path (iptables integration)
 					if (RR->peerEventCallback) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true);
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true, 0);
 					}
 				}
 			} else {
@@ -458,7 +458,16 @@ void Peer::sendHELLO(void *tPtr,const int64_t localSocket,const InetAddress &atA
 	if (atAddress) {
 		outp.armor(_key,false,nullptr); // false == don't encrypt full payload, but add MAC
 		RR->node->expectReplyTo(outp.packetId());
-		RR->node->putPacket(tPtr,RR->node->lowBandwidthModeEnabled() ? localSocket : -1,atAddress,outp.data(),outp.size());
+		int64_t actualSocket = RR->node->lowBandwidthModeEnabled() ? localSocket : -1;
+		RR->node->putPacket(tPtr,actualSocket,atAddress,outp.data(),outp.size());
+
+		// Track outgoing packet for port usage statistics
+		if ((RR->peerEventCallback) && (localSocket > 0)) {
+			// Extract local port from socket - for UDP sockets, localSocket is the port
+			unsigned int localPort = (unsigned int)localSocket;
+			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
+								  atAddress, _id.address(), Address(), true, localPort);
+		}
 	} else {
 		RR->node->expectReplyTo(outp.packetId());
 		RR->sw->send(tPtr,outp,false); // false == don't encrypt full payload, but add MAC
@@ -470,7 +479,7 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 	// Proactively notify service about outbound contact attempt (iptables integration)
 	// This ensures ipset rules are in place BEFORE sending packets, allowing responses
 	if (RR->peerEventCallback) {
-		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true);
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0);
 	}
 
 	if ( (!sendFullHello) && (_vProto >= 5) && (!((_vMajor == 1)&&(_vMinor == 1)&&(_vRevision == 0))) ) {
@@ -479,6 +488,14 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 		Metrics::pkt_echo_out++;
 		RR->node->expectReplyTo(outp.packetId());
 		RR->node->putPacket(tPtr,localSocket,atAddress,outp.data(),outp.size());
+
+		// Track outgoing packet for port usage statistics
+		if ((RR->peerEventCallback) && (localSocket > 0)) {
+			// Extract local port from socket - for UDP sockets, localSocket is the port
+			unsigned int localPort = (unsigned int)localSocket;
+			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
+								  atAddress, _id.address(), Address(), true, localPort);
+		}
 	} else {
 		sendHELLO(tPtr,localSocket,atAddress,now);
 	}
@@ -578,7 +595,7 @@ unsigned int Peer::doPingAndKeepalive(void *tPtr,int64_t now)
 				} else {
 					// Notify service about removed peer path (iptables integration)
 					if (RR->peerEventCallback && _paths[i].p) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_REMOVE, _paths[i].p->address(), _id.address(), Address(), false);
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_REMOVE, _paths[i].p->address(), _id.address(), Address(), false, 0);
 					}
 					_paths[i] = _PeerPath();
 					deletionOccurred = true;
