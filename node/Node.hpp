@@ -297,6 +297,18 @@ public:
 		_RR.peerPathCallbackUserPtr = userPtr;
 	}
 
+	/**
+	 * Set callback for peer introduction events (misbehavior detection)
+	 *
+	 * @param callback Function to call when peers introduce other peers
+	 * @param userPtr User pointer to pass to callback
+	 */
+	inline void setPeerIntroductionCallback(RuntimeEnvironment::PeerIntroductionCallback callback, void* userPtr)
+	{
+		_RR.peerIntroductionCallback = callback;
+		_RR.peerIntroductionCallbackUserPtr = userPtr;
+	}
+
 public:
 	RuntimeEnvironment _RR;
 	RuntimeEnvironment *RR;

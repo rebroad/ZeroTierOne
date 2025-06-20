@@ -51,6 +51,10 @@ public:
 		,sa((SelfAwareness *)0)
 		,peerPathCallback((PeerPathCallback)0)
 		,peerPathCallbackUserPtr((void *)0)
+		,peerIntroductionCallback((PeerIntroductionCallback)0)
+		,peerIntroductionCallbackUserPtr((void *)0)
+		,connectionAttemptCallback((ConnectionAttemptCallback)0)
+		,connectionAttemptCallbackUserPtr((void *)0)
 	{
 		publicIdentityStr[0] = (char)0;
 		secretIdentityStr[0] = (char)0;
@@ -94,6 +98,16 @@ public:
 	typedef void (*PeerPathCallback)(void* userPtr, const InetAddress& peerAddress, bool isAdd);
 	PeerPathCallback peerPathCallback;
 	void* peerPathCallbackUserPtr;
+
+	// Callback for peer introduction events (misbehavior detection)
+	typedef void (*PeerIntroductionCallback)(void* userPtr, const InetAddress& introducedIP, const Address& introducedBy);
+	PeerIntroductionCallback peerIntroductionCallback;
+	void* peerIntroductionCallbackUserPtr;
+
+	// Callback for connection attempt events (misbehavior detection)
+	typedef void (*ConnectionAttemptCallback)(void* userPtr, const InetAddress& targetIP, bool successful);
+	ConnectionAttemptCallback connectionAttemptCallback;
+	void* connectionAttemptCallbackUserPtr;
 };
 
 } // namespace ZeroTier
