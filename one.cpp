@@ -91,6 +91,8 @@
 
 #include <nlohmann/json.hpp>
 
+using json = nlohmann::json;
+
 #ifdef __APPLE__
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <CoreServices/CoreServices.h>
@@ -1171,7 +1173,7 @@ static int cli(int argc,char **argv)
 				unsigned int peerscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/peer",requestHeaders,responseHeaders,peerResponseBody);
 				if (peerscode == 200) {
 					try {
-						json peerJson = json::parse(peerResponseBody);
+						nlohmann::json peerJson = nlohmann::json::parse(peerResponseBody);
 						if (peerJson.is_array()) {
 							for (auto& peer : peerJson) {
 								if (peer.contains("address") && peer.contains("paths") && peer["paths"].is_array()) {
