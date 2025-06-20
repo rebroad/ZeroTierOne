@@ -1313,34 +1313,7 @@ static int cli(int argc,char **argv)
 					}
 				}
 
-				// Show peer introduction information if available
-				if (j.contains("peerIntroductions") && j["peerIntroductions"].is_array() && !j["peerIntroductions"].empty()) {
-					printf(ZT_EOL_S "Peer Introductions:" ZT_EOL_S);
-					printf("(IPs that peers suggested we try to connect to, but failed)" ZT_EOL_S);
-					printf("%-21s %-12s %-12s %-8s %-8s %s" ZT_EOL_S,
-						"IP Address", "Target ZT", "Introducer", "Intros", "Fails", "Status");
-					printf("%-21s %-12s %-12s %-8s %-8s %s" ZT_EOL_S,
-						"---------------------", "------------", "------------", "--------", "--------", "----------");
 
-					for (auto& intro : j["peerIntroductions"]) {
-						std::string ip = intro.value("ip", "unknown");
-						std::string targetZt = intro.value("targetZtAddress", "unknown");
-						std::string introducer = intro.value("introducedBy", "unknown");
-						uint32_t introCount = intro.value("introductionCount", 0U);
-						uint32_t failCount = intro.value("failedAttempts", 0U);
-						bool connected = intro.value("hasEverConnected", false);
-
-						// Truncate addresses for display
-						if (targetZt.length() > 10) targetZt = targetZt.substr(0, 10);
-						if (introducer.length() > 10) introducer = introducer.substr(0, 10);
-
-						std::string status = connected ? "Connected" : "Failed";
-
-						printf("%-21s %-12s %-12s %-8u %-8u %s" ZT_EOL_S,
-							ip.c_str(), targetZt.c_str(), introducer.c_str(),
-							introCount, failCount, status.c_str());
-					}
-				}
 			}
 			return 0;
 		} else {

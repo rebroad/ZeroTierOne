@@ -903,6 +903,7 @@ public:
 	struct PeerPortStats {
 		std::map<unsigned int, uint64_t> incomingPortCounts; // port -> incoming count
 		std::map<unsigned int, uint64_t> outgoingPortCounts; // port -> outgoing count
+		std::set<std::string> peerIPs; // All IP addresses seen for this peer
 		uint64_t totalIncoming;
 		uint64_t totalOutgoing;
 		uint64_t firstIncomingSeen;
@@ -2513,27 +2514,8 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
-			// Get peer statistics with IP addresses from live peer list
+			// Get peer statistics (IP addresses are now collected when stats are updated)
 			json peerStats = json::object();
-			ZT_PeerList* pl = _node->peers();
-
-			// First collect all known peer IP addresses
-			std::map<Address, std::vector<std::string> > peerIPs;
-			for (unsigned long i = 0; i < pl->peerCount; ++i) {
-				Address peerAddr(pl->peers[i].address);
-				std::vector<std::string> ips;
-
-				// Get all paths for this peer
-				for (unsigned int j = 0; j < pl->peers[i].pathCount; ++j) {
-					char ipBuf[64];
-					InetAddress addr(pl->peers[i].paths[j].address);
-					addr.toIpString(ipBuf);
-					ips.push_back(std::string(ipBuf));
-				}
-				peerIPs[peerAddr] = ips;
-			}
-
-			// Now build stats with IP information
 			{
 				Mutex::Lock _l(_peerPortStats_m);
 				for (const auto& peerEntry : _peerPortStats) {
@@ -2553,17 +2535,12 @@ public:
 					peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
 					peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
 
-					// Add peer IP addresses
-					auto ipIt = peerIPs.find(ztAddr);
-					if (ipIt != peerIPs.end()) {
-						json ipArray = json::array();
-						for (const auto& ip : ipIt->second) {
-							ipArray.push_back(ip);
-						}
-						peerStat["peerIPs"] = ipArray;
-					} else {
-						peerStat["peerIPs"] = json::array();
+					// Add peer IP addresses (collected when packets were processed)
+					json ipArray = json::array();
+					for (const auto& ip : stats.peerIPs) {
+						ipArray.push_back(ip);
 					}
+					peerStat["peerIPs"] = ipArray;
 
 					// Port usage statistics
 					json incomingPorts = json::object();
@@ -2581,35 +2558,7 @@ public:
 					peerStats[ztAddrStr] = peerStat;
 				}
 			}
-
-			_node->freeQueryResult((void*)pl);
 			stats["peersByZtAddress"] = peerStats;
-
-			// Add peer introduction information
-			json introStats = json::array();
-			{
-				Mutex::Lock _l2(_peerIntroductions_m);
-				for (const auto& [ip, intro] : _peerIntroductions) {
-					char ipBuf[64], targetBuf[16], introducerBuf[16];
-					ip.toString(ipBuf);
-					intro.targetPeerAddr.toString(targetBuf);
-					intro.introducedBy.toString(introducerBuf);
-
-					json introInfo = json::object();
-					introInfo["ip"] = std::string(ipBuf);
-					introInfo["targetZtAddress"] = std::string(targetBuf);
-					introInfo["introducedBy"] = std::string(introducerBuf);
-					introInfo["introductionCount"] = intro.introductionCount;
-					introInfo["failedAttempts"] = intro.failedAttempts;
-					introInfo["hasEverConnected"] = intro.hasEverConnected;
-					introInfo["firstIntroduced"] = intro.firstIntroduced;
-					introInfo["lastIntroduced"] = intro.lastIntroduced;
-					introInfo["lastConnectionAttempt"] = intro.lastConnectionAttempt;
-
-					introStats.push_back(introInfo);
-				}
-			}
-			stats["peerIntroductions"] = introStats;
 
 			setContent(req, res, stats.dump(2));
 		};
@@ -4456,11 +4405,16 @@ public:
 			fprintf(stderr, "INFO: First incoming packet from peer %s (%s) on local port %u" ZT_EOL_S, ztBuf, ipBuf, localPort);
 		}
 
-		// Update statistics
+		// Update statistics and collect IP address
 		PeerPortStats& stats = _peerPortStats[ztAddr];
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
+
+		// Add peer IP address to the set (automatically deduplicates)
+		char ipBuf[64];
+		peerAddress.toIpString(ipBuf);
+		stats.peerIPs.insert(std::string(ipBuf));
 
 		if (stats.firstIncomingSeen == 0) {
 			stats.firstIncomingSeen = now;
@@ -4471,11 +4425,16 @@ public:
 	{
 		Mutex::Lock _l(_peerPortStats_m);
 
-		// Update statistics
+		// Update statistics and collect IP address
 		PeerPortStats& stats = _peerPortStats[ztAddr];
 		stats.outgoingPortCounts[localPort]++;
 		stats.totalOutgoing++;
 		stats.lastOutgoingSeen = now;
+
+		// Add peer IP address to the set (automatically deduplicates)
+		char ipBuf[64];
+		peerAddress.toIpString(ipBuf);
+		stats.peerIPs.insert(std::string(ipBuf));
 
 		if (stats.firstOutgoingSeen == 0) {
 			stats.firstOutgoingSeen = now;
