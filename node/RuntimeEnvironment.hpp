@@ -33,6 +33,7 @@ class SelfAwareness;
 class Trace;
 class Bond;
 class PacketMultiplexer;
+class SecurityMonitor;
 
 /**
  * Holds global state for an instance of ZeroTier::Node
@@ -82,6 +83,7 @@ public:
 	SelfAwareness *sa;
 	Bond *bc;
 	PacketMultiplexer *pm;
+	SecurityMonitor *sm;
 
 	// This node's identity and string representations thereof
 	Identity identity;

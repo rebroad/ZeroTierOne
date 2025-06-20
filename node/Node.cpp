@@ -36,6 +36,7 @@
 #include "Trace.hpp"
 #include "Metrics.hpp"
 #include "PacketMultiplexer.hpp"
+#include "SecurityMonitor.hpp"
 
 // FIXME: remove this suppression and actually fix warnings
 #ifdef __GNUC__
@@ -122,8 +123,9 @@ Node::Node(void *uptr,void *tptr,const struct ZT_Node_Callbacks *callbacks,int64
 		const unsigned long sas = sizeof(SelfAwareness) + (((sizeof(SelfAwareness) & 0xf) != 0) ? (16 - (sizeof(SelfAwareness) & 0xf)) : 0);
 		const unsigned long bcs = sizeof(Bond) + (((sizeof(Bond) & 0xf) != 0) ? (16 - (sizeof(Bond) & 0xf)) : 0);
 		const unsigned long pms = sizeof(PacketMultiplexer) + (((sizeof(PacketMultiplexer) & 0xf) != 0) ? (16 - (sizeof(PacketMultiplexer) & 0xf)) : 0);
+		const unsigned long sms = sizeof(SecurityMonitor) + (((sizeof(SecurityMonitor) & 0xf) != 0) ? (16 - (sizeof(SecurityMonitor) & 0xf)) : 0);
 
-		m = reinterpret_cast<char *>(::malloc(16 + ts + sws + mcs + topologys + sas + bcs + pms));
+		m = reinterpret_cast<char *>(::malloc(16 + ts + sws + mcs + topologys + sas + bcs + pms + sms));
 		if (!m) {
 			throw std::bad_alloc();
 		}
@@ -145,6 +147,8 @@ Node::Node(void *uptr,void *tptr,const struct ZT_Node_Callbacks *callbacks,int64
 		RR->bc = new (m) Bond(RR);
 		m += bcs;
 		RR->pm = new (m) PacketMultiplexer(RR);
+		m += pms; // Use pre-calculated aligned size from above, consistent with other components
+		RR->sm = new (m) SecurityMonitor(RR);
 	} catch ( ... ) {
 		if (RR->sa) {
 			RR->sa->~SelfAwareness();
@@ -166,6 +170,9 @@ Node::Node(void *uptr,void *tptr,const struct ZT_Node_Callbacks *callbacks,int64
 		}
 		if (RR->pm) {
 			RR->pm->~PacketMultiplexer();
+		}
+		if (RR->sm) {
+			RR->sm->~SecurityMonitor();
 		}
 		::free(m);
 		throw;
@@ -200,6 +207,9 @@ Node::~Node()
 	}
 	if (RR->pm) {
 		RR->pm->~PacketMultiplexer();
+	}
+	if (RR->sm) {
+		RR->sm->~SecurityMonitor();
 	}
 	::free(RR->rtmem);
 }
@@ -402,6 +412,11 @@ ZT_ResultCode Node::processBackgroundTasks(void *tptr,int64_t now,volatile int64
 			// Ping active peers, upstreams, and others that we should always contact
 			_PingPeersThatNeedPing pfunc(RR,tptr,alwaysContact,now);
 			RR->topology->eachPeer<_PingPeersThatNeedPing &>(pfunc);
+
+			// Run security monitor maintenance
+			if (RR->sm) {
+				RR->sm->doPeriodicMaintenance(tptr, now);
+			}
 
 			// Run WHOIS to create Peer for alwaysContact addresses that could not be contacted
 			{
