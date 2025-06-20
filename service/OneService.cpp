@@ -911,8 +911,8 @@ public:
 		uint64_t lastOutgoingSeen;
 		PeerPortStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0), lastIncomingSeen(0), lastOutgoingSeen(0) {}
 	};
-	std::map<InetAddress, PeerPortStats> _peerPortStats;
-	std::set<std::pair<InetAddress, unsigned int>> _seenPeerPorts; // For first-time logging
+	std::map<Address, PeerPortStats> _peerPortStats; // Track by ZT address instead of IP
+	std::set<std::pair<Address, unsigned int>> _seenPeerPorts; // For first-time logging
 	Mutex _peerPortStats_m;
 
 	// Peer introduction tracking for misbehavior detection
@@ -2513,118 +2513,44 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
-			// Build IP to ZT address mapping using peer data
-			std::map<std::string, std::string> ipToZtAddr;
-			ZT_PeerList *pl = _node->peers();
-			if (pl) {
-				for(unsigned long i = 0; i < pl->peerCount; ++i) {
-					char ztAddrBuf[32];
-					OSUtils::ztsnprintf(ztAddrBuf, sizeof(ztAddrBuf), "%.10llx", pl->peers[i].address);
-					std::string ztAddr(ztAddrBuf);
+					// Get peer statistics (now tracked directly by ZT address - no aggregation needed!)
+		json peerStats = json::object();
+		{
+			Mutex::Lock _l(_peerPortStats_m);
+			for (const auto& peerEntry : _peerPortStats) {
+				const Address& ztAddr = peerEntry.first;
+				const PeerPortStats& stats = peerEntry.second;
 
-					for(unsigned int j = 0; j < pl->peers[i].pathCount; ++j) {
-						char ipBuf[64];
-						InetAddress peerIP(&(pl->peers[i].paths[j].address));
-						peerIP.setPort(0); // Remove port for consistent mapping
-						peerIP.toIpString(ipBuf);
-						ipToZtAddr[std::string(ipBuf)] = ztAddr;
-					}
+				char ztAddrBuf[32];
+				ztAddr.toString(ztAddrBuf);
+				std::string ztAddrStr(ztAddrBuf);
+
+				json peerStat = json::object();
+				peerStat["ztAddress"] = ztAddrStr;
+				peerStat["totalIncoming"] = stats.totalIncoming;
+				peerStat["totalOutgoing"] = stats.totalOutgoing;
+				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
+				peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
+				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
+				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
+
+				// Port usage statistics
+				json incomingPorts = json::object();
+				for (const auto& portCount : stats.incomingPortCounts) {
+					incomingPorts[std::to_string(portCount.first)] = portCount.second;
 				}
-				_node->freeQueryResult((void*)pl);
-			}
+				peerStat["incomingPorts"] = incomingPorts;
 
-			// Group peer statistics by ZT address
-			std::map<std::string, json> ztAddrStats;
-			{
-				Mutex::Lock _l(_peerPortStats_m);
-				Mutex::Lock _l2(_peerIntroductions_m);
-				for (const auto& peerEntry : _peerPortStats) {
-					char peerBuf[64];
-					peerEntry.first.toIpString(peerBuf);
-					std::string peerIP(peerBuf);
-
-					// Find ZT address for this IP
-					std::string ztAddr = "unknown";
-					if (ipToZtAddr.count(peerIP)) {
-						// First check established peers
-						ztAddr = ipToZtAddr[peerIP];
-					} else {
-						// Check peer introductions for IPs that were introduced but never connected
-						auto introIt = _peerIntroductions.find(peerEntry.first);
-						if (introIt != _peerIntroductions.end()) {
-							char ztBuf[16];
-							introIt->second.targetPeerAddr.toString(ztBuf);
-							ztAddr = std::string(ztBuf);
-						}
-					}
-
-					// Initialize ZT address entry if not exists
-					if (ztAddrStats.find(ztAddr) == ztAddrStats.end()) {
-						ztAddrStats[ztAddr] = json::object();
-						ztAddrStats[ztAddr]["ztAddress"] = ztAddr;
-						ztAddrStats[ztAddr]["peerIPs"] = json::array();
-						ztAddrStats[ztAddr]["totalIncoming"] = 0ULL;
-						ztAddrStats[ztAddr]["totalOutgoing"] = 0ULL;
-						ztAddrStats[ztAddr]["firstIncomingSeen"] = 0ULL;
-						ztAddrStats[ztAddr]["firstOutgoingSeen"] = 0ULL;
-						ztAddrStats[ztAddr]["lastIncomingSeen"] = 0ULL;
-						ztAddrStats[ztAddr]["lastOutgoingSeen"] = 0ULL;
-						ztAddrStats[ztAddr]["incomingPorts"] = json::object();
-						ztAddrStats[ztAddr]["outgoingPorts"] = json::object();
-					}
-
-					// Add this IP to the list
-					ztAddrStats[ztAddr]["peerIPs"].push_back(peerIP);
-
-					// Aggregate statistics
-					ztAddrStats[ztAddr]["totalIncoming"] = ztAddrStats[ztAddr]["totalIncoming"].get<uint64_t>() + peerEntry.second.totalIncoming;
-					ztAddrStats[ztAddr]["totalOutgoing"] = ztAddrStats[ztAddr]["totalOutgoing"].get<uint64_t>() + peerEntry.second.totalOutgoing;
-
-					// Update timing (earliest first seen, latest last seen)
-					uint64_t firstSeen = peerEntry.second.firstIncomingSeen;
-					uint64_t lastSeen = peerEntry.second.lastIncomingSeen;
-
-					if (firstSeen > 0) {
-						uint64_t currentFirst = ztAddrStats[ztAddr]["firstIncomingSeen"].get<uint64_t>();
-						if (currentFirst == 0 || firstSeen < currentFirst) {
-							ztAddrStats[ztAddr]["firstIncomingSeen"] = firstSeen;
-						}
-					}
-
-					if (lastSeen > 0) {
-						uint64_t currentLast = ztAddrStats[ztAddr]["lastIncomingSeen"].get<uint64_t>();
-						if (lastSeen > currentLast) {
-							ztAddrStats[ztAddr]["lastIncomingSeen"] = lastSeen;
-						}
-					}
-
-					// Aggregate port counts
-					for (const auto& portEntry : peerEntry.second.incomingPortCounts) {
-						std::string portStr = std::to_string(portEntry.first);
-						if (!ztAddrStats[ztAddr]["incomingPorts"].contains(portStr)) {
-							ztAddrStats[ztAddr]["incomingPorts"][portStr] = 0ULL;
-						}
-						ztAddrStats[ztAddr]["incomingPorts"][portStr] =
-							ztAddrStats[ztAddr]["incomingPorts"][portStr].get<uint64_t>() + portEntry.second;
-					}
-
-					for (const auto& portEntry : peerEntry.second.outgoingPortCounts) {
-						std::string portStr = std::to_string(portEntry.first);
-						if (!ztAddrStats[ztAddr]["outgoingPorts"].contains(portStr)) {
-							ztAddrStats[ztAddr]["outgoingPorts"][portStr] = 0ULL;
-						}
-						ztAddrStats[ztAddr]["outgoingPorts"][portStr] =
-							ztAddrStats[ztAddr]["outgoingPorts"][portStr].get<uint64_t>() + portEntry.second;
-					}
+				json outgoingPorts = json::object();
+				for (const auto& portCount : stats.outgoingPortCounts) {
+					outgoingPorts[std::to_string(portCount.first)] = portCount.second;
 				}
-			}
+				peerStat["outgoingPorts"] = outgoingPorts;
 
-			// Convert to final format
-			json peerStats = json::object();
-			for (const auto& [ztAddr, data] : ztAddrStats) {
-				peerStats[ztAddr] = data;
+				peerStats[ztAddrStr] = peerStat;
 			}
-			stats["peersByZtAddress"] = peerStats;
+		}
+		stats["peersByZtAddress"] = peerStats;
 
 			// Add peer introduction information
 			json introStats = json::array();
@@ -3358,8 +3284,11 @@ public:
 			_lastDirectReceiveFromGlobal = now;
 		}
 
-		// Track peer-port usage for iptables integration insights
-		if (localAddr && from && len >= 16) { // Valid ZeroTier packet minimum size
+		Address sourcePeerAddr;
+		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline,&sourcePeerAddr);
+
+		// Track port usage only for successfully processed packets from identified peers
+		if ((rc == ZT_RESULT_OK) && localAddr && from && len >= 16 && sourcePeerAddr) {
 			const InetAddress localAddress(localAddr);
 			const InetAddress fromAddress(from);
 			const unsigned int localPort = localAddress.port();
@@ -3367,11 +3296,10 @@ public:
 			// Only track if this is one of our configured ports
 			if (localPort == _primaryPort || localPort == _tertiaryPort ||
 				(_allowSecondaryPort && localPort == _ports[1])) {
-				_trackIncomingPeerPortUsage(fromAddress, localPort, now);
+				_trackIncomingPeerPortUsage(sourcePeerAddr, fromAddress, localPort, now);
 			}
 		}
 
-		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline);
 		if (ZT_ResultCode_isFatal(rc)) {
 			char tmp[256];
 			OSUtils::ztsnprintf(tmp,sizeof(tmp),"fatal error code from processWirePacket: %d",(int)rc);
@@ -4470,27 +4398,24 @@ public:
 		}
 	}
 
-	void _trackIncomingPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
 		Mutex::Lock _l(_peerPortStats_m);
 
-		// Extract IP without port for consistent tracking
-		InetAddress peerIP = peerAddress;
-		peerIP.setPort(0);
-
 		// Check if this is the first time we've seen this peer-port combination for incoming
-		auto peerPortKey = std::make_pair(peerIP, localPort);
+		auto peerPortKey = std::make_pair(ztAddr, localPort);
 		bool isFirstIncoming = (_seenPeerPorts.find(peerPortKey) == _seenPeerPorts.end());
 
 		if (isFirstIncoming) {
 			_seenPeerPorts.insert(peerPortKey);
-			char buf[64];
-			peerIP.toIpString(buf);
-			fprintf(stderr, "INFO: First incoming packet from peer %s on local port %u" ZT_EOL_S, buf, localPort);
+			char ztBuf[64], ipBuf[64];
+			ztAddr.toString(ztBuf);
+			peerAddress.toIpString(ipBuf);
+			fprintf(stderr, "INFO: First incoming packet from peer %s (%s) on local port %u" ZT_EOL_S, ztBuf, ipBuf, localPort);
 		}
 
 		// Update statistics
-		PeerPortStats& stats = _peerPortStats[peerIP];
+		PeerPortStats& stats = _peerPortStats[ztAddr];
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
@@ -4500,16 +4425,12 @@ public:
 		}
 	}
 
-	void _trackOutgoingPeerPortUsage(const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
 		Mutex::Lock _l(_peerPortStats_m);
 
-		// Extract IP without port for consistent tracking
-		InetAddress peerIP = peerAddress;
-		peerIP.setPort(0);
-
 		// Update statistics
-		PeerPortStats& stats = _peerPortStats[peerIP];
+		PeerPortStats& stats = _peerPortStats[ztAddr];
 		stats.outgoingPortCounts[localPort]++;
 		stats.totalOutgoing++;
 		stats.lastOutgoingSeen = now;
@@ -4660,6 +4581,7 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
+
 	}
 }
 
