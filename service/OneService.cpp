@@ -4458,6 +4458,9 @@ public:
 
 	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
+		// Skip stats tracking during early initialization to prevent crashes
+		if (!_node) return;
+
 		Mutex::Lock _l(_peerPortStats_m);
 
 		// Create key for this specific ZT address + IP address combination
@@ -4469,9 +4472,8 @@ public:
 
 		if (isFirstIncoming) {
 			_seenPeerPorts.insert(peerPortKey);
-			char ztBuf[64], ipBuf[64];
+			char ztBuf[64];
 			ztAddr.toString(ztBuf);
-			peerAddress.toIpString(ipBuf);
 
 			// Enhanced logging for incoming-only peers with full details
 			const char* peerRole = "UNKNOWN";
@@ -4525,8 +4527,6 @@ public:
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
-
-		// Store the IP address for this stats entry (already have it in ipBuf)
 		stats.peerIP = std::string(ipBuf);
 
 		if (stats.firstIncomingSeen == 0) {
@@ -4536,6 +4536,9 @@ public:
 
 	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
+		// Skip stats tracking during early initialization to prevent crashes
+		if (!_node) return;
+
 		Mutex::Lock _l(_peerPortStats_m);
 
 		// Create key for this specific ZT address + IP address combination
@@ -4552,30 +4555,9 @@ public:
 			stats.totalOutgoing++;
 			stats.lastOutgoingSeen = now;
 
-			// IP address is already stored in stats.peerIP
-
 			if (stats.firstOutgoingSeen == 0) {
 				stats.firstOutgoingSeen = now;
 			}
-		} else {
-			// Log ghost peer creation - this helps understand how peers with only outgoing packets are created
-			char ztBuf[64];
-			ztAddr.toString(ztBuf);
-
-			// Check if this is a real peer in the topology
-			bool isRealPeer = false;
-			if (_node) {
-				try {
-					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
-					SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
-					isRealPeer = (existingPeer != nullptr);
-				} catch (...) {
-					// Ignore errors during node initialization
-				}
-			}
-
-			fprintf(stderr, "GHOST_PEER: Outgoing packet to %s (%s) port %u - real_peer=%s, no_incoming_yet=true" ZT_EOL_S,
-				ztBuf, ipBuf, localPort, isRealPeer ? "yes" : "no");
 		}
 		// If we haven't received any packets from this peer yet, don't create a stats entry
 	}
