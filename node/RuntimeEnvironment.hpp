@@ -99,7 +99,7 @@ public:
 		PEER_EVENT_OUTGOING_PACKET  // Outgoing packet sent to peer (for port tracking)
 	};
 
-	typedef void (*PeerEventCallback)(void* userPtr, PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort = 0);
+	typedef void (*PeerEventCallback)(void* userPtr, PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort);
 	PeerEventCallback peerEventCallback;
 	void* peerEventCallbackUserPtr;
 };
