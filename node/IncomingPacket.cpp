@@ -26,6 +26,7 @@
 #include "Peer.hpp"
 #include "NetworkController.hpp"
 #include "SelfAwareness.hpp"
+#include "SecurityMonitor.hpp"
 #include "Salsa20.hpp"
 #include "SHA512.hpp"
 #include "World.hpp"
@@ -71,12 +72,22 @@ bool IncomingPacket::tryDecode(const RuntimeEnvironment *RR,void *tPtr,int32_t f
 				if (!dearmor(peer->key(), peer->aesKeys())) {
 					RR->t->incomingPacketMessageAuthenticationFailure(tPtr,_path,packetId(),sourceAddress,hops(),"invalid MAC");
 					peer->recordIncomingInvalidPacket(_path);
+					// Record security event for monitoring
+					if (RR->sm) {
+						RR->sm->recordSecurityEvent(tPtr, _path->address(), sourceAddress,
+							SecurityMonitor::SEC_AUTH_FAILURE, "MAC authentication failure");
+					}
 					return true;
 				}
 			}
 
 			if (!uncompress()) {
 				RR->t->incomingPacketInvalid(tPtr,_path,packetId(),sourceAddress,hops(),Packet::VERB_NOP,"LZ4 decompression failed");
+				// Record security event for invalid packet monitoring
+				if (RR->sm) {
+					RR->sm->recordSecurityEvent(tPtr, _path->address(), sourceAddress,
+						SecurityMonitor::SEC_INVALID_PACKET, "LZ4 decompression failed");
+				}
 				return true;
 			}
 
@@ -439,6 +450,11 @@ bool IncomingPacket::_doHELLO(const RuntimeEnvironment *RR,void *tPtr,const bool
 		// Check rate limits
 		if (!RR->node->rateGateIdentityVerification(now,_path->address())) {
 			RR->t->incomingPacketDroppedHELLO(tPtr,_path,pid,fromAddress,"rate limit exceeded");
+			// Record security event for DoS monitoring
+			if (RR->sm) {
+				RR->sm->recordSecurityEvent(tPtr, _path->address(), fromAddress,
+					SecurityMonitor::SEC_RATE_LIMIT_EXCEEDED, "HELLO rate limit exceeded");
+			}
 			return true;
 		}
 
@@ -452,6 +468,11 @@ bool IncomingPacket::_doHELLO(const RuntimeEnvironment *RR,void *tPtr,const bool
 		// Check that identity's address is valid as per the derivation function
 		if (!id.locallyValidate()) {
 			RR->t->incomingPacketDroppedHELLO(tPtr,_path,pid,fromAddress,"invalid identity");
+			// Record security event for invalid identity
+			if (RR->sm) {
+				RR->sm->recordSecurityEvent(tPtr, _path->address(), fromAddress,
+					SecurityMonitor::SEC_PROTOCOL_VIOLATION, "Invalid identity format");
+			}
 			return true;
 		}
 
@@ -971,6 +992,11 @@ bool IncomingPacket::_doECHO(const RuntimeEnvironment *RR,void *tPtr,const Share
 	Metrics::pkt_echo_in++;
 	uint64_t now = RR->node->now();
 	if (!_path->rateGateEchoRequest(now)) {
+		// Record security event for echo flooding
+		if (RR->sm) {
+			RR->sm->recordSecurityEvent(tPtr, _path->address(), peer->address(),
+				SecurityMonitor::SEC_EXCESSIVE_ECHO, "Echo request rate limit exceeded");
+		}
 		return true;
 	}
 

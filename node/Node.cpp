@@ -413,6 +413,11 @@ ZT_ResultCode Node::processBackgroundTasks(void *tptr,int64_t now,volatile int64
 			_PingPeersThatNeedPing pfunc(RR,tptr,alwaysContact,now);
 			RR->topology->eachPeer<_PingPeersThatNeedPing &>(pfunc);
 
+			// Run security monitor maintenance
+			if (RR->sm) {
+				RR->sm->doPeriodicMaintenance(tptr, now);
+			}
+
 			// Run WHOIS to create Peer for alwaysContact addresses that could not be contacted
 			{
 				Hashtable< Address,std::vector<InetAddress> >::Iterator i(alwaysContact);
