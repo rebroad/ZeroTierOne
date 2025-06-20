@@ -2475,8 +2475,8 @@ public:
 		_controlPlane.Get("/security/threats", securityThreatsGet);
 		_controlPlaneV6.Get("/security/threats", securityThreatsGet);
 
-		// GET /iptables/stats - peer port usage statistics
-		auto iptablesStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+		// GET /stats - peer port usage statistics
+		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			json stats = json::object();
 
 			// Add port configuration information
@@ -2531,8 +2531,8 @@ public:
 
 			setContent(req, res, stats.dump(2));
 		};
-		_controlPlane.Get("/iptables/stats", iptablesStatsGet);
-		_controlPlaneV6.Get("/iptables/stats", iptablesStatsGet);
+		_controlPlane.Get("/stats", statsGet);
+		_controlPlaneV6.Get("/stats", statsGet);
 
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
