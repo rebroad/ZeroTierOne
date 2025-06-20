@@ -585,10 +585,9 @@ unsigned int Peer::doPingAndKeepalive(void *tPtr,int64_t now)
 						sent |= (_paths[i].p->address().ss_family == AF_INET) ? 0x1 : 0x2;
 					}
 				} else {
-					// Notify service about removed peer path (iptables integration)
-					if (RR->peerEventCallback && _paths[i].p) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_REMOVE, _paths[i].p->address(), _id.address(), Address(), false, 0);
-					}
+					// NOTE: Path expiration does not trigger iptables peer removal.
+					// Peers are only removed from iptables when they're actually removed
+					// from the topology in Topology::doPeriodicTasks()
 					_paths[i] = _PeerPath();
 					deletionOccurred = true;
 				}

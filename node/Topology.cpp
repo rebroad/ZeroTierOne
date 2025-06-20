@@ -365,6 +365,18 @@ void Topology::doPeriodicTasks(void *tPtr,int64_t now)
 		SharedPtr<Peer> *p = (SharedPtr<Peer> *)0;
 		while (i.next(a,p)) {
 			if ( (!(*p)->isAlive(now)) && (std::find(_upstreamAddresses.begin(),_upstreamAddresses.end(),*a) == _upstreamAddresses.end()) ) {
+				// Notify service about peer removal (iptables integration)
+				// This triggers when the peer is actually removed from topology,
+				// ensuring iptables ipset entries are removed at the right time
+				if (RR->peerEventCallback) {
+					// Remove all paths for this peer from iptables
+					std::vector< SharedPtr<Path> > paths((*p)->paths(now));
+					for(std::vector< SharedPtr<Path> >::iterator path(paths.begin());path!=paths.end();++path) {
+						if ((*path)->address().ipScope() == InetAddress::IP_SCOPE_GLOBAL) {
+							RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_REMOVE, (*path)->address(), (*p)->address(), Address(), false, 0);
+						}
+					}
+				}
 				_savePeer(tPtr,*p);
 				_peers.erase(*a);
 			}
