@@ -1,2 +1,3 @@
 We need to gracefully deal with ipset not being found - do we really need to depend on it?
-Can we add a cli command which can take the LAN IP and give us the ztid?
+Create local firewall functionality that mimicks the ZT Central firewall
+if findip finds no result, then at least show which peer recommended the ztaddr
