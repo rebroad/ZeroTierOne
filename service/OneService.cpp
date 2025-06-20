@@ -2496,38 +2496,108 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
-			// Add peer statistics
-			json peerStats = json::object();
+			// Build IP to ZT address mapping using peer data
+			std::map<std::string, std::string> ipToZtAddr;
+			ZT_PeerList *pl = _node->peers();
+			if (pl) {
+				for(unsigned long i = 0; i < pl->peerCount; ++i) {
+					char ztAddrBuf[32];
+					OSUtils::ztsnprintf(ztAddrBuf, sizeof(ztAddrBuf), "%.10llx", pl->peers[i].address);
+					std::string ztAddr(ztAddrBuf);
+
+					for(unsigned int j = 0; j < pl->peers[i].pathCount; ++j) {
+						char ipBuf[64];
+						InetAddress peerIP(&(pl->peers[i].paths[j].address));
+						peerIP.setPort(0); // Remove port for consistent mapping
+						peerIP.toIpString(ipBuf);
+						ipToZtAddr[std::string(ipBuf)] = ztAddr;
+					}
+				}
+				_node->freeQueryResult((void*)pl);
+			}
+
+			// Group peer statistics by ZT address
+			std::map<std::string, json> ztAddrStats;
 			{
 				Mutex::Lock _l(_peerPortStats_m);
 				for (const auto& peerEntry : _peerPortStats) {
 					char peerBuf[64];
-					peerEntry.first.toIpString(peerBuf);  // Use toIpString() instead of toString() to avoid "/0"
+					peerEntry.first.toIpString(peerBuf);
+					std::string peerIP(peerBuf);
 
-					json peerData = json::object();
-					peerData["totalIncoming"] = peerEntry.second.totalIncoming;
-					peerData["totalOutgoing"] = peerEntry.second.totalOutgoing;
-					peerData["firstIncomingSeen"] = peerEntry.second.firstIncomingSeen;
-					peerData["firstOutgoingSeen"] = peerEntry.second.firstOutgoingSeen;
-					peerData["lastIncomingSeen"] = peerEntry.second.lastIncomingSeen;
-					peerData["lastOutgoingSeen"] = peerEntry.second.lastOutgoingSeen;
+					// Find ZT address for this IP
+					std::string ztAddr = "unknown";
+					if (ipToZtAddr.count(peerIP)) {
+						ztAddr = ipToZtAddr[peerIP];
+					}
 
-					json incomingPorts = json::object();
+					// Initialize ZT address entry if not exists
+					if (ztAddrStats.find(ztAddr) == ztAddrStats.end()) {
+						ztAddrStats[ztAddr] = json::object();
+						ztAddrStats[ztAddr]["ztAddress"] = ztAddr;
+						ztAddrStats[ztAddr]["peerIPs"] = json::array();
+						ztAddrStats[ztAddr]["totalIncoming"] = 0ULL;
+						ztAddrStats[ztAddr]["totalOutgoing"] = 0ULL;
+						ztAddrStats[ztAddr]["firstIncomingSeen"] = 0ULL;
+						ztAddrStats[ztAddr]["firstOutgoingSeen"] = 0ULL;
+						ztAddrStats[ztAddr]["lastIncomingSeen"] = 0ULL;
+						ztAddrStats[ztAddr]["lastOutgoingSeen"] = 0ULL;
+						ztAddrStats[ztAddr]["incomingPorts"] = json::object();
+						ztAddrStats[ztAddr]["outgoingPorts"] = json::object();
+					}
+
+					// Add this IP to the list
+					ztAddrStats[ztAddr]["peerIPs"].push_back(peerIP);
+
+					// Aggregate statistics
+					ztAddrStats[ztAddr]["totalIncoming"] = ztAddrStats[ztAddr]["totalIncoming"].get<uint64_t>() + peerEntry.second.totalIncoming;
+					ztAddrStats[ztAddr]["totalOutgoing"] = ztAddrStats[ztAddr]["totalOutgoing"].get<uint64_t>() + peerEntry.second.totalOutgoing;
+
+					// Update timing (earliest first seen, latest last seen)
+					uint64_t firstSeen = peerEntry.second.firstIncomingSeen;
+					uint64_t lastSeen = peerEntry.second.lastIncomingSeen;
+
+					if (firstSeen > 0) {
+						uint64_t currentFirst = ztAddrStats[ztAddr]["firstIncomingSeen"].get<uint64_t>();
+						if (currentFirst == 0 || firstSeen < currentFirst) {
+							ztAddrStats[ztAddr]["firstIncomingSeen"] = firstSeen;
+						}
+					}
+
+					if (lastSeen > 0) {
+						uint64_t currentLast = ztAddrStats[ztAddr]["lastIncomingSeen"].get<uint64_t>();
+						if (lastSeen > currentLast) {
+							ztAddrStats[ztAddr]["lastIncomingSeen"] = lastSeen;
+						}
+					}
+
+					// Aggregate port counts
 					for (const auto& portEntry : peerEntry.second.incomingPortCounts) {
-						incomingPorts[std::to_string(portEntry.first)] = portEntry.second;
+						std::string portStr = std::to_string(portEntry.first);
+						if (!ztAddrStats[ztAddr]["incomingPorts"].contains(portStr)) {
+							ztAddrStats[ztAddr]["incomingPorts"][portStr] = 0ULL;
+						}
+						ztAddrStats[ztAddr]["incomingPorts"][portStr] =
+							ztAddrStats[ztAddr]["incomingPorts"][portStr].get<uint64_t>() + portEntry.second;
 					}
-					peerData["incomingPorts"] = incomingPorts;
 
-					json outgoingPorts = json::object();
 					for (const auto& portEntry : peerEntry.second.outgoingPortCounts) {
-						outgoingPorts[std::to_string(portEntry.first)] = portEntry.second;
+						std::string portStr = std::to_string(portEntry.first);
+						if (!ztAddrStats[ztAddr]["outgoingPorts"].contains(portStr)) {
+							ztAddrStats[ztAddr]["outgoingPorts"][portStr] = 0ULL;
+						}
+						ztAddrStats[ztAddr]["outgoingPorts"][portStr] =
+							ztAddrStats[ztAddr]["outgoingPorts"][portStr].get<uint64_t>() + portEntry.second;
 					}
-					peerData["outgoingPorts"] = outgoingPorts;
-
-					peerStats[peerBuf] = peerData;
 				}
 			}
-			stats["peers"] = peerStats;
+
+			// Convert to final format
+			json peerStats = json::object();
+			for (const auto& [ztAddr, data] : ztAddrStats) {
+				peerStats[ztAddr] = data;
+			}
+			stats["peersByZtAddress"] = peerStats;
 
 			setContent(req, res, stats.dump(2));
 		};
