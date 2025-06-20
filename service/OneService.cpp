@@ -699,8 +699,7 @@ static void SnodeVirtualNetworkFrameFunction(ZT_Node *node,void *uptr,void *tptr
 static int SnodePathCheckFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int64_t localSocket,const struct sockaddr_storage *remoteAddr);
 static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int family,struct sockaddr_storage *result);
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len);
-static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, bool isAdd);
-static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy);
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful);
 
 static int ShttpOnMessageBegin(http_parser *parser);
 static int ShttpOnUrl(http_parser *parser,const char *ptr,size_t length);
@@ -1099,11 +1098,8 @@ public:
 				_node = new Node(this,(void *)0,&cb,OSUtils::now());
 			}
 
-			// Set up peer path callback for iptables integration
-			_node->setPeerPathCallback(SpeerPathCallback, this);
-
-			// Set up peer introduction callback for misbehavior detection
-			_node->setPeerIntroductionCallback(SpeerIntroductionCallback, this);
+			// Set up unified peer event callback for iptables, introductions, and connection attempts
+			_node->setPeerEventCallback(SpeerEventCallback, this);
 
 			// local.conf
 			readLocalSettings();
@@ -4360,7 +4356,12 @@ public:
 	void _trackPeerIntroduction(const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy, uint64_t now)
 	{
 		Mutex::Lock _l(_peerIntroductions_m);
-		auto& intro = _peerIntroductions[introducedIP];
+
+		// Remove port from IP address to avoid runaway entries due to changing ports
+		InetAddress ipWithoutPort = introducedIP;
+		ipWithoutPort.setPort(0);
+
+		auto& intro = _peerIntroductions[ipWithoutPort];
 
 		if (intro.firstIntroduced == 0) {
 			intro.firstIntroduced = now;
@@ -4410,7 +4411,12 @@ public:
 	void _trackConnectionAttempt(const InetAddress& targetIP, bool successful, uint64_t now)
 	{
 		Mutex::Lock _l(_peerIntroductions_m);
-		auto it = _peerIntroductions.find(targetIP);
+
+		// Remove port from IP address to match introduction tracking
+		InetAddress ipWithoutPort = targetIP;
+		ipWithoutPort.setPort(0);
+
+		auto it = _peerIntroductions.find(ipWithoutPort);
 		if (it != _peerIntroductions.end()) {
 			auto& intro = it->second;
 			intro.lastConnectionAttempt = now;
@@ -4420,17 +4426,21 @@ public:
 			} else {
 				intro.failedAttempts++;
 
-				// Detect misbehavior: many failed attempts to introduced IP
-				if (intro.failedAttempts >= 10 && !intro.hasEverConnected) {
+				// Enhanced failure detection with context awareness
+				if (intro.failedAttempts >= 5 && !intro.hasEverConnected) {
 					char ipBuf[64], introducerBuf[16], targetBuf[16];
 					targetIP.toString(ipBuf);
 					intro.introducedBy.toString(introducerBuf);
 					intro.targetPeerAddr.toString(targetBuf);
 
-					// Determine peer type for misbehavior logging
+					// Check if target peer is already connected via different path
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+					SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, intro.targetPeerAddr);
+					bool targetConnectedElsewhere = (existingPeer && existingPeer->isAlive(now));
+
+					// Determine peer types for logging
 					const char* targetPeerType = "UNKNOWN";
 					const char* introducerType = "UNKNOWN";
-					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
 
 					ZT_PeerRole targetRole = RR->topology->role(intro.targetPeerAddr);
 					switch (targetRole) {
@@ -4448,8 +4458,13 @@ public:
 						default: introducerType = "UNKNOWN"; break;
 					}
 
-					fprintf(stderr, "PEER_MISBEHAVIOR: IP %s (%s %s) introduced by %s %s has failed %u connection attempts without success" ZT_EOL_S,
-						ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
+					if (targetConnectedElsewhere) {
+						fprintf(stderr, "PEER_INTRO_REDUNDANT: IP %s (%s %s) introduced by %s %s failed %u attempts - peer already connected via other path (LAN?)" ZT_EOL_S,
+							ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
+					} else {
+						fprintf(stderr, "PEER_INTRO_FAILING: IP %s (%s %s) introduced by %s %s failed %u connection attempts without success" ZT_EOL_S,
+							ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
+					}
 				}
 			}
 		}
@@ -4628,14 +4643,24 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodePathLookupFunction(ztaddr,family,result); }
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
-static void SpeerPathCallback(void* userPtr, const InetAddress& peerAddress, bool isAdd)
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful)
 {
-	reinterpret_cast<OneServiceImpl*>(userPtr)->_handlePeerPathUpdate(peerAddress, isAdd);
-}
+	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
-static void SpeerIntroductionCallback(void* userPtr, const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy)
-{
-	reinterpret_cast<OneServiceImpl*>(userPtr)->_trackPeerIntroduction(introducedIP, targetPeerAddr, introducedBy, OSUtils::now());
+	switch (eventType) {
+		case RuntimeEnvironment::PEER_EVENT_PATH_ADD:
+			service->_handlePeerPathUpdate(peerAddress, true);
+			break;
+		case RuntimeEnvironment::PEER_EVENT_PATH_REMOVE:
+			service->_handlePeerPathUpdate(peerAddress, false);
+			break;
+		case RuntimeEnvironment::PEER_EVENT_INTRODUCTION:
+			service->_trackPeerIntroduction(peerAddress, peerZtAddr, introducerZtAddr, OSUtils::now());
+			break;
+		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
+			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
+			break;
+	}
 }
 
 static int ShttpOnMessageBegin(http_parser *parser)
