@@ -2415,8 +2415,10 @@ public:
 			for (const auto &event : events) {
 				json eventJson;
 				eventJson["timestamp"] = event.timestamp;
-				char ipBuf[64]; eventJson["sourceIP"] = event.sourceIP.toString(ipBuf);
-				char ztBuf[11]; eventJson["sourceZTAddr"] = event.sourceZTAddr.toString(ztBuf);
+				char ipBuf[64];
+				eventJson["sourceIP"] = event.sourceIP.toString(ipBuf);
+				char ztBuf[11];
+				eventJson["sourceZTAddr"] = event.sourceZTAddr.toString(ztBuf);
 				eventJson["eventType"] = event.eventType;
 				eventJson["threatLevel"] = event.threatLevel;
 				eventJson["description"] = event.description;
