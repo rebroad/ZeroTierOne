@@ -31,6 +31,7 @@ CORE_OBJS=\
 	node/Utils.o \
 	node/Bond.o \
 	node/PacketMultiplexer.o \
+	node/SecurityMonitor.o \
 	osdep/OSUtils.o
 
 ONE_OBJS=\
