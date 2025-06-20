@@ -1167,26 +1167,31 @@ static int cli(int argc,char **argv)
 				printf("%-15s %-18s %-10s %-8s %s" ZT_EOL_S, "---------------", "------------------", "----------", "--------", "-------------------");
 
 				// Get peer information to map IPs to ZT addresses
-				std::map<std::string, std::vector<std::string>> ipToZtAddr;
+				std::map<std::string, std::string> ipToZtAddr;
 				responseHeaders.clear();
 				std::string peerResponseBody;
 				unsigned int peerscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/peer",requestHeaders,responseHeaders,peerResponseBody);
 				if (peerscode == 200) {
 					try {
-						nlohmann::json peerJson = nlohmann::json::parse(peerResponseBody);
+						nlohmann::json peerJson = OSUtils::jsonParse(peerResponseBody);
 						if (peerJson.is_array()) {
 							for (auto& peer : peerJson) {
 								if (peer.contains("address") && peer.contains("paths") && peer["paths"].is_array()) {
-									std::string ztaddr = peer["address"];
-									for (auto& path : peer["paths"]) {
+									std::string ztaddr = OSUtils::jsonString(peer["address"], "");
+									nlohmann::json& paths = peer["paths"];
+									for (unsigned long i = 0; i < paths.size(); ++i) {
+										nlohmann::json& path = paths[i];
 										if (path.contains("address")) {
-											std::string peerIP = path["address"];
+											std::string peerIP = OSUtils::jsonString(path["address"], "");
 											// Extract just the IP part (remove port)
 											size_t colonPos = peerIP.find_last_of(':');
 											if (colonPos != std::string::npos) {
 												peerIP = peerIP.substr(0, colonPos);
 											}
-											ipToZtAddr[peerIP].push_back(ztaddr);
+											// Only store the first ZT address found for each IP
+											if (ipToZtAddr.find(peerIP) == ipToZtAddr.end()) {
+												ipToZtAddr[peerIP] = ztaddr;
+											}
 										}
 									}
 								}
@@ -1324,12 +1329,7 @@ static int cli(int argc,char **argv)
 						std::string ztAddrStr = "unknown";
 						auto it = ipToZtAddr.find(peerAddr);
 						if (it != ipToZtAddr.end() && !it->second.empty()) {
-							if (it->second.size() == 1) {
-								ztAddrStr = it->second[0];
-							} else {
-								// Multiple ZT addresses for same IP - show first one with count
-								ztAddrStr = it->second[0] + "+" + std::to_string(it->second.size() - 1);
-							}
+							ztAddrStr = it->second;
 						}
 
 						printf("%-15s %-18s %-10s %-8s %s" ZT_EOL_S, peerAddr.c_str(), ztAddrStr.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
