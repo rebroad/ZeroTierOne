@@ -221,10 +221,28 @@ ZT_ResultCode Node::processWirePacket(
 	const struct sockaddr_storage *remoteAddress,
 	const void *packetData,
 	unsigned int packetLength,
-	volatile int64_t *nextBackgroundTaskDeadline)
+	volatile int64_t *nextBackgroundTaskDeadline,
+	Address *sourcePeerAddress)
 {
 	_now = now;
+
+	// Extract source address from packet for port tracking
+	Address sourceAddr;
+	bool hasSourceAddr = false;
+
+	if (packetLength >= ZT_PROTO_MIN_PACKET_LENGTH) {
+		// ZeroTier packet format: source address is at offset 13, length 5 bytes
+		sourceAddr.setTo(reinterpret_cast<const uint8_t *>(packetData) + 13, ZT_ADDRESS_LENGTH);
+		hasSourceAddr = true;
+	}
+
 	RR->sw->onRemotePacket(tptr,localSocket,*(reinterpret_cast<const InetAddress *>(remoteAddress)),packetData,packetLength);
+
+	// If caller wants the source peer address and we successfully extracted it, provide it
+	if (sourcePeerAddress && hasSourceAddr) {
+		*sourcePeerAddress = sourceAddr;
+	}
+
 	return ZT_RESULT_OK;
 }
 
