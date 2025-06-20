@@ -768,7 +768,7 @@ bool IncomingPacket::_doRENDEZVOUS(const RuntimeEnvironment *RR,void *tPtr,const
 				if (RR->node->shouldUsePathForZeroTierTraffic(tPtr,with,_path->localSocket(),atAddr)) {
 					// Track peer introduction for misbehavior detection
 					if (RR->peerIntroductionCallback) {
-						RR->peerIntroductionCallback(RR->peerIntroductionCallbackUserPtr, atAddr, peer->address());
+						RR->peerIntroductionCallback(RR->peerIntroductionCallbackUserPtr, atAddr, with, peer->address());
 					}
 
 					const uint64_t junk = RR->node->prng();

@@ -100,7 +100,7 @@ public:
 	void* peerPathCallbackUserPtr;
 
 	// Callback for peer introduction events (misbehavior detection)
-	typedef void (*PeerIntroductionCallback)(void* userPtr, const InetAddress& introducedIP, const Address& introducedBy);
+	typedef void (*PeerIntroductionCallback)(void* userPtr, const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy);
 	PeerIntroductionCallback peerIntroductionCallback;
 	void* peerIntroductionCallbackUserPtr;
 
