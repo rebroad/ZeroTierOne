@@ -1166,201 +1166,137 @@ static int cli(int argc,char **argv)
 				printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, "ZT Address", "Peer Address", "First In", "Last In", "Port Usage (In/Out)");
 				printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, "------------", "---------------", "----------", "--------", "-------------------");
 
-				// Get peer information to map IPs to ZT addresses
-				responseHeaders.clear();
-				std::string peerResponseBody;
-				unsigned int peerscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/peer",requestHeaders,responseHeaders,peerResponseBody);
-
-				// Build IP to ZT address mapping
-				std::map<std::string, std::string> ipToZtAddr;
-				if (peerscode == 200) {
-					try {
-						nlohmann::json peerJson = OSUtils::jsonParse(peerResponseBody);
-						if (peerJson.is_array()) {
-							for (unsigned long k = 0; k < peerJson.size(); ++k) {
-								nlohmann::json& peer = peerJson[k];
-								std::string ztaddr = OSUtils::jsonString(peer["address"], "-");
-
-								// Get all IPs for this peer
-								if (peer.contains("paths") && peer["paths"].is_array()) {
-									nlohmann::json& paths = peer["paths"];
-									for (unsigned long i = 0; i < paths.size(); ++i) {
-										nlohmann::json& path = paths[i];
-										if (path.contains("address")) {
-											std::string fullAddr = OSUtils::jsonString(path["address"], "");
-											// Extract just the IP part (remove port)
-											size_t colonPos = fullAddr.find_last_of(':');
-											if (colonPos != std::string::npos) {
-												std::string peerIP = fullAddr.substr(0, colonPos);
-												ipToZtAddr[peerIP] = ztaddr;
-											}
-										}
-									}
-								}
-							}
-						}
-					} catch (const std::exception& e) {
-						// Silently ignore JSON parsing errors for peer data
-					}
-				}
-
-				// Group stats by ZT address
-				std::map<std::string, std::map<std::string, uint64_t>> ztAddrIncoming;
-				std::map<std::string, std::map<std::string, uint64_t>> ztAddrOutgoing;
-				std::map<std::string, uint64_t> ztAddrFirstSeen;
-				std::map<std::string, uint64_t> ztAddrLastSeen;
-				std::map<std::string, std::vector<std::string>> ztAddrIPs;
-
-				if (j.contains("peers") && j["peers"].is_object()) {
-					for (auto& [peerIP, peerData] : j["peers"].items()) {
-						std::string ztaddr = ipToZtAddr.count(peerIP) ? ipToZtAddr[peerIP] : "unknown";
-
-						// Track IPs for this ZT address
-						ztAddrIPs[ztaddr].push_back(peerIP);
-
-						// Aggregate timing data
+				// Process aggregated peer data from the /stats endpoint
+				if (j.contains("peersByZtAddress") && j["peersByZtAddress"].is_object()) {
+					for (auto& [ztaddr, peerData] : j["peersByZtAddress"].items()) {
+						// Format timestamps
+						const uint64_t now = OSUtils::now();
 						uint64_t firstSeen = peerData.value("firstIncomingSeen", 0ULL);
 						uint64_t lastSeen = peerData.value("lastIncomingSeen", 0ULL);
 
-						if (firstSeen > 0 && (ztAddrFirstSeen[ztaddr] == 0 || firstSeen < ztAddrFirstSeen[ztaddr])) {
-							ztAddrFirstSeen[ztaddr] = firstSeen;
-						}
-						if (lastSeen > ztAddrLastSeen[ztaddr]) {
-							ztAddrLastSeen[ztaddr] = lastSeen;
+						int64_t firstIncomingDiff = firstSeen ? (now - firstSeen) / 1000 : -1;
+						int64_t lastIncomingDiff = lastSeen ? (now - lastSeen) / 1000 : -1;
+
+						char firstIncomingStr[32], lastIncomingStr[32];
+						if (firstIncomingDiff >= 0) {
+							if (firstIncomingDiff < 60)
+								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lds ago", (long)firstIncomingDiff);
+							else if (firstIncomingDiff < 3600)
+								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldm ago", (long)(firstIncomingDiff / 60));
+							else
+								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldh ago", (long)(firstIncomingDiff / 3600));
+						} else {
+							strcpy(firstIncomingStr, "never");
 						}
 
-						// Aggregate port stats
-						if (peerData.contains("incomingPorts") && peerData["incomingPorts"].is_object()) {
-							for (auto& [port, count] : peerData["incomingPorts"].items()) {
-								ztAddrIncoming[ztaddr][port] += count.get<uint64_t>();
+						if (lastIncomingDiff >= 0) {
+							if (lastIncomingDiff < 60)
+								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%lds ago", (long)lastIncomingDiff);
+							else if (lastIncomingDiff < 3600)
+								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldm ago", (long)(lastIncomingDiff / 60));
+							else
+								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldh ago", (long)(lastIncomingDiff / 3600));
+						} else {
+							strcpy(lastIncomingStr, "never");
+						}
+
+						// Build port usage string in correct order
+						std::string portUsage;
+						bool hasAnyTraffic = false;
+
+						// Get port configuration to determine correct order
+						uint32_t primaryPort = 9993;   // Default
+						uint32_t secondaryPort = 0;
+						uint32_t tertiaryPort = 0;
+
+						if (j.contains("portConfiguration")) {
+							auto& portConfig = j["portConfiguration"];
+							primaryPort = portConfig.value("primaryPort", 9993U);
+							secondaryPort = portConfig.value("secondaryPort", 0U);
+							tertiaryPort = portConfig.value("tertiaryPort", 0U);
+						}
+
+						// Get port data
+						auto incomingPorts = peerData.value("incomingPorts", nlohmann::json::object());
+						auto outgoingPorts = peerData.value("outgoingPorts", nlohmann::json::object());
+
+						// Order ports: primary, secondary, tertiary, then any others
+						std::vector<std::string> orderedPorts;
+						std::set<std::string> usedPorts;
+
+						// Add primary port first
+						std::string primaryStr = std::to_string(primaryPort);
+						if (incomingPorts.contains(primaryStr) || outgoingPorts.contains(primaryStr)) {
+							orderedPorts.push_back(primaryStr);
+							usedPorts.insert(primaryStr);
+						}
+
+						// Add secondary port if enabled
+						if (secondaryPort > 0) {
+							std::string secondaryStr = std::to_string(secondaryPort);
+							if (incomingPorts.contains(secondaryStr) || outgoingPorts.contains(secondaryStr)) {
+								orderedPorts.push_back(secondaryStr);
+								usedPorts.insert(secondaryStr);
 							}
 						}
-						if (peerData.contains("outgoingPorts") && peerData["outgoingPorts"].is_object()) {
-							for (auto& [port, count] : peerData["outgoingPorts"].items()) {
-								ztAddrOutgoing[ztaddr][port] += count.get<uint64_t>();
+
+						// Add tertiary port
+						if (tertiaryPort > 0) {
+							std::string tertiaryStr = std::to_string(tertiaryPort);
+							if (incomingPorts.contains(tertiaryStr) || outgoingPorts.contains(tertiaryStr)) {
+								orderedPorts.push_back(tertiaryStr);
+								usedPorts.insert(tertiaryStr);
 							}
 						}
-					}
-				}
 
-				// Display aggregated results by ZT address
-				for (auto& [ztaddr, incomingPorts] : ztAddrIncoming) {
-					// Format timestamps
-					const uint64_t now = OSUtils::now();
-					int64_t firstIncomingDiff = ztAddrFirstSeen[ztaddr] ? (now - ztAddrFirstSeen[ztaddr]) / 1000 : -1;
-					int64_t lastIncomingDiff = ztAddrLastSeen[ztaddr] ? (now - ztAddrLastSeen[ztaddr]) / 1000 : -1;
-
-					char firstIncomingStr[32], lastIncomingStr[32];
-					if (firstIncomingDiff >= 0) {
-						if (firstIncomingDiff < 60)
-							snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lds ago", (long)firstIncomingDiff);
-						else if (firstIncomingDiff < 3600)
-							snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldm ago", (long)(firstIncomingDiff / 60));
-						else
-							snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldh ago", (long)(firstIncomingDiff / 3600));
-					} else {
-						strcpy(firstIncomingStr, "never");
-					}
-
-					if (lastIncomingDiff >= 0) {
-						if (lastIncomingDiff < 60)
-							snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%lds ago", (long)lastIncomingDiff);
-						else if (lastIncomingDiff < 3600)
-							snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldm ago", (long)(lastIncomingDiff / 60));
-						else
-							snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldh ago", (long)(lastIncomingDiff / 3600));
-					} else {
-						strcpy(lastIncomingStr, "never");
-					}
-
-					// Build port usage string in correct order
-					std::string portUsage;
-					bool hasAnyTraffic = false;
-
-					// Get port configuration to determine correct order
-					uint32_t primaryPort = 9993;   // Default
-					uint32_t secondaryPort = 0;
-					uint32_t tertiaryPort = 0;
-
-					if (j.contains("portConfiguration")) {
-						auto& portConfig = j["portConfiguration"];
-						primaryPort = portConfig.value("primaryPort", 9993U);
-						secondaryPort = portConfig.value("secondaryPort", 0U);
-						tertiaryPort = portConfig.value("tertiaryPort", 0U);
-					}
-
-					// Order ports: primary, secondary, tertiary, then any others
-					std::vector<std::string> orderedPorts;
-					std::set<std::string> usedPorts;
-
-					// Add primary port first
-					std::string primaryStr = std::to_string(primaryPort);
-					if (incomingPorts.count(primaryStr) || ztAddrOutgoing[ztaddr].count(primaryStr)) {
-						orderedPorts.push_back(primaryStr);
-						usedPorts.insert(primaryStr);
-					}
-
-					// Add secondary port if enabled
-					if (secondaryPort > 0) {
-						std::string secondaryStr = std::to_string(secondaryPort);
-						if (incomingPorts.count(secondaryStr) || ztAddrOutgoing[ztaddr].count(secondaryStr)) {
-							orderedPorts.push_back(secondaryStr);
-							usedPorts.insert(secondaryStr);
+						// Add any other ports not already included
+						std::set<std::string> allPorts;
+						for (auto& [port, count] : incomingPorts.items()) {
+							if (usedPorts.find(port) == usedPorts.end()) {
+								allPorts.insert(port);
+							}
 						}
-					}
-
-					// Add tertiary port
-					if (tertiaryPort > 0) {
-						std::string tertiaryStr = std::to_string(tertiaryPort);
-						if (incomingPorts.count(tertiaryStr) || ztAddrOutgoing[ztaddr].count(tertiaryStr)) {
-							orderedPorts.push_back(tertiaryStr);
-							usedPorts.insert(tertiaryStr);
+						for (auto& [port, count] : outgoingPorts.items()) {
+							if (usedPorts.find(port) == usedPorts.end()) {
+								allPorts.insert(port);
+							}
 						}
-					}
-
-					// Add any other ports not already included
-					std::set<std::string> allPorts;
-					for (auto& [port, count] : incomingPorts) {
-						if (usedPorts.find(port) == usedPorts.end()) {
-							allPorts.insert(port);
+						for (const auto& port : allPorts) {
+							orderedPorts.push_back(port);
 						}
-					}
-					for (auto& [port, count] : ztAddrOutgoing[ztaddr]) {
-						if (usedPorts.find(port) == usedPorts.end()) {
-							allPorts.insert(port);
+
+						// Build the display string
+						bool first = true;
+						for (const auto& port : orderedPorts) {
+							if (!first) portUsage += ", ";
+
+							uint64_t inCount = incomingPorts.value(port, 0ULL);
+							uint64_t outCount = outgoingPorts.value(port, 0ULL);
+
+							portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
+							first = false;
+							hasAnyTraffic = true;
 						}
-					}
-					for (const auto& port : allPorts) {
-						orderedPorts.push_back(port);
-					}
 
-					// Build the display string
-					bool first = true;
-					for (const auto& port : orderedPorts) {
-						if (!first) portUsage += ", ";
+						if (!hasAnyTraffic) portUsage = "none";
 
-						uint64_t inCount = incomingPorts[port];
-						uint64_t outCount = ztAddrOutgoing[ztaddr][port];
-
-						portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
-						first = false;
-						hasAnyTraffic = true;
-					}
-
-					if (!hasAnyTraffic) portUsage = "none";
-
-					// Format peer IPs for display
-					std::string peerAddrsStr = "";
-					if (!ztAddrIPs[ztaddr].empty()) {
-						peerAddrsStr = ztAddrIPs[ztaddr][0];
-						if (ztAddrIPs[ztaddr].size() > 1) {
-							peerAddrsStr += "+" + std::to_string(ztAddrIPs[ztaddr].size() - 1);
+						// Format peer IPs for display
+						std::string peerAddrsStr = "";
+						if (peerData.contains("peerIPs") && peerData["peerIPs"].is_array()) {
+							auto peerIPs = peerData["peerIPs"];
+							if (!peerIPs.empty()) {
+								peerAddrsStr = peerIPs[0].get<std::string>();
+								if (peerIPs.size() > 1) {
+									peerAddrsStr += "+" + std::to_string(peerIPs.size() - 1);
+								}
+							}
 						}
-					} else {
-						peerAddrsStr = "-";
-					}
+						if (peerAddrsStr.empty()) {
+							peerAddrsStr = "-";
+						}
 
-					printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, ztaddr.c_str(), peerAddrsStr.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
+						printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, ztaddr.c_str(), peerAddrsStr.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
+					}
 				}
 			}
 			return 0;
