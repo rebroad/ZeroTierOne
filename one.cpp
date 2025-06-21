@@ -1177,8 +1177,8 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, "ZT Address", "IP Address", "First In", "Last In", "Port Usage (In/Out)");
-				printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, "------------", "---------------", "----------", "--------", "-------------------");
+				printf("%-10s %-15s %-8s %-8s %s" ZT_EOL_S, "ZT Address", "IP Address", "First In", "Last In", "Port Usage (In/Out)");
+				printf("%-10s %-15s %-8s %-8s %s" ZT_EOL_S, "----------", "---------------", "--------", "--------", "-------------------");
 
 				// Process per-IP peer data from the /stats endpoint
 				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_object()) {
@@ -1297,7 +1297,7 @@ static int cli(int argc,char **argv)
 
 						if (!hasAnyTraffic) portUsage = "none";
 
-						printf("%-12s %-15s %-10s %-8s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
+						printf("%-10s %-15s %-8s %-8s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
 					}
 				}
 
