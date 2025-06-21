@@ -4501,10 +4501,7 @@ public:
 						default: introducerType = "UNKNOWN"; break;
 					}
 
-					if (targetConnectedElsewhere) {
-						fprintf(stderr, "PEER_INTRO_REDUNDANT: IP %s (%s %s) introduced by %s %s failed %u attempts - peer already connected via other path (LAN?)" ZT_EOL_S,
-							ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
-					} else {
+					if (!targetConnectedElsewhere) {
 						fprintf(stderr, "PEER_INTRO_FAILING: IP %s (%s %s) introduced by %s %s failed %u connection attempts without success" ZT_EOL_S,
 							ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
 					}
