@@ -2514,6 +2514,17 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
+			// Get total peer count from node
+			unsigned int peerCount = 0;
+			if (_node) {
+				ZT_PeerList *allPeers = _node->peers();
+				if (allPeers) {
+					peerCount = allPeers->peerCount;
+					_node->freeQueryResult(allPeers);
+				}
+			}
+			stats["totalPeerCount"] = peerCount;
+
 			// Get peer statistics (IP addresses are now collected when stats are updated)
 			json peerStats = json::object();
 			{
