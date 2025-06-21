@@ -4905,6 +4905,9 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
+		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
+			service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localPort, OSUtils::now());
+			break;
 	}
 }
 
