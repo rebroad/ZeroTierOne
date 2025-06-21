@@ -4691,7 +4691,7 @@ public:
 					}
 				}
 
-				fprintf(stderr, "PACKET_TO: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				fprintf(stderr, "PACKET_TO1: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 					packetSize, localBuf, ipBuf, ztBuf, localPort, peerRole, peerVersion,
 					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 			}
@@ -4767,7 +4767,7 @@ public:
 				}
 			}
 
-			fprintf(stderr, "PACKET_TO: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+			fprintf(stderr, "PACKET_TO2: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 				packetSize, localBuf, ipBuf, ztBuf, localPort, peerRole, peerVersion,
 				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 		}
