@@ -4160,10 +4160,10 @@ public:
 
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 
-			// Track outgoing packet for first-time logging
-			if (r && len >= 16) {
-				_trackOutgoingPacketSend(localSocket, addr, data, len);
-			}
+			// DISABLED: Track outgoing packet for first-time logging (causes deadlock)
+			// if (r && len >= 16) {
+			//	_trackOutgoingPacketSend(localSocket, addr, data, len);
+			// }
 
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
@@ -4172,10 +4172,10 @@ public:
 		} else {
 			const bool r = _binder.udpSendAll(_phy,addr,data,len,ttl);
 
-			// Track outgoing packet for first-time logging (when using sendAll)
-			if (r && len >= 16) {
-				_trackOutgoingPacketSend(-1, addr, data, len);
-			}
+			// DISABLED: Track outgoing packet for first-time logging (causes deadlock)
+			// if (r && len >= 16) {
+			//	_trackOutgoingPacketSend(-1, addr, data, len);
+			// }
 
 			return (r ? 0 : -1);
 		}
