@@ -2537,22 +2537,15 @@ public:
 
 		// GET /stats - peer port usage statistics
 		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-
 			json stats = json::object();
-
-			fprintf(stderr, "DEBUG: created stats json object\n");
-			fflush(stderr);
 
 			// Add port configuration information
 			json portConfig = json::object();
-
-			// Get actual bound ports
 			std::vector<unsigned int> boundPorts = _collectUdpPorts();
 			json actualPorts = json::array();
 			for (unsigned int port : boundPorts) {
 				actualPorts.push_back(port);
 			}
-
 			portConfig["primaryPort"] = _primaryPort;
 			portConfig["secondaryPort"] = (_allowSecondaryPort && _ports[1] != 0) ? _ports[1] : 0;
 			portConfig["tertiaryPort"] = _tertiaryPort;
@@ -2560,145 +2553,67 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
-			fprintf(stderr, "DEBUG: port configuration added\n");
-			fflush(stderr);
-
-			// Get peer statistics (IP addresses are now collected when stats are updated)
-			json peerStats = json::object();
-
-			fprintf(stderr, "DEBUG: about to acquire _peerPortStats_m lock\n");
-			fflush(stderr);
-
+			// Copy peer stats snapshot to avoid holding lock while building JSON
+			std::map<std::pair<Address, std::string>, PeerPortStats> peerStatsSnapshot;
 			{
 				Mutex::Lock _l(_peerPortStats_m);
-
-				fprintf(stderr, "DEBUG: acquired _peerPortStats_m lock, stats size: %zu\n", _peerPortStats.size());
-				fflush(stderr);
-				for (const auto& peerEntry : _peerPortStats) {
-					const std::pair<Address, std::string>& peerKey = peerEntry.first;
-					const Address& ztAddr = peerKey.first;
-					const std::string& ipAddr = peerKey.second;
-					const PeerPortStats& stats = peerEntry.second;
-
-					char ztAddrBuf[32];
-					ztAddr.toString(ztAddrBuf);
-					std::string ztAddrStr(ztAddrBuf);
-
-					// Create unique key for this ZT address + IP combination
-					std::string combinedKey = ztAddrStr + "@" + stats.peerIP;
-
-					json peerStat = json::object();
-					peerStat["ztAddress"] = ztAddrStr;
-					peerStat["ipAddress"] = stats.peerIP;
-					peerStat["totalIncoming"] = stats.totalIncoming;
-					peerStat["totalOutgoing"] = stats.totalOutgoing;
-					peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
-					peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
-					peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
-					peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
-
-					// Port usage statistics
-					json incomingPorts = json::object();
-					for (const auto& portCount : stats.incomingPortCounts) {
-						incomingPorts[std::to_string(portCount.first)] = portCount.second;
-					}
-					peerStat["incomingPorts"] = incomingPorts;
-
-					json outgoingPorts = json::object();
-					for (const auto& portCount : stats.outgoingPortCounts) {
-						outgoingPorts[std::to_string(portCount.first)] = portCount.second;
-					}
-					peerStat["outgoingPorts"] = outgoingPorts;
-
-					peerStats[combinedKey] = peerStat;
-				}
+				peerStatsSnapshot = _peerPortStats; // Copy entire map
 			}
 
-			fprintf(stderr, "DEBUG: processed peer stats, setting peersByZtAddressAndIP\n");
-			fflush(stderr);
+			// Build peer stats JSON from snapshot (no locks held)
+			json peerStats = json::object();
+			for (const auto& peerEntry : peerStatsSnapshot) {
+				const Address& ztAddr = peerEntry.first.first;
+				const PeerPortStats& stats = peerEntry.second;
 
+				char ztAddrBuf[32];
+				ztAddr.toString(ztAddrBuf);
+				std::string combinedKey = std::string(ztAddrBuf) + "@" + stats.peerIP;
+
+				json peerStat = json::object();
+				peerStat["ztAddress"] = ztAddrBuf;
+				peerStat["ipAddress"] = stats.peerIP;
+				peerStat["totalIncoming"] = stats.totalIncoming;
+				peerStat["totalOutgoing"] = stats.totalOutgoing;
+				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
+				peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
+				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
+				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
+
+				json incomingPorts = json::object();
+				for (const auto& portCount : stats.incomingPortCounts) {
+					incomingPorts[std::to_string(portCount.first)] = portCount.second;
+				}
+				peerStat["incomingPorts"] = incomingPorts;
+
+				json outgoingPorts = json::object();
+				for (const auto& portCount : stats.outgoingPortCounts) {
+					outgoingPorts[std::to_string(portCount.first)] = portCount.second;
+				}
+				peerStat["outgoingPorts"] = outgoingPorts;
+
+				peerStats[combinedKey] = peerStat;
+			}
 			stats["peersByZtAddressAndIP"] = peerStats;
 
-			fprintf(stderr, "DEBUG: about to check if _node exists\n");
-			fflush(stderr);
-
-			// Add peer counts from both sources (show which is more recent)
+			// Add peer counts - use only service layer to avoid topology lock deadlock
 			if (_node) {
-				fprintf(stderr, "DEBUG: _node exists, proceeding with peer counts\n");
-				fflush(stderr);
-				try {
-					fprintf(stderr, "DEBUG: accessing RuntimeEnvironment\n");
-					fflush(stderr);
-
-					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
-
-					fprintf(stderr, "DEBUG: got RR, checking if RR and topology exist\n");
-					fflush(stderr);
-
-					if (RR && RR->topology) {
-						fprintf(stderr, "DEBUG: RR and topology exist, getting topology peer counts\n");
-						fflush(stderr);
-						// Get topology-based counts (updated in addPeer/doPeriodicTasks)
-						auto topoCounts = RR->topology->getTopologyPeerCounts();
-
-						fprintf(stderr, "DEBUG: got topology peer counts\n");
-						fflush(stderr);
-
-						// Get service-based counts (updated by path events)
-						Mutex::Lock _l(_peerCounts_m);
-
-						fprintf(stderr, "DEBUG: acquired _peerCounts_m lock\n");
-						fflush(stderr);
-
-						json peerCounts = json::object();
-
-						// Use whichever count source is more recent
-						if (topoCounts.lastUpdated >= _peerCounts.lastUpdated) {
-							// Topology counts are more recent
-							peerCounts["source"] = "topology";
-							peerCounts["totalPeers"] = topoCounts.totalPeers;
-							peerCounts["planets"] = topoCounts.planets;
-							peerCounts["moons"] = topoCounts.moons;
-							peerCounts["leaves"] = topoCounts.leaves;
-							peerCounts["lastUpdated"] = topoCounts.lastUpdated;
-							// Still show active peers from service layer
-							peerCounts["activePeers"] = _peerCounts.activePeers;
-						} else {
-							// Service counts are more recent
-							peerCounts["source"] = "service";
-							peerCounts["totalPeers"] = _peerCounts.totalPeers;
-							peerCounts["planets"] = _peerCounts.planets;
-							peerCounts["moons"] = _peerCounts.moons;
-							peerCounts["leaves"] = _peerCounts.leaves;
-							peerCounts["activePeers"] = _peerCounts.activePeers;
-							peerCounts["lastUpdated"] = _peerCounts.lastUpdated;
-						}
-
-						// Show both timestamps for comparison
-						peerCounts["topologyLastUpdated"] = topoCounts.lastUpdated;
-						peerCounts["serviceLastUpdated"] = _peerCounts.lastUpdated;
-
-						stats["peerCounts"] = peerCounts;
-					}
-				} catch (...) {
-					fprintf(stderr, "DEBUG: exception caught in topology access\n");
-					fflush(stderr);
-					// Fallback to service counts only
+				PeerCounts peerCountsSnapshot;
+				{
 					Mutex::Lock _l(_peerCounts_m);
-					json peerCounts = json::object();
-					peerCounts["source"] = "service-fallback";
-					peerCounts["totalPeers"] = _peerCounts.totalPeers;
-					peerCounts["planets"] = _peerCounts.planets;
-					peerCounts["moons"] = _peerCounts.moons;
-					peerCounts["leaves"] = _peerCounts.leaves;
-					peerCounts["activePeers"] = _peerCounts.activePeers;
-					peerCounts["lastUpdated"] = _peerCounts.lastUpdated;
-					stats["peerCounts"] = peerCounts;
+					peerCountsSnapshot = _peerCounts; // Copy structure
 				}
-			}
 
-			fprintf(stderr, "DEBUG: about to call setContent with stats JSON\n");
-			fflush(stderr);
+				json peerCounts = json::object();
+				peerCounts["source"] = "service";
+				peerCounts["totalPeers"] = peerCountsSnapshot.totalPeers;
+				peerCounts["planets"] = peerCountsSnapshot.planets;
+				peerCounts["moons"] = peerCountsSnapshot.moons;
+				peerCounts["leaves"] = peerCountsSnapshot.leaves;
+				peerCounts["activePeers"] = peerCountsSnapshot.activePeers;
+				peerCounts["lastUpdated"] = peerCountsSnapshot.lastUpdated;
+				stats["peerCounts"] = peerCounts;
+			}
 
 			setContent(req, res, stats.dump(2));
 		};
