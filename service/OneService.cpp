@@ -4523,7 +4523,7 @@ public:
 		}
 	}
 
-	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned long packetSize, const Address& sourcePeerAddr)
+	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4539,10 +4539,8 @@ public:
 
 		if (isFirstIncoming) {
 			_seenIncomingPeerPorts.insert(peerPortKey);
-			char ztBuf[64], localBuf[64], sourceBuf[64];
+			char ztBuf[64];
 			ztAddr.toString(ztBuf);
-			localAddress.toIpString(localBuf);
-			sourcePeerAddr.toString(sourceBuf);
 
 			// Enhanced logging for incoming-only peers with full details
 			const char* peerRole = "UNKNOWN";
@@ -4592,8 +4590,8 @@ public:
 				}
 			}
 
-			fprintf(stderr, "PACKET_FROM: size=%lu local=%s remote=%s peer=%s source_peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-				packetSize, localBuf, ipBuf, ztBuf, sourceBuf, localPort, peerRole, peerVersion,
+			fprintf(stderr, "PACKET_FROM: %s (%s) port %u - role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				ztBuf, ipBuf, localPort, peerRole, peerVersion,
 				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 		}
 
@@ -4609,7 +4607,7 @@ public:
 		}
 	}
 
-	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& localAddress, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
+	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4620,8 +4618,6 @@ public:
 		char ipBuf[64];
 		remoteAddress.toIpString(ipBuf);
 		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
-		auto peerPortKey = std::make_pair(peerKey, localPort);
-		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
 		// Only track outgoing stats for peers we've already received packets from
 		// This prevents creating stats entries for peers that never respond
@@ -4636,8 +4632,23 @@ public:
 				stats.firstOutgoingSeen = now;
 			}
 		}
+		// If we haven't received any packets from this peer yet, don't create a stats entry
+	}
 
-		// First-time outgoing packet logging with detailed information
+	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& localAddress, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
+	{
+		// Skip tracking during early initialization to prevent crashes
+		if (!_node) return;
+
+		Mutex::Lock _l(_peerPortStats_m);
+
+		// Create key for this specific ZT address + IP address combination
+		char ipBuf[64];
+		remoteAddress.toIpString(ipBuf);
+		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+		auto peerPortKey = std::make_pair(peerKey, localPort);
+		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
+
 		if (isFirstOutgoing) {
 			_seenOutgoingPeerPorts.insert(peerPortKey);
 			char ztBuf[64], localBuf[64];
