@@ -932,6 +932,11 @@ public:
 	std::map<InetAddress, PeerIntroduction> _peerIntroductions;
 	Mutex _peerIntroductions_m;
 
+	// Simple PLANET IP tracking for relay detection
+	std::map<std::string, Address> _planetIPs; // IP string -> PLANET ZT address
+	uint64_t _lastPlanetIPUpdate;
+	Mutex _planetIPs_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -976,6 +981,7 @@ public:
 		,_rc(NULL)
 		,_ssoRedirectURL()
 		,_iptablesEnabled(false)
+		,_lastPlanetIPUpdate(0)
 	{
 		_ports[0] = 0;
 		_ports[1] = 0;
@@ -2514,6 +2520,17 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
+			// Get total peer count from node
+			unsigned int peerCount = 0;
+			if (_node) {
+				ZT_PeerList *allPeers = _node->peers();
+				if (allPeers) {
+					peerCount = allPeers->peerCount;
+					_node->freeQueryResult(allPeers);
+				}
+			}
+			stats["totalPeerCount"] = peerCount;
+
 			// Get peer statistics (IP addresses are now collected when stats are updated)
 			json peerStats = json::object();
 			{
@@ -3370,42 +3387,32 @@ public:
 				// Determine the correct ZT address for tracking purposes
 				Address trackingAddr = sourcePeerAddr;
 
-				// Check if this packet is being relayed through a PLANET/MOON
-				// We need to find which peer actually owns this physical IP address
-				if (_node) {
-					try {
-						const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
-						if (RR && RR->topology) {
-							// Find which peer (if any) has an active path to this physical IP address
-							std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
-							for (const auto& peerPair : allPeers) {
-								const Address& peerAddr = peerPair.first;
-								const SharedPtr<Peer>& peer = peerPair.second;
-								if (peer && peer->hasActivePathTo(now, fromAddress)) {
-									// This peer has an active path to the sender IP
-									if (peerAddr != sourcePeerAddr) {
-										// Physical sender is different from logical source - this is relayed!
-										ZT_PeerRole physicalRole = RR->topology->role(peerAddr);
-										if (physicalRole == ZT_PEER_ROLE_PLANET || physicalRole == ZT_PEER_ROLE_MOON) {
-											trackingAddr = peerAddr; // Track against the PLANET/MOON doing the relaying
+				// Simple relay detection: Check if this IP belongs to a PLANET
+				char ipBuf[64];
+				fromAddress.toIpString(ipBuf);
+				std::string ipStr(ipBuf);
 
-											// Log relay detection for debugging
-											char physicalBuf[16], logicalBuf[16], ipBuf[64];
-											peerAddr.toString(physicalBuf);
-											sourcePeerAddr.toString(logicalBuf);
-											fromAddress.toIpString(ipBuf);
+				// PLANET IP mapping is now updated immediately when PLANETs connect
+				// No need for periodic updates
 
-											fprintf(stderr, "RELAY_DETECTED: %s %s at %s relaying packet from %s" ZT_EOL_S,
-												(physicalRole == ZT_PEER_ROLE_PLANET) ? "PLANET" : "MOON",
-												physicalBuf, ipBuf, logicalBuf);
-										}
-									}
-									break; // Found the peer that owns this IP, no need to continue
-								}
-							}
+				// Check if this IP belongs to a PLANET
+				{
+					Mutex::Lock _l(_planetIPs_m);
+					auto planetIt = _planetIPs.find(ipStr);
+					if (planetIt != _planetIPs.end()) {
+						// This IP belongs to a PLANET
+						Address planetAddr = planetIt->second;
+						if (planetAddr != sourcePeerAddr) {
+							// Logical source is different from PLANET - this is relayed!
+							trackingAddr = planetAddr;
+
+							char planetBuf[16], logicalBuf[16];
+							planetAddr.toString(planetBuf);
+							sourcePeerAddr.toString(logicalBuf);
+
+							fprintf(stderr, "RELAY_DETECTED: PLANET %s at %s relaying packet from %s" ZT_EOL_S,
+								planetBuf, ipStr.c_str(), logicalBuf);
 						}
-					} catch (...) {
-						// Ignore errors during topology access - use original sourcePeerAddr
 					}
 				}
 
@@ -4367,6 +4374,46 @@ public:
 	// Iptables peer path management
 	void _handlePeerPathUpdate(const InetAddress& peerAddress, bool isAdd)
 	{
+		// Check if this is a PLANET/MOON and update cache immediately (only when needed)
+		if (isAdd && _node) {
+			try {
+				const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+				if (RR && RR->topology) {
+					// Check all known PLANETs/MOONs to see if any now have this IP
+					std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
+					for (const auto& peerPair : allPeers) {
+						const Address& peerAddr = peerPair.first;
+						ZT_PeerRole role = RR->topology->role(peerAddr);
+
+						// Only check PLANETs and MOONs
+						if (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON) {
+							const SharedPtr<Peer>& peer = peerPair.second;
+							if (peer && peer->hasActivePathTo(OSUtils::now(), peerAddress)) {
+								// This PLANET/MOON now has an active path to this IP
+								char ipStr[64];
+								peerAddress.toIpString(ipStr);
+
+								{
+									Mutex::Lock _l(_planetIPs_m);
+									_planetIPs[std::string(ipStr)] = peerAddr;
+								}
+
+								char peerBuf[16];
+								peerAddr.toString(peerBuf);
+								const char* roleStr = (role == ZT_PEER_ROLE_PLANET) ? "PLANET" : "MOON";
+
+								fprintf(stderr, "PLANET_CACHE_UPDATE: %s %s at %s connected - cache updated" ZT_EOL_S,
+									roleStr, peerBuf, ipStr);
+								break; // Found the PLANET/MOON for this IP
+							}
+						}
+					}
+				}
+			} catch (...) {
+				// Ignore errors during topology access
+			}
+		}
+
 		if (_iptablesEnabled && _iptablesManager) {
 			// Only add globally routable addresses to iptables ipset
 			// Private/local addresses should not need firewall rules
@@ -4497,6 +4544,47 @@ public:
 				}
 			}
 		}
+	}
+
+	// Update PLANET IP mapping (called every 30 seconds)
+	void _updatePlanetIPs(uint64_t now)
+	{
+		Mutex::Lock _l(_planetIPs_m);
+		size_t oldSize = _planetIPs.size();
+		_planetIPs.clear();
+		_lastPlanetIPUpdate = now;
+
+		if (_node) {
+			try {
+				const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+				if (RR && RR->topology) {
+					// Only check connected PLANETs and MOONs - much more efficient!
+					std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
+					for (const auto& peerPair : allPeers) {
+						const Address& peerAddr = peerPair.first;
+						const SharedPtr<Peer>& peer = peerPair.second;
+
+						// Only check PLANETs and MOONs (they can relay)
+						ZT_PeerRole role = RR->topology->role(peerAddr);
+						if ((role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON) && peer) {
+							// Only include if actually connected (has appropriate path)
+							SharedPtr<Path> activePath = peer->getAppropriatePath(now, false);
+							if (activePath) {
+								char ipBuf[64];
+								activePath->address().toIpString(ipBuf);
+								_planetIPs[std::string(ipBuf)] = peerAddr;
+							}
+						}
+					}
+				}
+			} catch (...) {
+				// Ignore errors during topology access
+			}
+		}
+
+		// Log cache refresh
+		fprintf(stderr, "PLANET_CACHE_REFRESH: Updated cache with %zu connected PLANETs/MOONs" ZT_EOL_S,
+				_planetIPs.size());
 	}
 
 	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
