@@ -950,6 +950,10 @@ public:
 	PeerCounts _peerCounts;
 	Mutex _peerCounts_m;
 
+	// Flag to trigger peer count updates from safe context
+	volatile bool _peerCountsNeedUpdate;
+	Mutex _peerCountsNeedUpdate_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -994,7 +998,7 @@ public:
 		,_rc(NULL)
 		,_ssoRedirectURL()
 		,_iptablesEnabled(false)
-		,_lastPlanetIPUpdate(0)
+		_peerCountsNeedUpdate(false)
 	{
 		_ports[0] = 0;
 		_ports[1] = 0;
@@ -1242,8 +1246,8 @@ public:
 				}
 			}
 
-			// Initialize peer counts after node is fully set up
-			_updatePeerCounts(OSUtils::now());
+			// Initialize peer counts after node is fully set up (but safely)
+			// Don't call _updatePeerCounts during initialization to avoid crashes
 
 			// Main I/O loop
 			_nextBackgroundTaskDeadline = 0;
@@ -2589,7 +2593,7 @@ public:
 						// Get topology-based counts (updated in addPeer/doPeriodicTasks)
 						auto topoCounts = RR->topology->getTopologyPeerCounts();
 
-						// Get service-based counts (updated in path events)
+						// Get service-based counts (updated by path events)
 						Mutex::Lock _l(_peerCounts_m);
 
 						json peerCounts = json::object();
@@ -3453,8 +3457,20 @@ public:
 				fromAddress.toIpString(ipBuf);
 				std::string ipStr(ipBuf);
 
-				// PLANET IP mapping is now updated immediately when PLANETs connect
-				// No need for periodic updates
+				// PLANET IP mapping is done within _updatePeerCounts()
+
+				// Check if peer counts need updating (triggered by path events)
+				bool needsUpdate = false;
+				{
+					Mutex::Lock _l(_peerCountsNeedUpdate_m);
+					if (_peerCountsNeedUpdate) {
+						_peerCountsNeedUpdate = false;
+						needsUpdate = true;
+					}
+				}
+				if (needsUpdate) {
+					_updatePeerCounts(now);
+				}
 
 				// Check if this IP belongs to a PLANET
 				{
@@ -4435,8 +4451,11 @@ public:
 	// Iptables peer path management
 	void _handlePeerPathUpdate(const InetAddress& peerAddress, bool isAdd)
 	{
-		// Update peer counts and PLANET cache when topology changes (both add and remove)
-		_updatePeerCounts(OSUtils::now());
+		// Set flag to trigger peer count update from safe context (avoids deadlocks)
+		{
+			Mutex::Lock _l(_peerCountsNeedUpdate_m);
+			_peerCountsNeedUpdate = true;
+		}
 
 		if (_iptablesEnabled && _iptablesManager) {
 			// Only add globally routable addresses to iptables ipset
@@ -4570,7 +4589,7 @@ public:
 		}
 	}
 
-	// Update peer counts for stats and PLANET IPs for relay detection (called when needed)
+	// Update peer counts for stats and PLANET IPs (called from safe context to avoid deadlocks)
 	void _updatePeerCounts(uint64_t now)
 	{
 		if (!_node) return;
@@ -4619,7 +4638,7 @@ public:
 							}
 						}
 					}
-				}
+				} // end for (const auto& peerPair : allPeers)
 
 				// Update peer counts
 				{
