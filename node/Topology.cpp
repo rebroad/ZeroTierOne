@@ -69,6 +69,23 @@ SharedPtr<Peer> Topology::addPeer(void *tPtr,const SharedPtr<Peer> &peer)
 		SharedPtr<Peer> &hp = _peers[peer->address()];
 		if (!hp) {
 			hp = peer;
+			// Lightweight counter update - just increment total
+			_peerCounts.totalPeers++;
+			_peerCounts.lastUpdated = RR->node->now();
+
+			// Increment role-specific counter (quick role lookup)
+			ZT_PeerRole peerRole = role(peer->address());
+			switch (peerRole) {
+				case ZT_PEER_ROLE_PLANET:
+					_peerCounts.planets++;
+					break;
+				case ZT_PEER_ROLE_MOON:
+					_peerCounts.moons++;
+					break;
+				case ZT_PEER_ROLE_LEAF:
+					_peerCounts.leaves++;
+					break;
+			}
 		}
 		np = hp;
 	}
@@ -365,6 +382,24 @@ void Topology::doPeriodicTasks(void *tPtr,int64_t now)
 		SharedPtr<Peer> *p = (SharedPtr<Peer> *)0;
 		while (i.next(a,p)) {
 			if ( (!(*p)->isAlive(now)) && (std::find(_upstreamAddresses.begin(),_upstreamAddresses.end(),*a) == _upstreamAddresses.end()) ) {
+				// Lightweight counter update - decrement before removal
+				_peerCounts.totalPeers--;
+				_peerCounts.lastUpdated = now;
+
+				// Decrement role-specific counter
+				ZT_PeerRole peerRole = role(*a);
+				switch (peerRole) {
+					case ZT_PEER_ROLE_PLANET:
+						_peerCounts.planets--;
+						break;
+					case ZT_PEER_ROLE_MOON:
+						_peerCounts.moons--;
+						break;
+					case ZT_PEER_ROLE_LEAF:
+						_peerCounts.leaves--;
+						break;
+				}
+
 				// Notify service about peer removal (iptables integration)
 				// This triggers when the peer is actually removed from topology,
 				// ensuring iptables ipset entries are removed at the right time
@@ -411,6 +446,10 @@ void Topology::_memoizeUpstreams(void *tPtr)
 			SharedPtr<Peer> &hp = _peers[id.address()];
 			if (!hp) {
 				hp = new Peer(RR,RR->identity,id);
+				// Lightweight counter update for new PLANET
+				_peerCounts.totalPeers++;
+				_peerCounts.planets++;
+				_peerCounts.lastUpdated = RR->node->now();
 			}
 		}
 	}
@@ -424,6 +463,10 @@ void Topology::_memoizeUpstreams(void *tPtr)
 				SharedPtr<Peer> &hp = _peers[i->identity.address()];
 				if (!hp) {
 					hp = new Peer(RR,RR->identity,i->identity);
+					// Lightweight counter update for new MOON
+					_peerCounts.totalPeers++;
+					_peerCounts.moons++;
+					_peerCounts.lastUpdated = RR->node->now();
 				}
 			}
 		}

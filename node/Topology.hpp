@@ -44,6 +44,16 @@ class RuntimeEnvironment;
 class Topology
 {
 public:
+	// Peer count tracking for stats (updated in addPeer/doPeriodicTasks)
+	struct TopologyPeerCounts {
+		size_t totalPeers;
+		size_t planets;
+		size_t moons;
+		size_t leaves;
+		uint64_t lastUpdated;
+		TopologyPeerCounts() : totalPeers(0), planets(0), moons(0), leaves(0), lastUpdated(0) {}
+	};
+
 	Topology(const RuntimeEnvironment *renv,void *tPtr);
 	~Topology();
 
@@ -195,6 +205,15 @@ public:
 	{
 		Mutex::Lock _l(_upstreams_m);
 		return _upstreamAddresses;
+	}
+
+	/**
+	 * @return Current topology peer counts (thread-safe copy)
+	 */
+	inline TopologyPeerCounts getTopologyPeerCounts() const
+	{
+		Mutex::Lock _l(_peers_m);
+		return _peerCounts;
 	}
 
 	/**
@@ -451,6 +470,10 @@ private:
 
 	Hashtable< Address,SharedPtr<Peer> > _peers;
 	Mutex _peers_m;
+
+	// Peer count tracking for stats (updated in addPeer/doPeriodicTasks)
+	TopologyPeerCounts _peerCounts;
+	// Note: _peers_m also protects _peerCounts since they're related
 
 	Hashtable< Path::HashKey,SharedPtr<Path> > _paths;
 	Mutex _paths_m;

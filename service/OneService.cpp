@@ -937,6 +937,19 @@ public:
 	uint64_t _lastPlanetIPUpdate;
 	Mutex _planetIPs_m;
 
+	// Peer count tracking for stats
+	struct PeerCounts {
+		size_t totalPeers;
+		size_t planets;
+		size_t moons;
+		size_t leaves;
+		size_t activePeers; // peers with active paths
+		uint64_t lastUpdated;
+		PeerCounts() : totalPeers(0), planets(0), moons(0), leaves(0), activePeers(0), lastUpdated(0) {}
+	};
+	PeerCounts _peerCounts;
+	Mutex _peerCounts_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -1228,6 +1241,9 @@ public:
 						_node->orbit((void *)0,Utils::hexStrToU64(f->substr(0,dot).c_str()),0);
 				}
 			}
+
+			// Initialize peer counts after node is fully set up
+			_updatePeerCounts(OSUtils::now());
 
 			// Main I/O loop
 			_nextBackgroundTaskDeadline = 0;
@@ -2565,6 +2581,62 @@ public:
 			}
 			stats["peersByZtAddressAndIP"] = peerStats;
 
+			// Add peer counts from both sources (show which is more recent)
+			if (_node) {
+				try {
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+					if (RR && RR->topology) {
+						// Get topology-based counts (updated in addPeer/doPeriodicTasks)
+						auto topoCounts = RR->topology->getTopologyPeerCounts();
+
+						// Get service-based counts (updated in path events)
+						Mutex::Lock _l(_peerCounts_m);
+
+						json peerCounts = json::object();
+
+						// Use whichever count source is more recent
+						if (topoCounts.lastUpdated >= _peerCounts.lastUpdated) {
+							// Topology counts are more recent
+							peerCounts["source"] = "topology";
+							peerCounts["totalPeers"] = topoCounts.totalPeers;
+							peerCounts["planets"] = topoCounts.planets;
+							peerCounts["moons"] = topoCounts.moons;
+							peerCounts["leaves"] = topoCounts.leaves;
+							peerCounts["lastUpdated"] = topoCounts.lastUpdated;
+							// Still show active peers from service layer
+							peerCounts["activePeers"] = _peerCounts.activePeers;
+						} else {
+							// Service counts are more recent
+							peerCounts["source"] = "service";
+							peerCounts["totalPeers"] = _peerCounts.totalPeers;
+							peerCounts["planets"] = _peerCounts.planets;
+							peerCounts["moons"] = _peerCounts.moons;
+							peerCounts["leaves"] = _peerCounts.leaves;
+							peerCounts["activePeers"] = _peerCounts.activePeers;
+							peerCounts["lastUpdated"] = _peerCounts.lastUpdated;
+						}
+
+						// Show both timestamps for comparison
+						peerCounts["topologyLastUpdated"] = topoCounts.lastUpdated;
+						peerCounts["serviceLastUpdated"] = _peerCounts.lastUpdated;
+
+						stats["peerCounts"] = peerCounts;
+					}
+				} catch (...) {
+					// Fallback to service counts only
+					Mutex::Lock _l(_peerCounts_m);
+					json peerCounts = json::object();
+					peerCounts["source"] = "service-fallback";
+					peerCounts["totalPeers"] = _peerCounts.totalPeers;
+					peerCounts["planets"] = _peerCounts.planets;
+					peerCounts["moons"] = _peerCounts.moons;
+					peerCounts["leaves"] = _peerCounts.leaves;
+					peerCounts["activePeers"] = _peerCounts.activePeers;
+					peerCounts["lastUpdated"] = _peerCounts.lastUpdated;
+					stats["peerCounts"] = peerCounts;
+				}
+			}
+
 			setContent(req, res, stats.dump(2));
 		};
 		_controlPlane.Get("/stats", statsGet);
@@ -3381,10 +3453,8 @@ public:
 				fromAddress.toIpString(ipBuf);
 				std::string ipStr(ipBuf);
 
-				// Update PLANET IP mapping periodically (every 60 seconds)
-				if ((now - _lastPlanetIPUpdate) > 60000) {
-					_updatePlanetIPs(now);
-				}
+				// PLANET IP mapping is now updated immediately when PLANETs connect
+				// No need for periodic updates
 
 				// Check if this IP belongs to a PLANET
 				{
@@ -4365,6 +4435,9 @@ public:
 	// Iptables peer path management
 	void _handlePeerPathUpdate(const InetAddress& peerAddress, bool isAdd)
 	{
+		// Update peer counts and PLANET cache when topology changes (both add and remove)
+		_updatePeerCounts(OSUtils::now());
+
 		if (_iptablesEnabled && _iptablesManager) {
 			// Only add globally routable addresses to iptables ipset
 			// Private/local addresses should not need firewall rules
@@ -4497,39 +4570,79 @@ public:
 		}
 	}
 
-	// Update PLANET IP mapping (called every 60 seconds)
-	void _updatePlanetIPs(uint64_t now)
+	// Update peer counts for stats and PLANET IPs for relay detection (called when needed)
+	void _updatePeerCounts(uint64_t now)
 	{
-		Mutex::Lock _l(_planetIPs_m);
-		_planetIPs.clear();
-		_lastPlanetIPUpdate = now;
+		if (!_node) return;
 
-		if (_node) {
-			try {
-				const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
-				if (RR && RR->topology) {
-					// Only check connected PLANETs and MOONs - much more efficient!
-					std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
-					for (const auto& peerPair : allPeers) {
-						const Address& peerAddr = peerPair.first;
-						const SharedPtr<Peer>& peer = peerPair.second;
+		try {
+			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+			if (RR && RR->topology) {
+				std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
 
-						// Only check PLANETs and MOONs (they can relay)
-						ZT_PeerRole role = RR->topology->role(peerAddr);
-						if ((role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON) && peer) {
-							// Only include if actually connected (has appropriate path)
-							SharedPtr<Path> activePath = peer->getAppropriatePath(now, false);
-							if (activePath) {
+				PeerCounts newCounts;
+				newCounts.totalPeers = allPeers.size();
+				newCounts.lastUpdated = now;
+
+				// Also update PLANET IPs for relay detection
+				std::map<std::string, Address> newPlanetIPs;
+
+				for (const auto& peerPair : allPeers) {
+					const Address& peerAddr = peerPair.first;
+					const SharedPtr<Peer>& peer = peerPair.second;
+
+					// Count by role
+					ZT_PeerRole role = RR->topology->role(peerAddr);
+					switch (role) {
+						case ZT_PEER_ROLE_PLANET:
+							newCounts.planets++;
+							break;
+						case ZT_PEER_ROLE_MOON:
+							newCounts.moons++;
+							break;
+						case ZT_PEER_ROLE_LEAF:
+							newCounts.leaves++;
+							break;
+					}
+
+					// Count active peers and update PLANET IPs
+					if (peer) {
+						SharedPtr<Path> activePath = peer->getAppropriatePath(now, false);
+						if (activePath) {
+							newCounts.activePeers++;
+
+							// Track PLANET/MOON IPs for relay detection
+							if (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON) {
 								char ipBuf[64];
 								activePath->address().toIpString(ipBuf);
-								_planetIPs[std::string(ipBuf)] = peerAddr;
+								newPlanetIPs[std::string(ipBuf)] = peerAddr;
 							}
 						}
 					}
 				}
-			} catch (...) {
-				// Ignore errors during topology access
+
+				// Update peer counts
+				{
+					Mutex::Lock _l(_peerCounts_m);
+					_peerCounts = newCounts;
+				}
+
+				// Update PLANET IPs
+				{
+					Mutex::Lock _l(_planetIPs_m);
+					size_t oldSize = _planetIPs.size();
+					_planetIPs = newPlanetIPs;
+					_lastPlanetIPUpdate = now;
+
+					// Log significant changes
+					if (newPlanetIPs.size() != oldSize) {
+						fprintf(stderr, "PLANET_CACHE_UPDATE: Updated cache with %zu connected PLANETs/MOONs (was %zu)" ZT_EOL_S,
+							newPlanetIPs.size(), oldSize);
+					}
+				}
 			}
+		} catch (...) {
+			// Ignore errors during topology access
 		}
 	}
 
