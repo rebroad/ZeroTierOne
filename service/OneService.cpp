@@ -4973,7 +4973,8 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			// For outgoing packet events from peer callback, we don't have local address or packet size
 			// Use placeholder values - the main tracking is done in nodeWirePacketSendFunction
 			{
-				InetAddress localAddr("0.0.0.0", localPort); // Placeholder local address
+				InetAddress localAddr;
+				localAddr.fromString("0.0.0.0/0"); // Placeholder local address
 				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), 0);
 			}
 			break;
