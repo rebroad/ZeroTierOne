@@ -3468,7 +3468,7 @@ public:
 						needsUpdate = true;
 					}
 				}
-				if (needsUpdate) {
+				if (needsUpdate && _node && _node->online()) {
 					_updatePeerCounts(now);
 				}
 
