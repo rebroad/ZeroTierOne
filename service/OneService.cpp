@@ -1388,6 +1388,22 @@ public:
 					dl = _nextBackgroundTaskDeadline;
 				}
 
+				// Check if peer counts need updating (triggered by path events)
+				// Do this in background processing to avoid deadlock with HTTP stats requests
+				{
+					bool needsUpdate = false;
+					{
+						Mutex::Lock _l(_peerCountsNeedUpdate_m);
+						if (_peerCountsNeedUpdate) {
+							_peerCountsNeedUpdate = false;
+							needsUpdate = true;
+						}
+					}
+					if (needsUpdate && _node && _node->online()) {
+						_updatePeerCounts(now);
+					}
+				}
+
 				// Close TCP fallback tunnel if we have direct UDP
 				if (!_forceTcpRelay && (_tcpFallbackTunnel) && ((now - _lastDirectReceiveFromGlobal) < (ZT_TCP_FALLBACK_AFTER / 2))) {
 					_phy.close(_tcpFallbackTunnel->sock);
@@ -2521,7 +2537,11 @@ public:
 
 		// GET /stats - peer port usage statistics
 		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+
 			json stats = json::object();
+
+			fprintf(stderr, "DEBUG: created stats json object\n");
+			fflush(stderr);
 
 			// Add port configuration information
 			json portConfig = json::object();
@@ -2540,10 +2560,20 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
+			fprintf(stderr, "DEBUG: port configuration added\n");
+			fflush(stderr);
+
 			// Get peer statistics (IP addresses are now collected when stats are updated)
 			json peerStats = json::object();
+
+			fprintf(stderr, "DEBUG: about to acquire _peerPortStats_m lock\n");
+			fflush(stderr);
+
 			{
 				Mutex::Lock _l(_peerPortStats_m);
+
+				fprintf(stderr, "DEBUG: acquired _peerPortStats_m lock, stats size: %zu\n", _peerPortStats.size());
+				fflush(stderr);
 				for (const auto& peerEntry : _peerPortStats) {
 					const std::pair<Address, std::string>& peerKey = peerEntry.first;
 					const Address& ztAddr = peerKey.first;
@@ -2583,18 +2613,42 @@ public:
 					peerStats[combinedKey] = peerStat;
 				}
 			}
+
+			fprintf(stderr, "DEBUG: processed peer stats, setting peersByZtAddressAndIP\n");
+			fflush(stderr);
+
 			stats["peersByZtAddressAndIP"] = peerStats;
+
+			fprintf(stderr, "DEBUG: about to check if _node exists\n");
+			fflush(stderr);
 
 			// Add peer counts from both sources (show which is more recent)
 			if (_node) {
+				fprintf(stderr, "DEBUG: _node exists, proceeding with peer counts\n");
+				fflush(stderr);
 				try {
+					fprintf(stderr, "DEBUG: accessing RuntimeEnvironment\n");
+					fflush(stderr);
+
 					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+
+					fprintf(stderr, "DEBUG: got RR, checking if RR and topology exist\n");
+					fflush(stderr);
+
 					if (RR && RR->topology) {
+						fprintf(stderr, "DEBUG: RR and topology exist, getting topology peer counts\n");
+						fflush(stderr);
 						// Get topology-based counts (updated in addPeer/doPeriodicTasks)
 						auto topoCounts = RR->topology->getTopologyPeerCounts();
 
+						fprintf(stderr, "DEBUG: got topology peer counts\n");
+						fflush(stderr);
+
 						// Get service-based counts (updated by path events)
 						Mutex::Lock _l(_peerCounts_m);
+
+						fprintf(stderr, "DEBUG: acquired _peerCounts_m lock\n");
+						fflush(stderr);
 
 						json peerCounts = json::object();
 
@@ -2627,6 +2681,8 @@ public:
 						stats["peerCounts"] = peerCounts;
 					}
 				} catch (...) {
+					fprintf(stderr, "DEBUG: exception caught in topology access\n");
+					fflush(stderr);
 					// Fallback to service counts only
 					Mutex::Lock _l(_peerCounts_m);
 					json peerCounts = json::object();
@@ -2640,6 +2696,9 @@ public:
 					stats["peerCounts"] = peerCounts;
 				}
 			}
+
+			fprintf(stderr, "DEBUG: about to call setContent with stats JSON\n");
+			fflush(stderr);
 
 			setContent(req, res, stats.dump(2));
 		};
@@ -3459,18 +3518,8 @@ public:
 
 				// PLANET IP mapping is done within _updatePeerCounts()
 
-				// Check if peer counts need updating (triggered by path events)
-				bool needsUpdate = false;
-				{
-					Mutex::Lock _l(_peerCountsNeedUpdate_m);
-					if (_peerCountsNeedUpdate) {
-						_peerCountsNeedUpdate = false;
-						needsUpdate = true;
-					}
-				}
-				if (needsUpdate && _node && _node->online()) {
-					_updatePeerCounts(now);
-				}
+				// Peer counts will be updated by background thread, not from packet processing
+				// to avoid deadlock with HTTP stats requests
 
 				// Check if this IP belongs to a PLANET
 				{
@@ -4596,7 +4645,9 @@ public:
 
 		try {
 			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+
 			if (RR && RR->topology) {
+				// Get all peers from topology (this acquires _peers_m)
 				std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
 
 				PeerCounts newCounts;
@@ -4653,7 +4704,6 @@ public:
 					_planetIPs = newPlanetIPs;
 					_lastPlanetIPUpdate = now;
 
-					// Log significant changes
 					if (newPlanetIPs.size() != oldSize) {
 						fprintf(stderr, "PLANET_CACHE_UPDATE: Updated cache with %zu connected PLANETs/MOONs (was %zu)" ZT_EOL_S,
 							newPlanetIPs.size(), oldSize);
@@ -4661,7 +4711,9 @@ public:
 				}
 			}
 		} catch (...) {
-			// Ignore errors during topology access
+			// Just update timestamp on error
+			Mutex::Lock _l(_peerCounts_m);
+			_peerCounts.lastUpdated = now;
 		}
 	}
 
