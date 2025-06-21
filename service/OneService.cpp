@@ -3400,16 +3400,6 @@ public:
 										ZT_PeerRole physicalRole = RR->topology->role(peerAddr);
 										if (physicalRole == ZT_PEER_ROLE_PLANET || physicalRole == ZT_PEER_ROLE_MOON) {
 											trackingAddr = peerAddr; // Track against the PLANET/MOON doing the relaying
-
-											// Log relay detection for debugging
-											char physicalBuf[16], logicalBuf[16], ipBuf[64];
-											peerAddr.toString(physicalBuf);
-											sourcePeerAddr.toString(logicalBuf);
-											fromAddress.toIpString(ipBuf);
-
-											fprintf(stderr, "RELAY_DETECTED: %s %s at %s relaying packet from %s" ZT_EOL_S,
-												(physicalRole == ZT_PEER_ROLE_PLANET) ? "PLANET" : "MOON",
-												physicalBuf, ipBuf, logicalBuf);
 										}
 									}
 									break; // Found the peer that owns this IP, no need to continue
