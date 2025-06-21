@@ -998,7 +998,7 @@ public:
 		,_rc(NULL)
 		,_ssoRedirectURL()
 		,_iptablesEnabled(false)
-		_peerCountsNeedUpdate(false)
+		,_peerCountsNeedUpdate(false)
 	{
 		_ports[0] = 0;
 		_ports[1] = 0;
