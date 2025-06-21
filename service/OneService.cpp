@@ -4566,7 +4566,7 @@ public:
 				}
 			}
 
-			fprintf(stderr, "INCOMING_PEER: %s (%s) port %u - role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+			fprintf(stderr, "PACKET_FROM: %s (%s) port %u - role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 				ztBuf, ipBuf, localPort, peerRole, peerVersion,
 				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 		}
