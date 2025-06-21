@@ -1,5 +1,6 @@
-We need to gracefully deal with ipset not being found - do we really need to depend on it?
-Create local firewall functionality that mimicks the ZT Central firewall
-if findip finds no result, then at least show which peer recommended the ztaddr
-Experiment with disabling conntrack for ZeroTier traffic - improve performance?
-See if zerotier offers bandwidth management/quotes - we want quotes for ztaddrs and IP addrs (and ensure traffic via PLANETS/MOONS is logged against the ztaddr and its IP addresses)
+=We need to gracefully deal with ipset not being found - do we really need to depend on it?
+=Create local firewall functionality that mimicks the ZT Central firewall
+=if findip finds no result, then at least show which peer recommended the ztaddr
+=Experiment with disabling conntrack for ZeroTier traffic - improve performance?
+=See if zerotier offers bandwidth management/quotes - we want quotes for ztaddrs and IP addrs (and ensure traffic via PLANETS/MOONS is logged against the ztaddr and its IP addresses)
+=Expand peers CLI (arg=extra) to show networks for each leaf
