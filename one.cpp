@@ -1128,6 +1128,12 @@ static int cli(int argc,char **argv)
 			} else {
 				printf("200 stats - Peer Port Usage Statistics" ZT_EOL_S);
 
+				// Show total peer count
+				if (j.contains("totalPeerCount")) {
+					unsigned int peerCount = j["totalPeerCount"];
+					printf("Total Peers: %u" ZT_EOL_S ZT_EOL_S, peerCount);
+				}
+
 				// Show port configuration
 				if (j.contains("portConfiguration")) {
 					auto& portConfig = j["portConfiguration"];
