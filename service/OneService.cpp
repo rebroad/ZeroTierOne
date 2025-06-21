@@ -3421,7 +3421,7 @@ public:
 					}
 				}
 
-				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localPort, now);
+				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localAddress, localPort, now, len, sourcePeerAddr);
 			}
 		}
 
@@ -4523,7 +4523,7 @@ public:
 		}
 	}
 
-	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned long packetSize, const Address& sourcePeerAddr)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4539,8 +4539,10 @@ public:
 
 		if (isFirstIncoming) {
 			_seenIncomingPeerPorts.insert(peerPortKey);
-			char ztBuf[64];
+			char ztBuf[64], localBuf[64], sourceBuf[64];
 			ztAddr.toString(ztBuf);
+			localAddress.toIpString(localBuf);
+			sourcePeerAddr.toString(sourceBuf);
 
 			// Enhanced logging for incoming-only peers with full details
 			const char* peerRole = "UNKNOWN";
@@ -4590,8 +4592,8 @@ public:
 				}
 			}
 
-			fprintf(stderr, "PACKET_FROM: %s (%s) port %u - role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-				ztBuf, ipBuf, localPort, peerRole, peerVersion,
+			fprintf(stderr, "PACKET_FROM: size=%lu local=%s remote=%s peer=%s source_peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				packetSize, localBuf, ipBuf, ztBuf, sourceBuf, localPort, peerRole, peerVersion,
 				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 		}
 
@@ -4607,7 +4609,7 @@ public:
 		}
 	}
 
-	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now)
+	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& remoteAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4618,6 +4620,8 @@ public:
 		char ipBuf[64];
 		remoteAddress.toIpString(ipBuf);
 		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+		auto peerPortKey = std::make_pair(peerKey, localPort);
+		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
 		// Only track outgoing stats for peers we've already received packets from
 		// This prevents creating stats entries for peers that never respond
@@ -4630,6 +4634,66 @@ public:
 
 			if (stats.firstOutgoingSeen == 0) {
 				stats.firstOutgoingSeen = now;
+			}
+
+			// First-time outgoing packet logging with detailed information
+			if (isFirstOutgoing) {
+				_seenOutgoingPeerPorts.insert(peerPortKey);
+				char ztBuf[64], localBuf[64];
+				ztAddr.toString(ztBuf);
+				localAddress.toIpString(localBuf);
+
+				// Enhanced logging for outgoing packets with full details
+				const char* peerRole = "UNKNOWN";
+				const char* peerVersion = "unknown";
+				bool isAlive = false;
+				bool hasDirectPath = false;
+				bool existsInTopology = false;
+
+				// Only access node internals if node is fully initialized AND we have a valid runtime environment
+				if (_node) {
+					try {
+						// Check if the node is in a safe state for topology access
+						const Node* node = reinterpret_cast<const Node*>(_node);
+						if (node && node->online()) {  // Only access if node is online
+							const RuntimeEnvironment *RR = &(node->_RR);
+							if (RR && RR->topology) {  // Verify topology exists
+								SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
+								existsInTopology = (existingPeer.ptr() != nullptr);
+
+								if (existingPeer) {
+									// Get peer role
+									ZT_PeerRole role = RR->topology->role(ztAddr);
+									switch (role) {
+										case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
+										case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
+										case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
+										default: peerRole = "UNKNOWN"; break;
+									}
+
+									isAlive = existingPeer->isAlive(now);
+									hasDirectPath = !existingPeer->paths(now).empty();
+
+									// Get version if known
+									if (existingPeer->remoteVersionKnown()) {
+										static char versionBuf[64];
+										snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
+											existingPeer->remoteVersionMajor(),
+											existingPeer->remoteVersionMinor(),
+											existingPeer->remoteVersionRevision());
+										peerVersion = versionBuf;
+									}
+								}
+							}
+						}
+					} catch (...) {
+						// Ignore errors during node initialization - topology not ready yet
+					}
+				}
+
+				fprintf(stderr, "PACKET_TO: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+					packetSize, localBuf, ipBuf, ztBuf, localPort, peerRole, peerVersion,
+					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 			}
 		}
 		// If we haven't received any packets from this peer yet, don't create a stats entry
@@ -4906,7 +4970,12 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
 		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
-			service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localPort, OSUtils::now());
+			// For outgoing packet events from peer callback, we don't have local address or packet size
+			// Use placeholder values - the main tracking is done in nodeWirePacketSendFunction
+			{
+				InetAddress localAddr("0.0.0.0", localPort); // Placeholder local address
+				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), 0);
+			}
 			break;
 	}
 }
