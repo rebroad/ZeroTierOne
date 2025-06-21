@@ -3366,7 +3366,50 @@ public:
 			// Only track if this is one of our configured ports
 			if (localPort == _primaryPort || localPort == _tertiaryPort ||
 				(_allowSecondaryPort && localPort == _ports[1])) {
-				_trackIncomingPeerPortUsage(sourcePeerAddr, fromAddress, localPort, now);
+
+				// Determine the correct ZT address for tracking purposes
+				Address trackingAddr = sourcePeerAddr;
+
+				// Check if this packet is being relayed through a PLANET/MOON
+				// We need to find which peer actually owns this physical IP address
+				if (_node) {
+					try {
+						const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+						if (RR && RR->topology) {
+							// Find which peer (if any) has an active path to this physical IP address
+							std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
+							for (const auto& peerPair : allPeers) {
+								const Address& peerAddr = peerPair.first;
+								const SharedPtr<Peer>& peer = peerPair.second;
+								if (peer && peer->hasActivePathTo(now, fromAddress)) {
+									// This peer has an active path to the sender IP
+									if (peerAddr != sourcePeerAddr) {
+										// Physical sender is different from logical source - this is relayed!
+										ZT_PeerRole physicalRole = RR->topology->role(peerAddr);
+										if (physicalRole == ZT_PEER_ROLE_PLANET || physicalRole == ZT_PEER_ROLE_MOON) {
+											trackingAddr = peerAddr; // Track against the PLANET/MOON doing the relaying
+
+											// Log relay detection for debugging
+											char physicalBuf[16], logicalBuf[16], ipBuf[64];
+											peerAddr.toString(physicalBuf);
+											sourcePeerAddr.toString(logicalBuf);
+											fromAddress.toIpString(ipBuf);
+
+											fprintf(stderr, "RELAY_DETECTED: %s %s at %s relaying packet from %s" ZT_EOL_S,
+												(physicalRole == ZT_PEER_ROLE_PLANET) ? "PLANET" : "MOON",
+												physicalBuf, ipBuf, logicalBuf);
+										}
+									}
+									break; // Found the peer that owns this IP, no need to continue
+								}
+							}
+						}
+					} catch (...) {
+						// Ignore errors during topology access - use original sourcePeerAddr
+					}
+				}
+
+				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localPort, now);
 			}
 		}
 
