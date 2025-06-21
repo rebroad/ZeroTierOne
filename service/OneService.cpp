@@ -913,7 +913,8 @@ public:
 		PeerPortStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0), lastIncomingSeen(0), lastOutgoingSeen(0) {}
 	};
 	std::map<std::pair<Address, std::string>, PeerPortStats> _peerPortStats; // Track by ZT address + IP string
-	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenPeerPorts; // For first-time logging
+	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenIncomingPeerPorts; // For first-time incoming logging
+	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenOutgoingPeerPorts; // For first-time outgoing logging
 	Mutex _peerPortStats_m;
 
 	// Peer introduction tracking for misbehavior detection
@@ -3420,7 +3421,7 @@ public:
 					}
 				}
 
-				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localPort, now);
+				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localAddress, localPort, now, len, sourcePeerAddr);
 			}
 		}
 
@@ -4159,12 +4160,24 @@ public:
 
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 
+			// Track outgoing packet for first-time logging
+			if (r && len >= 16) {
+				_trackOutgoingPacketSend(localSocket, addr, data, len);
+			}
+
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
 			}
 			return ((r) ? 0 : -1);
 		} else {
-			return ((_binder.udpSendAll(_phy,addr,data,len,ttl)) ? 0 : -1);
+			const bool r = _binder.udpSendAll(_phy,addr,data,len,ttl);
+
+			// Track outgoing packet for first-time logging (when using sendAll)
+			if (r && len >= 16) {
+				_trackOutgoingPacketSend(-1, addr, data, len);
+			}
+
+			return (r ? 0 : -1);
 		}
 	}
 
@@ -4510,7 +4523,7 @@ public:
 		}
 	}
 
-	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned long packetSize, const Address& sourcePeerAddr)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4522,12 +4535,14 @@ public:
 		peerAddress.toIpString(ipBuf);
 		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
 		auto peerPortKey = std::make_pair(peerKey, localPort);
-		bool isFirstIncoming = (_seenPeerPorts.find(peerPortKey) == _seenPeerPorts.end());
+		bool isFirstIncoming = (_seenIncomingPeerPorts.find(peerPortKey) == _seenIncomingPeerPorts.end());
 
 		if (isFirstIncoming) {
-			_seenPeerPorts.insert(peerPortKey);
-			char ztBuf[64];
+			_seenIncomingPeerPorts.insert(peerPortKey);
+			char ztBuf[64], localBuf[64], sourceBuf[64];
 			ztAddr.toString(ztBuf);
+			localAddress.toIpString(localBuf);
+			sourcePeerAddr.toString(sourceBuf);
 
 			// Enhanced logging for incoming-only peers with full details
 			const char* peerRole = "UNKNOWN";
@@ -4577,8 +4592,8 @@ public:
 				}
 			}
 
-			fprintf(stderr, "PACKET_FROM: %s (%s) port %u - role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-				ztBuf, ipBuf, localPort, peerRole, peerVersion,
+			fprintf(stderr, "PACKET_FROM: size=%lu local=%s remote=%s peer=%s source_peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				packetSize, localBuf, ipBuf, ztBuf, sourceBuf, localPort, peerRole, peerVersion,
 				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 		}
 
@@ -4594,7 +4609,7 @@ public:
 		}
 	}
 
-	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& localAddress, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4603,8 +4618,10 @@ public:
 
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
-		peerAddress.toIpString(ipBuf);
+		remoteAddress.toIpString(ipBuf);
 		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+		auto peerPortKey = std::make_pair(peerKey, localPort);
+		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
 		// Only track outgoing stats for peers we've already received packets from
 		// This prevents creating stats entries for peers that never respond
@@ -4619,7 +4636,121 @@ public:
 				stats.firstOutgoingSeen = now;
 			}
 		}
-		// If we haven't received any packets from this peer yet, don't create a stats entry
+
+		// First-time outgoing packet logging with detailed information
+		if (isFirstOutgoing) {
+			_seenOutgoingPeerPorts.insert(peerPortKey);
+			char ztBuf[64], localBuf[64];
+			ztAddr.toString(ztBuf);
+			localAddress.toIpString(localBuf);
+
+			// Enhanced logging for outgoing packets with full details
+			const char* peerRole = "UNKNOWN";
+			const char* peerVersion = "unknown";
+			bool isAlive = false;
+			bool hasDirectPath = false;
+			bool existsInTopology = false;
+
+			// Only access node internals if node is fully initialized AND we have a valid runtime environment
+			if (_node) {
+				try {
+					// Check if the node is in a safe state for topology access
+					const Node* node = reinterpret_cast<const Node*>(_node);
+					if (node && node->online()) {  // Only access if node is online
+						const RuntimeEnvironment *RR = &(node->_RR);
+						if (RR && RR->topology) {  // Verify topology exists
+							SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
+							existsInTopology = (existingPeer.ptr() != nullptr);
+
+							if (existingPeer) {
+								// Get peer role
+								ZT_PeerRole role = RR->topology->role(ztAddr);
+								switch (role) {
+									case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
+									case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
+									case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
+									default: peerRole = "UNKNOWN"; break;
+								}
+
+								isAlive = existingPeer->isAlive(now);
+								hasDirectPath = !existingPeer->paths(now).empty();
+
+								// Get version if known
+								if (existingPeer->remoteVersionKnown()) {
+									static char versionBuf[64];
+									snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
+										existingPeer->remoteVersionMajor(),
+										existingPeer->remoteVersionMinor(),
+										existingPeer->remoteVersionRevision());
+									peerVersion = versionBuf;
+								}
+							}
+						}
+					}
+				} catch (...) {
+					// Ignore errors during node initialization - topology not ready yet
+				}
+			}
+
+			fprintf(stderr, "PACKET_TO: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				packetSize, localBuf, ipBuf, ztBuf, localPort, peerRole, peerVersion,
+				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+		}
+	}
+
+	void _trackOutgoingPacketSend(int64_t localSocket, const struct sockaddr_storage *addr, const void *data, unsigned int len)
+	{
+		// Skip tracking during early initialization to prevent crashes
+		if (!_node || len < 16) return;
+
+		try {
+			// Extract destination peer address from packet data
+			// ZeroTier packets have the destination address in the first 5 bytes after the verb
+			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
+
+			// Basic ZeroTier packet structure validation
+			if (len < 16) return;
+
+			// Extract destination address from packet (bytes 8-12 for 5-byte address)
+			Address destAddr;
+			if (len >= 13) {
+				destAddr.setTo(packetData + 8, 5);
+			} else {
+				return; // Packet too short
+			}
+
+			// Get local address from socket
+			InetAddress localAddress;
+			InetAddress remoteAddress(addr);
+
+			if (localSocket != -1 && localSocket != 0) {
+				// Try to get local address from socket
+				struct sockaddr_storage localSockAddr;
+				socklen_t addrLen = sizeof(localSockAddr);
+				if (getsockname((int)((uintptr_t)localSocket), (struct sockaddr*)&localSockAddr, &addrLen) == 0) {
+					localAddress = InetAddress(&localSockAddr);
+				}
+			}
+
+			// If we couldn't get local address from socket, use a placeholder
+			if (!localAddress) {
+				if (addr->ss_family == AF_INET) {
+					localAddress = InetAddress("0.0.0.0", 0);
+				} else {
+					localAddress = InetAddress("::", 0);
+				}
+			}
+
+			unsigned int localPort = localAddress.port();
+			if (localPort == 0) {
+				// If we couldn't determine the local port, use the primary port as fallback
+				localPort = _primaryPort;
+			}
+
+			_trackOutgoingPacket(destAddr, localAddress, remoteAddress, localPort, OSUtils::now(), len);
+		} catch (...) {
+			// Ignore errors during packet parsing - not critical
+		}
 	}
 
 	/**
@@ -4763,8 +4894,6 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
-		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
-			service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localPort, OSUtils::now());
 			break;
 	}
 }
