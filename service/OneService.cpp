@@ -35,6 +35,7 @@
 
 #include "../node/Constants.hpp"
 #include "../node/Mutex.hpp"
+#include "../node/TimedMutex.hpp"
 #include "../node/Node.hpp"
 #include "../node/Utils.hpp"
 #include "../node/InetAddress.hpp"
@@ -914,7 +915,7 @@ public:
 	};
 	std::map<std::pair<Address, std::string>, PeerPortStats> _peerPortStats; // Track by ZT address + IP string
 	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenPeerPorts; // For first-time logging
-	Mutex _peerPortStats_m;
+	TimedMutex _peerPortStats_m;  // Use TimedMutex for deadlock detection
 
 	// Peer introduction tracking for misbehavior detection
 	struct PeerIntroduction {
@@ -2553,10 +2554,16 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
-			// Copy peer stats snapshot to avoid holding lock while building JSON
+			// Copy peer stats snapshot with deadlock detection
 			std::map<std::pair<Address, std::string>, PeerPortStats> peerStatsSnapshot;
 			{
-				Mutex::Lock _l(_peerPortStats_m);
+				TimedMutex::TimedLock _l(_peerPortStats_m, 5000); // 5 second timeout
+				if (!_l.acquired()) {
+					// Deadlock detected! Return error response
+					res.status = 503; // Service Unavailable
+					setContent(req, res, "{\"error\":\"Stats temporarily unavailable due to system contention\"}");
+					return;
+				}
 				peerStatsSnapshot = _peerPortStats; // Copy entire map
 			}
 
@@ -2671,7 +2678,7 @@ public:
 
 				// Check if we have stats for this peer (now per IP address)
 				{
-					Mutex::Lock _l(_peerPortStats_m);
+					TimedMutex::Lock _l(_peerPortStats_m);
 					json statsEntries = json::array();
 					uint64_t totalIncoming = 0, totalOutgoing = 0;
 
@@ -4637,7 +4644,7 @@ public:
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		Mutex::Lock _l(_peerPortStats_m);
+		TimedMutex::Lock _l(_peerPortStats_m);
 
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
@@ -4721,7 +4728,7 @@ public:
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		Mutex::Lock _l(_peerPortStats_m);
+		TimedMutex::Lock _l(_peerPortStats_m);
 
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
