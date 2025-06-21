@@ -3421,7 +3421,7 @@ public:
 					}
 				}
 
-				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localAddress, localPort, now, len, sourcePeerAddr);
+				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localPort, now);
 			}
 		}
 
@@ -4607,7 +4607,7 @@ public:
 		}
 	}
 
-	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now)
+	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4746,9 +4746,9 @@ public:
 			// If we couldn't get local address from socket, use a placeholder
 			if (!localAddress) {
 				if (addr->ss_family == AF_INET) {
-					localAddress = InetAddress("0.0.0.0", 0);
+					localAddress.fromString("0.0.0.0/0");
 				} else {
-					localAddress = InetAddress("::", 0);
+					localAddress.fromString("::/0");
 				}
 			}
 
