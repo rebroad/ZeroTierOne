@@ -4894,7 +4894,6 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
-			break;
 	}
 }
 
