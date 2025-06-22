@@ -2576,26 +2576,29 @@ public:
 			std::map<std::string, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
 			std::map<Address, uint64_t> ztIncomingBytes, ztOutgoingBytes, ztLastSeen;
 			std::vector<std::pair<std::pair<Address, std::string>, PeerStats>> sortedPeers;
-			
+
 			{
 				Mutex::Lock _l(_peerStats_m);
 				for (const auto& peerEntry : _peerStats) {
 					sortedPeers.push_back(peerEntry);
-					
+
 					const Address& ztAddr = peerEntry.first.first;
 					const std::string& ipAddr = peerEntry.first.second;
 					const PeerStats& peerStats = peerEntry.second;
-					
+
 					// Aggregate by IP address (use wire-level stats as they include all traffic)
-					ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
-					ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
-					ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], 
-						std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen));
-					
+					// BUT exclude IP stats for PLANET/MOON addresses since they're infrastructure
+					if (!_isInfrastructureNode(ztAddr)) {
+						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
+						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
+						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr],
+							std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen));
+					}
+
 					// Aggregate by ZT address (use wire-level stats)
 					ztIncomingBytes[ztAddr] += peerStats.WireBytesIncoming;
 					ztOutgoingBytes[ztAddr] += peerStats.WireBytesOutgoing;
-					ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr], 
+					ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr],
 						std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen));
 				}
 			}
@@ -2607,15 +2610,15 @@ public:
 					const std::string& ipAddrA = a.first.second;
 					const Address& ztAddrB = b.first.first;
 					const std::string& ipAddrB = b.first.second;
-					
+
 					// Get higher RX value (IP vs ZT)
 					uint64_t rxA = std::max(ipIncomingBytes[ipAddrA], ztIncomingBytes[ztAddrA]);
 					uint64_t rxB = std::max(ipIncomingBytes[ipAddrB], ztIncomingBytes[ztAddrB]);
-					
+
 					// Get higher TX value (IP vs ZT)
 					uint64_t txA = std::max(ipOutgoingBytes[ipAddrA], ztOutgoingBytes[ztAddrA]);
 					uint64_t txB = std::max(ipOutgoingBytes[ipAddrB], ztOutgoingBytes[ztAddrB]);
-					
+
 					return (rxA + txA) > (rxB + txB);
 				});
 
@@ -2643,7 +2646,11 @@ public:
 				uint64_t ipTx = ipOutgoingBytes[ipAddr];
 				uint64_t ztTx = ztOutgoingBytes[ztAddr];
 
+				// Check if this ZT address is infrastructure (PLANET/MOON)
+				bool isInfrastructure = _isInfrastructureNode(ztAddr);
+
 				// Use higher RX value and mark source with "i" (IP) or "z" (ZT address)
+				// Note: IP stats will be 0 for infrastructure nodes due to filtering above
 				bool rxFromIP = ipRx >= ztRx;
 				uint64_t displayRx = rxFromIP ? ipRx : ztRx;
 				std::string rxSource = rxFromIP ? "i" : "z";
@@ -2658,6 +2665,7 @@ public:
 				peerStat["displayBytesOutgoing"] = displayTx;
 				peerStat["rxSource"] = rxSource;  // "i" = from IP stats, "z" = from ZT address stats
 				peerStat["txSource"] = txSource;  // "i" = from IP stats, "z" = from ZT address stats
+				peerStat["isInfrastructureNode"] = isInfrastructure;  // Indicates if IP stats were excluded
 				peerStat["totalIncoming"] = stats.totalIncoming;
 				peerStat["totalOutgoing"] = stats.totalOutgoing;
 				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
@@ -2803,6 +2811,60 @@ public:
 			}
 		};
 		_controlPlane.Get("/debug/peer", debugPeerGet);
+
+		// Debug endpoint to lookup ZT addresses by IP or IP addresses by ZT address
+		auto debugLookupGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
+				res.status = 403;
+				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
+				return;
+			}
+
+			std::string ipAddr = req.get_param_value("ip");
+			std::string ztAddrStr = req.get_param_value("ztaddr");
+
+			json result = json::object();
+
+			if (!ipAddr.empty()) {
+				// Look up ZT addresses for this IP
+				std::vector<Address> ztAddresses = _getZtAddressesForIP(ipAddr);
+				json ztAddrArray = json::array();
+
+				for (const Address& addr : ztAddresses) {
+					char addrBuf[32];
+					addr.toString(addrBuf);
+					json addrInfo = json::object();
+					addrInfo["ztAddress"] = std::string(addrBuf);
+					addrInfo["isInfrastructure"] = _isInfrastructureNode(addr);
+					ztAddrArray.push_back(addrInfo);
+				}
+
+				result["ipAddress"] = ipAddr;
+				result["ztAddresses"] = ztAddrArray;
+			}
+
+			if (!ztAddrStr.empty()) {
+				try {
+					Address ztAddr((uint64_t)strtoull(ztAddrStr.c_str(), nullptr, 16));
+
+					// Look up IP addresses for this ZT address
+					std::vector<std::string> ipAddresses = _getIPAddressesForZtAddr(ztAddr);
+
+					result["ztAddress"] = ztAddrStr;
+					result["ipAddresses"] = ipAddresses;
+					result["isInfrastructure"] = _isInfrastructureNode(ztAddr);
+				} catch (...) {
+					result["error"] = "Invalid ZT address format";
+				}
+			}
+
+			if (ipAddr.empty() && ztAddrStr.empty()) {
+				result["error"] = "Must provide either 'ip' or 'ztaddr' parameter";
+			}
+
+			setContent(req, res, result.dump(2));
+		};
+		_controlPlane.Get("/debug/lookup", debugLookupGet);
 
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
@@ -5218,6 +5280,51 @@ public:
 	}
 
 	// Attack detection through divergence analysis
+	// Helper function to check if a ZT address is a PLANET or MOON (infrastructure node)
+	bool _isInfrastructureNode(const Address& ztAddr) {
+		if (!_node) return false;
+
+		try {
+			const Node* node = reinterpret_cast<const Node*>(_node);
+			if (node && node->online()) {
+				const RuntimeEnvironment *RR = &(node->_RR);
+				if (RR && RR->topology) {
+					ZT_PeerRole role = RR->topology->role(ztAddr);
+					return (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON);
+				}
+			}
+		} catch (...) {
+			// Ignore errors during node initialization
+		}
+		return false;
+	}
+
+	// Helper function to look up all ZT addresses associated with an IP address
+	std::vector<Address> _getZtAddressesForIP(const std::string& ipAddr) {
+		std::vector<Address> ztAddresses;
+		Mutex::Lock _l(_peerStats_m);
+
+		for (const auto& entry : _peerStats) {
+			if (entry.first.second == ipAddr) {  // Match IP address
+				ztAddresses.push_back(entry.first.first);  // Add ZT address
+			}
+		}
+		return ztAddresses;
+	}
+
+	// Helper function to look up all IP addresses associated with a ZT address
+	std::vector<std::string> _getIPAddressesForZtAddr(const Address& ztAddr) {
+		std::vector<std::string> ipAddresses;
+		Mutex::Lock _l(_peerStats_m);
+
+		for (const auto& entry : _peerStats) {
+			if (entry.first.first == ztAddr) {  // Match ZT address
+				ipAddresses.push_back(entry.first.second);  // Add IP address
+			}
+		}
+		return ipAddresses;
+	}
+
 	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& peerIP,
 								   PeerStats& stats, uint64_t now) {
 		// Calculate divergence ratios
