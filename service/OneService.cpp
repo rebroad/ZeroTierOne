@@ -4442,7 +4442,7 @@ public:
 	}
 
 	// Iptables peer path management
-	void _handlePeerPathUpdate(const InetAddress& peerAddress, bool isAdd)
+	void _handlePeerPathUpdate(const InetAddress& peerAddress, const Address& peerZtAddr, bool isAdd)
 	{
 		if (_iptablesEnabled && _iptablesManager) {
 			// Only add globally routable addresses to iptables ipset
@@ -4454,7 +4454,16 @@ public:
 
 			char ipStr[64];
 			peerAddress.toIpString(ipStr);
-			isAdd ? _iptablesManager->addPeer(ipStr) : _iptablesManager->removePeer(ipStr);
+
+			char ztAddrStr[16];
+			peerZtAddr.toString(ztAddrStr);
+
+			if (_iptablesManager->updatePeer(ipStr, isAdd)) {
+				const char* operation = isAdd ? "Added" : "Removed";
+				const char* preposition = isAdd ? "to" : "from";
+				fprintf(stderr, "INFO: %s peer %s (zt:%s) %s iptables ipset" ZT_EOL_S,
+						operation, ipStr, ztAddrStr, preposition);
+			}
 		}
 	}
 
@@ -5015,10 +5024,10 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 
 	switch (eventType) {
 		case RuntimeEnvironment::PEER_EVENT_PATH_ADD:
-			service->_handlePeerPathUpdate(peerAddress, true);
+			service->_handlePeerPathUpdate(peerAddress, peerZtAddr, true);
 			break;
 		case RuntimeEnvironment::PEER_EVENT_PATH_REMOVE:
-			service->_handlePeerPathUpdate(peerAddress, false);
+			service->_handlePeerPathUpdate(peerAddress, peerZtAddr, false);
 			break;
 		case RuntimeEnvironment::PEER_EVENT_INTRODUCTION:
 			service->_trackPeerIntroduction(peerAddress, peerZtAddr, introducerZtAddr, OSUtils::now());
