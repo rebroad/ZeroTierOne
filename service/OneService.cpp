@@ -900,22 +900,35 @@ public:
 	bool _iptablesEnabled;
 
 	// Peer-port usage tracking (now per ZT address + IP address combination)
-	struct PeerPortStats {
+	struct PeerStats {
 		std::map<unsigned int, uint64_t> incomingPortCounts; // port -> incoming count
 		std::map<unsigned int, uint64_t> outgoingPortCounts; // port -> outgoing count
 		std::string peerIP; // The specific IP address for this stats entry
+
+		// Original packet tracking (successful ZT protocol exchanges)
 		uint64_t totalIncoming;
 		uint64_t totalOutgoing;
 		uint64_t firstIncomingSeen;
 		uint64_t firstOutgoingSeen;
 		uint64_t lastIncomingSeen;
 		uint64_t lastOutgoingSeen;
-		PeerPortStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0), lastIncomingSeen(0), lastOutgoingSeen(0) {}
+
+		// Wire packet tracking (raw packet processing attempts)
+		uint64_t wirePacketsIncoming;        // All incoming wire packets
+		uint64_t wirePacketsOutgoing;        // All outgoing wire packets
+		uint64_t wirePacketBytesIncoming;    // All incoming wire packet bytes
+		uint64_t wirePacketBytesOutgoing;    // All outgoing wire packet bytes
+		uint64_t wirePacketErrorsIncoming;   // Failed incoming wire packets
+		uint64_t wirePacketErrorsOutgoing;   // Failed outgoing wire packets
+
+		PeerStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0),
+					  lastIncomingSeen(0), lastOutgoingSeen(0), wirePacketsIncoming(0), wirePacketsOutgoing(0),
+					  wirePacketBytesIncoming(0), wirePacketBytesOutgoing(0), wirePacketErrorsIncoming(0), wirePacketErrorsOutgoing(0) {}
 	};
-	std::map<std::pair<Address, std::string>, PeerPortStats> _peerPortStats; // Track by ZT address + IP string
+	std::map<std::pair<Address, std::string>, PeerStats> _peerStats; // Track by ZT address + IP string
 	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenIncomingPeerPorts; // For first-time incoming logging
 	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenOutgoingPeerPorts; // For first-time outgoing logging
-	Mutex _peerPortStats_m;
+	Mutex _peerStats_m;
 
 	// Peer introduction tracking for misbehavior detection
 	struct PeerIntroduction {
@@ -2534,12 +2547,12 @@ public:
 			// Get peer statistics (IP addresses are now collected when stats are updated)
 			json peerStats = json::object();
 			{
-				Mutex::Lock _l(_peerPortStats_m);
-				for (const auto& peerEntry : _peerPortStats) {
+				Mutex::Lock _l(_peerStats_m);
+				for (const auto& peerEntry : _peerStats) {
 					const std::pair<Address, std::string>& peerKey = peerEntry.first;
 					const Address& ztAddr = peerKey.first;
 					const std::string& ipAddr = peerKey.second;
-					const PeerPortStats& stats = peerEntry.second;
+					const PeerStats& stats = peerEntry.second;
 
 					char ztAddrBuf[32];
 					ztAddr.toString(ztAddrBuf);
@@ -2557,6 +2570,14 @@ public:
 					peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
 					peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
 					peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
+
+					// Wire packet tracking data
+					peerStat["wirePacketsIncoming"] = stats.wirePacketsIncoming;
+					peerStat["wirePacketsOutgoing"] = stats.wirePacketsOutgoing;
+					peerStat["wirePacketBytesIncoming"] = stats.wirePacketBytesIncoming;
+					peerStat["wirePacketBytesOutgoing"] = stats.wirePacketBytesOutgoing;
+					peerStat["wirePacketErrorsIncoming"] = stats.wirePacketErrorsIncoming;
+					peerStat["wirePacketErrorsOutgoing"] = stats.wirePacketErrorsOutgoing;
 
 					// Port usage statistics
 					json incomingPorts = json::object();
@@ -2590,28 +2611,68 @@ public:
 			}
 
 			json wireStats = json::object();
-
-			// Extract wire packet metrics from Prometheus registry
-			// Note: This is a simplified approach - in a real implementation you'd want to
-			// iterate through the actual Prometheus metrics registry to get current values
 			wireStats["description"] = "Wire packet processing metrics with detailed peer information";
 			wireStats["note"] = "These metrics track raw packet processing attempts before/after ZeroTier protocol processing";
 
-			// For now, return the structure that would contain the metrics
-			// In a full implementation, you'd iterate through Metrics::wire_packets and wire_packet_bytes
-			wireStats["metrics_available"] = json::array({
-				"zt_wire_packets - packet counts by peer and result",
-				"zt_wire_packet_bytes - byte counts by peer and result"
-			});
+			json peerWireStats = json::array();
+			uint64_t totalIncomingPackets = 0, totalOutgoingPackets = 0;
+			uint64_t totalIncomingBytes = 0, totalOutgoingBytes = 0;
+			uint64_t totalIncomingErrors = 0, totalOutgoingErrors = 0;
 
-			wireStats["labels"] = json::object({
-				{"peer_zt_addr", "ZeroTier address of the peer"},
-				{"peer_ip", "Physical IP address of the peer"},
-				{"direction", "rx (incoming packets)"},
-				{"result", "ok (successful processing) or error (failed processing)"}
-			});
+			{
+				Mutex::Lock _l(_peerStats_m);
+				for (const auto& peerEntry : _peerStats) {
+					const std::pair<Address, std::string>& peerKey = peerEntry.first;
+					const Address& ztAddr = peerKey.first;
+					const PeerStats& stats = peerEntry.second;
 
-			wireStats["usage"] = "Access full metrics via /metrics endpoint or metrics.prom file";
+					// Skip peers with no wire packet data
+					if (stats.wirePacketsIncoming == 0 && stats.wirePacketsOutgoing == 0) {
+						continue;
+					}
+
+					char ztAddrBuf[32];
+					ztAddr.toString(ztAddrBuf);
+
+					json peerWireStat = json::object();
+					peerWireStat["ztAddress"] = std::string(ztAddrBuf);
+					peerWireStat["ipAddress"] = stats.peerIP;
+					peerWireStat["wirePacketsIncoming"] = stats.wirePacketsIncoming;
+					peerWireStat["wirePacketsOutgoing"] = stats.wirePacketsOutgoing;
+					peerWireStat["wirePacketBytesIncoming"] = stats.wirePacketBytesIncoming;
+					peerWireStat["wirePacketBytesOutgoing"] = stats.wirePacketBytesOutgoing;
+					peerWireStat["wirePacketErrorsIncoming"] = stats.wirePacketErrorsIncoming;
+					peerWireStat["wirePacketErrorsOutgoing"] = stats.wirePacketErrorsOutgoing;
+
+					// Calculate success rates
+					double incomingSuccessRate = stats.wirePacketsIncoming > 0 ?
+						(double)(stats.wirePacketsIncoming - stats.wirePacketErrorsIncoming) / stats.wirePacketsIncoming * 100.0 : 0.0;
+					double outgoingSuccessRate = stats.wirePacketsOutgoing > 0 ?
+						(double)(stats.wirePacketsOutgoing - stats.wirePacketErrorsOutgoing) / stats.wirePacketsOutgoing * 100.0 : 0.0;
+
+					peerWireStat["incomingSuccessRate"] = incomingSuccessRate;
+					peerWireStat["outgoingSuccessRate"] = outgoingSuccessRate;
+
+					peerWireStats.push_back(peerWireStat);
+
+					// Add to totals
+					totalIncomingPackets += stats.wirePacketsIncoming;
+					totalOutgoingPackets += stats.wirePacketsOutgoing;
+					totalIncomingBytes += stats.wirePacketBytesIncoming;
+					totalOutgoingBytes += stats.wirePacketBytesOutgoing;
+					totalIncomingErrors += stats.wirePacketErrorsIncoming;
+					totalOutgoingErrors += stats.wirePacketErrorsOutgoing;
+				}
+			}
+
+			wireStats["totalIncomingPackets"] = totalIncomingPackets;
+			wireStats["totalOutgoingPackets"] = totalOutgoingPackets;
+			wireStats["totalIncomingBytes"] = totalIncomingBytes;
+			wireStats["totalOutgoingBytes"] = totalOutgoingBytes;
+			wireStats["totalIncomingErrors"] = totalIncomingErrors;
+			wireStats["totalOutgoingErrors"] = totalOutgoingErrors;
+			wireStats["peerCount"] = peerWireStats.size();
+			wireStats["peers"] = peerWireStats;
 
 			setContent(req, res, wireStats.dump(2));
 		};
@@ -2669,13 +2730,13 @@ public:
 
 				// Check if we have stats for this peer (now per IP address)
 				{
-					Mutex::Lock _l(_peerPortStats_m);
+					Mutex::Lock _l(_peerStats_m);
 					json statsEntries = json::array();
 					uint64_t totalIncoming = 0, totalOutgoing = 0;
 
-					for (const auto& entry : _peerPortStats) {
+					for (const auto& entry : _peerStats) {
 						if (entry.first.first == ztAddr) {  // Match ZT address
-							const PeerPortStats& stats = entry.second;
+							const PeerStats& stats = entry.second;
 							json statsEntry = json::object();
 							statsEntry["ipAddress"] = stats.peerIP;
 							statsEntry["totalIncoming"] = stats.totalIncoming;
@@ -3416,7 +3477,7 @@ public:
 			const bool isSuccessful = (rc == ZT_RESULT_OK);
 
 			// Update metrics for the logical source peer (originPeerZTAddr)
-			_updateWirePacketMetrics(originPeerZTAddr, fromAddress, isSuccessful, len, now, "rx"); // TODO - handle empty originPeerZTAddr
+			_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, "rx"); // TODO - this function must be able to handle empty originPeerZTAddr
 		}
 
 		// Track port usage only for successfully processed packets from identified peers
@@ -3452,7 +3513,7 @@ public:
 
 										// Track metrics for the physical relaying peer (if not PLANET/MOON)
 										if (physicalRole != ZT_PEER_ROLE_PLANET && physicalRole != ZT_PEER_ROLE_MOON) {
-											_updateWirePacketMetrics(directPeerZTAddr, fromAddress, true, len, now, "rx");
+											_trackWirePacket(directPeerZTAddr, fromAddress, true, len, "rx");
 
 											ZT_PeerRole sourceRole = RR->topology->role(originPeerZTAddr);
 											auto getRoleString = [](ZT_PeerRole role) -> const char* {
@@ -4175,7 +4236,7 @@ public:
 			remoteAddress.toIpString(ipBuf);
 
 			// Track wire packet metrics for outgoing packets (always successful when we send)
-			_updateWirePacketMetrics(destAddr, remoteAddress, true, len, OSUtils::now(), "tx");
+			_trackWirePacket(destAddr, remoteAddress, true, len, "tx");
 			// Log initial outgoing packet attempts (before peer file access) - first time only per peer+IP
 			if (len > 12) {
 				Mutex::Lock _l(_firstTimeEvents_m);
@@ -4636,7 +4697,7 @@ public:
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		Mutex::Lock _l(_peerPortStats_m);
+		Mutex::Lock _l(_peerStats_m);
 
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
@@ -4713,7 +4774,7 @@ public:
 		}
 
 		// Update statistics for this specific ZT address + IP combination
-		PeerPortStats& stats = _peerPortStats[peerKey];
+		PeerStats& stats = _peerStats[peerKey];
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
@@ -4729,7 +4790,7 @@ public:
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		Mutex::Lock _l(_peerPortStats_m);
+		Mutex::Lock _l(_peerStats_m);
 
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
@@ -4740,9 +4801,9 @@ public:
 
 		// Only track outgoing stats for peers we've already received packets from
 		// This prevents creating stats entries for peers that never respond
-		auto it = _peerPortStats.find(peerKey);
-		if (it != _peerPortStats.end()) {
-			PeerPortStats& stats = it->second;
+		auto it = _peerStats.find(peerKey);
+		if (it != _peerStats.end()) {
+			PeerStats& stats = it->second;
 			stats.outgoingPortCounts[localPort]++;
 			stats.totalOutgoing++;
 			stats.lastOutgoingSeen = now;
@@ -4819,7 +4880,7 @@ public:
 		// Skip tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		Mutex::Lock _l(_peerPortStats_m);
+		Mutex::Lock _l(_peerStats_m);
 
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
@@ -5048,38 +5109,36 @@ public:
 		}
 	}
 
-	// Helper function to update wire packet metrics for detailed peer tracking
-	void _updateWirePacketMetrics(const Address& ztAddr, const InetAddress& peerIP,
-								  bool isSuccessful, unsigned int packetSize, uint64_t now, const char* direction) {
-		char ztAddrStr[16];
-		ztAddr.toString(ztAddrStr);
-
+	// Fast wire packet tracking using direct memory updates (replaces slow Prometheus metrics)
+	void _trackWirePacket(const Address& ztAddr, const InetAddress& peerIP,
+						  bool isSuccessful, unsigned int packetSize, const char* direction) {
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
 
-		// Create labels for successful/error tracking (const keys required by Prometheus)
-		std::map<const std::string, const std::string> successLabels = {
-			{"peer_zt_addr", std::string(ztAddrStr)},
-			{"peer_ip", std::string(peerIPStr)},
-			{"direction", std::string(direction)},
-			{"result", isSuccessful ? "ok" : "error"}
-		};
+		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, std::string(peerIPStr));
 
-		// Create labels for all packets tracking (const keys required by Prometheus)
-		std::map<const std::string, const std::string> allLabels = {
-			{"peer_zt_addr", std::string(ztAddrStr)},
-			{"peer_ip", std::string(peerIPStr)},
-			{"direction", std::string(direction)},
-			{"result", "all"}
-		};
+		Mutex::Lock _l(_peerStats_m);
+		PeerStats& stats = _peerStats[peerKey];
 
-		// Update packet count metrics
-		Metrics::wire_packets.Add(successLabels)++;
-		Metrics::wire_packets.Add(allLabels)++;
+		// Ensure peerIP is set (for new entries)
+		if (stats.peerIP.empty()) {
+			stats.peerIP = std::string(peerIPStr);
+		}
 
-		// Update packet bytes metrics - for counters, we need to add the value
-		Metrics::wire_packet_bytes.Add(successLabels) += packetSize;
-		Metrics::wire_packet_bytes.Add(allLabels) += packetSize;
+		// Update wire packet counters based on direction
+		if (strcmp(direction, "rx") == 0) {
+			stats.wirePacketsIncoming++;
+			stats.wirePacketBytesIncoming += packetSize;
+			if (!isSuccessful) {
+				stats.wirePacketErrorsIncoming++;
+			}
+		} else if (strcmp(direction, "tx") == 0) {
+			stats.wirePacketsOutgoing++;
+			stats.wirePacketBytesOutgoing += packetSize;
+			if (!isSuccessful) {
+				stats.wirePacketErrorsOutgoing++;
+			}
+		}
 	}
 };
 
