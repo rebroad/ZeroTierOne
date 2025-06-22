@@ -373,7 +373,7 @@ void Topology::doPeriodicTasks(void *tPtr,int64_t now)
 					std::vector< SharedPtr<Path> > paths((*p)->paths(now));
 					for(std::vector< SharedPtr<Path> >::iterator path(paths.begin());path!=paths.end();++path) {
 						if ((*path)->address().ipScope() == InetAddress::IP_SCOPE_GLOBAL) {
-							RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_REMOVE, (*path)->address(), (*p)->address(), Address(), false, 0);
+							RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_REMOVE, (*path)->address(), (*p)->address(), Address(), false, 0, 0);
 						}
 					}
 				}
