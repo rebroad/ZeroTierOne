@@ -3401,14 +3401,14 @@ public:
 										ZT_PeerRole physicalRole = RR->topology->role(peerAddr);
 										if (physicalRole != ZT_PEER_ROLE_PLANET && physicalRole != ZT_PEER_ROLE_MOON) {
 											ZT_PeerRole sourceRole = RR->topology->role(sourcePeerAddr);
-											const char* getRoleString(ZT_PeerRole role) {
+											auto getRoleString = [](ZT_PeerRole role) -> const char* {
 												switch (role) {
 												case ZT_PEER_ROLE_PLANET: return "PLANET";
 												case ZT_PEER_ROLE_MOON: return "MOON";
 												case ZT_PEER_ROLE_LEAF: return "LEAF";
 												default: return "UNKNOWN";
 												}
-											}
+											};
 											char physicalBuf[16], logicalBuf[16], ipBuf[64];
 											peerAddr.toString(physicalBuf);
 											sourcePeerAddr.toString(logicalBuf);
@@ -3416,7 +3416,7 @@ public:
 											const char* logPrefix = (physicalRole == ZT_PEER_ROLE_LEAF) ? "LEAF_RELAY_DETECTED" : "RELAY_DETECTED";
 											fprintf(stderr, "%s: %s %s at %s relaying packet from %s %s" ZT_EOL_S,
 												logPrefix, getRoleString(physicalRole), physicalBuf, ipBuf,
-												logicalBuf, getRoleString(sourceRole));
+												getRoleString(sourceRole), logicalBuf);
 										}
 									}
 									break; // Found the peer that owns this IP, no need to continue
