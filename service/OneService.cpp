@@ -5020,27 +5020,29 @@ public:
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
 
-		// Labels for the metrics (const keys required by Prometheus)
-		const std::map<const std::string, const std::string> baseLabels = {
+		// Create labels for successful/error tracking
+		std::map<std::string, std::string> successLabels = {
 			{"peer_zt_addr", std::string(ztAddrStr)},
 			{"peer_ip", std::string(peerIPStr)},
-			{"direction", "rx"}
+			{"direction", "rx"},
+			{"result", isSuccessful ? "ok" : "error"}
 		};
 
-		// Track both successful (ZT_RESULT_OK) and all packets
-		std::map<const std::string, const std::string> successLabels = baseLabels;
-		successLabels["result"] = isSuccessful ? "ok" : "error";
-
-		std::map<const std::string, const std::string> allLabels = baseLabels;
-		allLabels["result"] = "all";
+		// Create labels for all packets tracking
+		std::map<std::string, std::string> allLabels = {
+			{"peer_zt_addr", std::string(ztAddrStr)},
+			{"peer_ip", std::string(peerIPStr)},
+			{"direction", "rx"},
+			{"result", "all"}
+		};
 
 		// Update packet count metrics
-		Metrics::wire_packets.Add(successLabels).Increment();
-		Metrics::wire_packets.Add(allLabels).Increment();
+		Metrics::wire_packets.Add(successLabels)++;
+		Metrics::wire_packets.Add(allLabels)++;
 
-		// Update packet bytes metrics
-		Metrics::wire_packet_bytes.Add(successLabels).Increment(packetSize);
-		Metrics::wire_packet_bytes.Add(allLabels).Increment(packetSize);
+		// Update packet bytes metrics - for counters, we need to add the value
+		Metrics::wire_packet_bytes.Add(successLabels) += packetSize;
+		Metrics::wire_packet_bytes.Add(allLabels) += packetSize;
 	}
 };
 
