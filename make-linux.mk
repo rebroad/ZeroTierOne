@@ -376,7 +376,7 @@ from_builder:	FORCE
 	ln -sf zerotier-one zerotier-idtool
 	ln -sf zerotier-one zerotier-cli
 
-zerotier-one: $(CORE_OBJS) $(ONE_OBJS) one.o
+zerotier-one: $(CORE_OBJS) $(ONE_OBJS) one.o zeroidc smeeclient
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o zerotier-one $(CORE_OBJS) $(ONE_OBJS) one.o $(LDLIBS)
 
 zerotier-idtool: zerotier-one
@@ -385,8 +385,9 @@ zerotier-idtool: zerotier-one
 zerotier-cli: zerotier-one
 	ln -sf zerotier-one zerotier-cli
 
-# Only OneService.o actually uses the Rust libraries, so only it should depend on them
-service/OneService.o: zeroidc smeeclient
+# Rust libraries should only rebuild when their source changes, not when C++ changes
+# The zerotier-one binary depends on the Rust libraries being available, but
+# individual object files should not trigger Rust rebuilds
 
 libzerotiercore.a:	FORCE
 	make CFLAGS="-O3 -fstack-protector -fPIC" CXXFLAGS="-O3 -std=c++17 -fstack-protector -fPIC" $(CORE_OBJS)
@@ -438,7 +439,8 @@ debug:	FORCE
 
 ifeq ($(ZT_SSO_SUPPORTED), 1)
 ifeq ($(ZT_EMBEDDED),)
-zeroidc:	FORCE
+# zeroidc depends on its Rust source files - let Cargo handle incremental builds
+zeroidc: rustybits/Cargo.toml
 	export PATH=/${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p zeroidc
 endif
 else
@@ -446,7 +448,8 @@ zeroidc:
 endif
 
 ifeq ($(ZT_CONTROLLER), 1)
-smeeclient:	FORCE
+# smeeclient depends on its Rust source files - let Cargo handle incremental builds  
+smeeclient: rustybits/Cargo.toml
 	export PATH=/${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p smeeclient
 else
 smeeclient:
