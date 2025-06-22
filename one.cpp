@@ -1183,8 +1183,10 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-10s %-15s %-8s %-8s %s" ZT_EOL_S, "ZT Address", "IP Address", "First In", "Last In", "Port Usage (In/Out)");
-				printf("%-10s %-15s %-8s %-8s %s" ZT_EOL_S, "----------", "---------------", "--------", "--------", "-------------------");
+				printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
+					"ZT Address", "IP Address", "Pkts Rx (%ok)", "Pkts Tx (%ok)", "Bytes Rx (%ok)", "Bytes Tx (%ok)", "Port Usage (In/Out)");
+				printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
+					"----------", "---------------", "------------", "------------", "-------------", "-------------", "-------------------");
 
 				// Process per-IP peer data from the /stats endpoint
 				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_object()) {
@@ -1192,35 +1194,49 @@ static int cli(int argc,char **argv)
 						std::string ztaddr = peerData.value("ztAddress", "unknown");
 						std::string ipAddress = peerData.value("ipAddress", "-");
 
-						// Format timestamps
-						const uint64_t now = OSUtils::now();
-						uint64_t firstSeen = peerData.value("firstIncomingSeen", 0ULL);
-						uint64_t lastSeen = peerData.value("lastIncomingSeen", 0ULL);
+						// Get packet and byte statistics
+						uint64_t packetsIncoming = peerData.value("PacketsIncoming", 0ULL);
+						uint64_t packetsOutgoing = peerData.value("PacketsOutgoing", 0ULL);
+						uint64_t packetsIncomingOK = peerData.value("PacketsIncomingOK", 0ULL);
+						uint64_t packetsOutgoingOK = peerData.value("PacketsOutgoingOK", 0ULL);
+						uint64_t bytesIncoming = peerData.value("BytesIncoming", 0ULL);
+						uint64_t bytesOutgoing = peerData.value("BytesOutgoing", 0ULL);
+						uint64_t bytesIncomingOK = peerData.value("BytesIncomingOK", 0ULL);
+						uint64_t bytesOutgoingOK = peerData.value("BytesOutgoingOK", 0ULL);
 
-						int64_t firstIncomingDiff = firstSeen ? (now - firstSeen) / 1000 : -1;
-						int64_t lastIncomingDiff = lastSeen ? (now - lastSeen) / 1000 : -1;
+						// Format packet statistics with percentages
+						char pktsRxStr[32], pktsTxStr[32], bytesRxStr[32], bytesTxStr[32];
 
-						char firstIncomingStr[32], lastIncomingStr[32];
-						if (firstIncomingDiff >= 0) {
-							if (firstIncomingDiff < 60)
-								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%lds ago", (long)firstIncomingDiff);
-							else if (firstIncomingDiff < 3600)
-								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldm ago", (long)(firstIncomingDiff / 60));
-							else
-								snprintf(firstIncomingStr, sizeof(firstIncomingStr), "%ldh ago", (long)(firstIncomingDiff / 3600));
+						if (packetsIncoming > 0) {
+							double rxPercent = (double)packetsIncomingOK / packetsIncoming * 100.0;
+							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu (%.1f%%)",
+								(unsigned long long)packetsIncoming, rxPercent);
 						} else {
-							strcpy(firstIncomingStr, "never");
+							strcpy(pktsRxStr, "0 (0.0%)");
 						}
 
-						if (lastIncomingDiff >= 0) {
-							if (lastIncomingDiff < 60)
-								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%lds ago", (long)lastIncomingDiff);
-							else if (lastIncomingDiff < 3600)
-								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldm ago", (long)(lastIncomingDiff / 60));
-							else
-								snprintf(lastIncomingStr, sizeof(lastIncomingStr), "%ldh ago", (long)(lastIncomingDiff / 3600));
+						if (packetsOutgoing > 0) {
+							double txPercent = (double)packetsOutgoingOK / packetsOutgoing * 100.0;
+							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu (%.1f%%)",
+								(unsigned long long)packetsOutgoing, txPercent);
 						} else {
-							strcpy(lastIncomingStr, "never");
+							strcpy(pktsTxStr, "0 (0.0%)");
+						}
+
+						if (bytesIncoming > 0) {
+							double rxBytesPercent = (double)bytesIncomingOK / bytesIncoming * 100.0;
+							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu (%.1f%%)",
+								(unsigned long long)bytesIncoming, rxBytesPercent);
+						} else {
+							strcpy(bytesRxStr, "0 (0.0%)");
+						}
+
+						if (bytesOutgoing > 0) {
+							double txBytesPercent = (double)bytesOutgoingOK / bytesOutgoing * 100.0;
+							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu (%.1f%%)",
+								(unsigned long long)bytesOutgoing, txBytesPercent);
+						} else {
+							strcpy(bytesTxStr, "0 (0.0%)");
 						}
 
 						// Build port usage string in correct order
@@ -1303,7 +1319,8 @@ static int cli(int argc,char **argv)
 
 						if (!hasAnyTraffic) portUsage = "none";
 
-						printf("%-10s %-15s %-8s %-8s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), firstIncomingStr, lastIncomingStr, portUsage.c_str());
+						printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
+							ztaddr.c_str(), ipAddress.c_str(), pktsRxStr, pktsTxStr, bytesRxStr, bytesTxStr, portUsage.c_str());
 					}
 				}
 

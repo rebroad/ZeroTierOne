@@ -913,17 +913,20 @@ public:
 		uint64_t lastIncomingSeen;
 		uint64_t lastOutgoingSeen;
 
-		// Wire packet tracking (raw packet processing attempts)
-		uint64_t wirePacketsIncoming;        // All incoming wire packets
-		uint64_t wirePacketsOutgoing;        // All outgoing wire packets
-		uint64_t wirePacketBytesIncoming;    // All incoming wire packet bytes
-		uint64_t wirePacketBytesOutgoing;    // All outgoing wire packet bytes
-		uint64_t wirePacketErrorsIncoming;   // Failed incoming wire packets
-		uint64_t wirePacketErrorsOutgoing;   // Failed outgoing wire packets
+		// Wire packet tracking - using standardized field names for consistency
+		uint64_t PacketsIncoming;       // All incoming wire packets
+		uint64_t PacketsOutgoing;       // All outgoing wire packets
+		uint64_t PacketsIncomingOK;     // Successful incoming wire packets
+		uint64_t PacketsOutgoingOK;     // Successful outgoing wire packets
+		uint64_t BytesIncoming;         // All incoming wire packet bytes
+		uint64_t BytesOutgoing;         // All outgoing wire packet bytes
+		uint64_t BytesIncomingOK;       // Successful incoming wire packet bytes
+		uint64_t BytesOutgoingOK;       // Successful outgoing wire packet bytes
 
 		PeerStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0),
-					  lastIncomingSeen(0), lastOutgoingSeen(0), wirePacketsIncoming(0), wirePacketsOutgoing(0),
-					  wirePacketBytesIncoming(0), wirePacketBytesOutgoing(0), wirePacketErrorsIncoming(0), wirePacketErrorsOutgoing(0) {}
+					  lastIncomingSeen(0), lastOutgoingSeen(0), PacketsIncoming(0), PacketsOutgoing(0),
+					  PacketsIncomingOK(0), PacketsOutgoingOK(0), BytesIncoming(0), BytesOutgoing(0),
+					  BytesIncomingOK(0), BytesOutgoingOK(0) {}
 	};
 	std::map<std::pair<Address, std::string>, PeerStats> _peerStats; // Track by ZT address + IP string
 	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenIncomingPeerPorts; // For first-time incoming logging
@@ -2545,55 +2548,72 @@ public:
 			stats["totalPeerCount"] = peerCount;
 
 			// Get peer statistics (IP addresses are now collected when stats are updated)
-			json peerStats = json::object();
+			// Sort peers by total bytes (rx + tx) in descending order
+			std::vector<std::pair<std::pair<Address, std::string>, PeerStats>> sortedPeers;
 			{
 				Mutex::Lock _l(_peerStats_m);
 				for (const auto& peerEntry : _peerStats) {
-					const std::pair<Address, std::string>& peerKey = peerEntry.first;
-					const Address& ztAddr = peerKey.first;
-					const std::string& ipAddr = peerKey.second;
-					const PeerStats& stats = peerEntry.second;
-
-					char ztAddrBuf[32];
-					ztAddr.toString(ztAddrBuf);
-					std::string ztAddrStr(ztAddrBuf);
-
-					// Create unique key for this ZT address + IP combination
-					std::string combinedKey = ztAddrStr + "@" + stats.peerIP;
-
-					json peerStat = json::object();
-					peerStat["ztAddress"] = ztAddrStr;
-					peerStat["ipAddress"] = stats.peerIP;
-					peerStat["totalIncoming"] = stats.totalIncoming;
-					peerStat["totalOutgoing"] = stats.totalOutgoing;
-					peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
-					peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
-					peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
-					peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
-
-					// Wire packet tracking data
-					peerStat["wirePacketsIncoming"] = stats.wirePacketsIncoming;
-					peerStat["wirePacketsOutgoing"] = stats.wirePacketsOutgoing;
-					peerStat["wirePacketBytesIncoming"] = stats.wirePacketBytesIncoming;
-					peerStat["wirePacketBytesOutgoing"] = stats.wirePacketBytesOutgoing;
-					peerStat["wirePacketErrorsIncoming"] = stats.wirePacketErrorsIncoming;
-					peerStat["wirePacketErrorsOutgoing"] = stats.wirePacketErrorsOutgoing;
-
-					// Port usage statistics
-					json incomingPorts = json::object();
-					for (const auto& portCount : stats.incomingPortCounts) {
-						incomingPorts[std::to_string(portCount.first)] = portCount.second;
-					}
-					peerStat["incomingPorts"] = incomingPorts;
-
-					json outgoingPorts = json::object();
-					for (const auto& portCount : stats.outgoingPortCounts) {
-						outgoingPorts[std::to_string(portCount.first)] = portCount.second;
-					}
-					peerStat["outgoingPorts"] = outgoingPorts;
-
-					peerStats[combinedKey] = peerStat;
+					sortedPeers.push_back(peerEntry);
 				}
+			}
+
+			// Sort by total bytes (incoming + outgoing) in descending order
+			std::sort(sortedPeers.begin(), sortedPeers.end(), 
+				[](const auto& a, const auto& b) {
+					uint64_t totalA = a.second.BytesIncoming + a.second.BytesOutgoing;
+					uint64_t totalB = b.second.BytesIncoming + b.second.BytesOutgoing;
+					return totalA > totalB;
+				});
+
+			json peerStats = json::object();
+			for (const auto& peerEntry : sortedPeers) {
+				const std::pair<Address, std::string>& peerKey = peerEntry.first;
+				const Address& ztAddr = peerKey.first;
+				// TODO - const std::string& peerIP = peerKey.second; - this is the IP address of the peer, but it's not being used anywhere
+				// TODO - find out how it differs from stats.peerIP
+				const PeerStats& stats = peerEntry.second;
+
+				char ztAddrBuf[32];
+				ztAddr.toString(ztAddrBuf);
+				std::string ztAddrStr(ztAddrBuf);
+
+				// Create unique key for this ZT address + IP combination
+				std::string combinedKey = ztAddrStr + "@" + stats.peerIP;
+
+				json peerStat = json::object();
+				peerStat["ztAddress"] = ztAddrStr;
+				peerStat["ipAddress"] = stats.peerIP;
+				peerStat["totalIncoming"] = stats.totalIncoming;
+				peerStat["totalOutgoing"] = stats.totalOutgoing;
+				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
+				peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
+				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
+				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
+
+				// Wire packet tracking data
+				peerStat["PacketsIncoming"] = stats.PacketsIncoming;
+				peerStat["PacketsOutgoing"] = stats.PacketsOutgoing;
+				peerStat["BytesIncoming"] = stats.BytesIncoming;
+				peerStat["BytesOutgoing"] = stats.BytesOutgoing;
+				peerStat["PacketsIncomingOK"] = stats.PacketsIncomingOK;
+				peerStat["PacketsOutgoingOK"] = stats.PacketsOutgoingOK;
+				peerStat["BytesIncomingOK"] = stats.BytesIncomingOK;
+				peerStat["BytesOutgoingOK"] = stats.BytesOutgoingOK;
+
+				// Port usage statistics
+				json incomingPorts = json::object();
+				for (const auto& portCount : stats.incomingPortCounts) {
+					incomingPorts[std::to_string(portCount.first)] = portCount.second;
+				}
+				peerStat["incomingPorts"] = incomingPorts;
+
+				json outgoingPorts = json::object();
+				for (const auto& portCount : stats.outgoingPortCounts) {
+					outgoingPorts[std::to_string(portCount.first)] = portCount.second;
+				}
+				peerStat["outgoingPorts"] = outgoingPorts;
+
+				peerStats[combinedKey] = peerStat;
 			}
 			stats["peersByZtAddressAndIP"] = peerStats;
 
@@ -2602,82 +2622,7 @@ public:
 		_controlPlane.Get("/stats", statsGet);
 		_controlPlaneV6.Get("/stats", statsGet);
 
-		// Wire packet metrics endpoint - shows detailed packet processing metrics sorted by bytes
-		auto wirePacketStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
-				res.status = 403;
-				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
-				return;
-			}
-
-			json wireStats = json::object();
-			wireStats["description"] = "Wire packet processing metrics with detailed peer information";
-			wireStats["note"] = "These metrics track raw packet processing attempts before/after ZeroTier protocol processing";
-
-			json peerWireStats = json::array();
-			uint64_t totalIncomingPackets = 0, totalOutgoingPackets = 0;
-			uint64_t totalIncomingBytes = 0, totalOutgoingBytes = 0;
-			uint64_t totalIncomingErrors = 0, totalOutgoingErrors = 0;
-
-			{
-				Mutex::Lock _l(_peerStats_m);
-				for (const auto& peerEntry : _peerStats) {
-					const std::pair<Address, std::string>& peerKey = peerEntry.first;
-					const Address& ztAddr = peerKey.first;
-					const PeerStats& stats = peerEntry.second;
-
-					// Skip peers with no wire packet data
-					if (stats.wirePacketsIncoming == 0 && stats.wirePacketsOutgoing == 0) {
-						continue;
-					}
-
-					char ztAddrBuf[32];
-					ztAddr.toString(ztAddrBuf);
-
-					json peerWireStat = json::object();
-					peerWireStat["ztAddress"] = std::string(ztAddrBuf);
-					peerWireStat["ipAddress"] = stats.peerIP;
-					peerWireStat["wirePacketsIncoming"] = stats.wirePacketsIncoming;
-					peerWireStat["wirePacketsOutgoing"] = stats.wirePacketsOutgoing;
-					peerWireStat["wirePacketBytesIncoming"] = stats.wirePacketBytesIncoming;
-					peerWireStat["wirePacketBytesOutgoing"] = stats.wirePacketBytesOutgoing;
-					peerWireStat["wirePacketErrorsIncoming"] = stats.wirePacketErrorsIncoming;
-					peerWireStat["wirePacketErrorsOutgoing"] = stats.wirePacketErrorsOutgoing;
-
-					// Calculate success rates
-					double incomingSuccessRate = stats.wirePacketsIncoming > 0 ?
-						(double)(stats.wirePacketsIncoming - stats.wirePacketErrorsIncoming) / stats.wirePacketsIncoming * 100.0 : 0.0;
-					double outgoingSuccessRate = stats.wirePacketsOutgoing > 0 ?
-						(double)(stats.wirePacketsOutgoing - stats.wirePacketErrorsOutgoing) / stats.wirePacketsOutgoing * 100.0 : 0.0;
-
-					peerWireStat["incomingSuccessRate"] = incomingSuccessRate;
-					peerWireStat["outgoingSuccessRate"] = outgoingSuccessRate;
-
-					peerWireStats.push_back(peerWireStat);
-
-					// Add to totals
-					totalIncomingPackets += stats.wirePacketsIncoming;
-					totalOutgoingPackets += stats.wirePacketsOutgoing;
-					totalIncomingBytes += stats.wirePacketBytesIncoming;
-					totalOutgoingBytes += stats.wirePacketBytesOutgoing;
-					totalIncomingErrors += stats.wirePacketErrorsIncoming;
-					totalOutgoingErrors += stats.wirePacketErrorsOutgoing;
-				}
-			}
-
-			wireStats["totalIncomingPackets"] = totalIncomingPackets;
-			wireStats["totalOutgoingPackets"] = totalOutgoingPackets;
-			wireStats["totalIncomingBytes"] = totalIncomingBytes;
-			wireStats["totalOutgoingBytes"] = totalOutgoingBytes;
-			wireStats["totalIncomingErrors"] = totalIncomingErrors;
-			wireStats["totalOutgoingErrors"] = totalOutgoingErrors;
-			wireStats["peerCount"] = peerWireStats.size();
-			wireStats["peers"] = peerWireStats;
-
-			setContent(req, res, wireStats.dump(2));
-		};
-		_controlPlane.Get("/stats/wire-packets", wirePacketStatsGet);
-		_controlPlaneV6.Get("/stats/wire-packets", wirePacketStatsGet);
+		// Remove /stats/wire-packets endpoint - wire packet stats are now included in main /stats endpoint
 
 		// Debug endpoint to validate ZT addresses and check peer status
 		auto debugPeerGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -3477,7 +3422,7 @@ public:
 			const bool isSuccessful = (rc == ZT_RESULT_OK);
 
 			// Update metrics for the logical source peer (originPeerZTAddr)
-			_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, "rx"); // TODO - this function must be able to handle empty originPeerZTAddr
+			_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true); // true = incoming packet
 		}
 
 		// Track port usage only for successfully processed packets from identified peers
@@ -3513,7 +3458,7 @@ public:
 
 										// Track metrics for the physical relaying peer (if not PLANET/MOON)
 										if (physicalRole != ZT_PEER_ROLE_PLANET && physicalRole != ZT_PEER_ROLE_MOON) {
-											_trackWirePacket(directPeerZTAddr, fromAddress, true, len, "rx");
+											_trackWirePacket(directPeerZTAddr, fromAddress, true, len, true);
 
 											ZT_PeerRole sourceRole = RR->topology->role(originPeerZTAddr);
 											auto getRoleString = [](ZT_PeerRole role) -> const char* {
@@ -4236,7 +4181,7 @@ public:
 			remoteAddress.toIpString(ipBuf);
 
 			// Track wire packet metrics for outgoing packets (always successful when we send)
-			_trackWirePacket(destAddr, remoteAddress, true, len, "tx");
+			_trackWirePacket(destAddr, remoteAddress, true, len, false); // false = outgoing packet
 			// Log initial outgoing packet attempts (before peer file access) - first time only per peer+IP
 			if (len > 12) {
 				Mutex::Lock _l(_firstTimeEvents_m);
@@ -4626,7 +4571,7 @@ public:
 		if (intro.introductionCount == 1) {
 			fprintf(stderr, "PEER_INTRO: %s (%s %s) introduced by %s %s" ZT_EOL_S,
 				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf);
-		} else if (intro.introductionCount%100 == 2) {
+		} else if (intro.introductionCount > 1) {
 			fprintf(stderr, "PEER_INTRO: %s (%s %s) re-introduced by %s %s (count: %u)" ZT_EOL_S,
 				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf, intro.introductionCount);
 		}
@@ -5132,14 +5077,14 @@ public:
 			stats.PacketsIncoming++;
 			stats.BytesIncoming += packetSize;
 			if (isSuccessful) {
-				stats.PacketIncomingOK++;
+				stats.PacketsIncomingOK++;
 				stats.BytesIncomingOK += packetSize;
 			}
 		} else {
 			stats.PacketsOutgoing++;
 			stats.BytesOutgoing += packetSize;
 			if (isSuccessful) {
-				stats.PacketOutgoingOK++;
+				stats.PacketsOutgoingOK++;
 				stats.BytesOutgoingOK += packetSize;
 			}
 		}
