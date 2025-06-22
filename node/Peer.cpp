@@ -178,7 +178,7 @@ void Peer::received(
 
 					// Notify service about new peer path (iptables integration)
 					if (RR->peerEventCallback) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true, 0);
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true, 0, 0);
 					}
 				}
 			} else {
@@ -472,7 +472,7 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 	// Proactively notify service about outbound contact attempt (iptables integration)
 	// This ensures ipset rules are in place BEFORE sending packets, allowing responses
 	if (RR->peerEventCallback) {
-		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0);
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0, 0);
 	}
 
 	if ( (!sendFullHello) && (_vProto >= 5) && (!((_vMajor == 1)&&(_vMinor == 1)&&(_vRevision == 0))) ) {
@@ -707,7 +707,7 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path> &path, const uint64_t pack
 		unsigned int localPort = Phy<void*>::getLocalPort(sock);
 		if (localPort > 0) {
 			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-								  path->address(), _id.address(), Address(), true, localPort);
+								  path->address(), _id.address(), Address(), true, localPort, payloadLength);
 		}
 	}
 }
