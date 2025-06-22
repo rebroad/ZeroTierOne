@@ -3427,7 +3427,7 @@ public:
 												}
 											};
 											char physicalBuf[16], logicalBuf[16], ipBuf[64];
-											peerZTAddr.toString(physicalBuf);
+											directPeerZTAddr.toString(physicalBuf);
 											originPeerZTAddr.toString(logicalBuf);
 											fromAddress.toIpString(ipBuf);
 											const char* logPrefix = (physicalRole == ZT_PEER_ROLE_LEAF) ? "LEAF_RELAY_DETECTED" : "RELAY_DETECTED";
@@ -5020,18 +5020,18 @@ public:
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
 
-		// Labels for the metrics
-		std::map<std::string, std::string> labels = {
-			{"peer_zt_addr", ztAddrStr},
-			{"peer_ip", peerIPStr},
+		// Labels for the metrics (const keys required by Prometheus)
+		const std::map<const std::string, const std::string> baseLabels = {
+			{"peer_zt_addr", std::string(ztAddrStr)},
+			{"peer_ip", std::string(peerIPStr)},
 			{"direction", "rx"}
 		};
 
 		// Track both successful (ZT_RESULT_OK) and all packets
-		std::map<std::string, std::string> successLabels = labels;
+		std::map<const std::string, const std::string> successLabels = baseLabels;
 		successLabels["result"] = isSuccessful ? "ok" : "error";
 
-		std::map<std::string, std::string> allLabels = labels;
+		std::map<const std::string, const std::string> allLabels = baseLabels;
 		allLabels["result"] = "all";
 
 		// Update packet count metrics
