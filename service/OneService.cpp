@@ -5020,16 +5020,16 @@ public:
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
 
-		// Create labels for successful/error tracking
-		std::map<std::string, std::string> successLabels = {
+		// Create labels for successful/error tracking (const keys required by Prometheus)
+		std::map<const std::string, const std::string> successLabels = {
 			{"peer_zt_addr", std::string(ztAddrStr)},
 			{"peer_ip", std::string(peerIPStr)},
 			{"direction", "rx"},
 			{"result", isSuccessful ? "ok" : "error"}
 		};
 
-		// Create labels for all packets tracking
-		std::map<std::string, std::string> allLabels = {
+		// Create labels for all packets tracking (const keys required by Prometheus)
+		std::map<const std::string, const std::string> allLabels = {
 			{"peer_zt_addr", std::string(ztAddrStr)},
 			{"peer_ip", std::string(peerIPStr)},
 			{"direction", "rx"},
