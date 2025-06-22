@@ -12,3 +12,7 @@
 =Why are we using "rx" and "tx" in functions instead of a bool?
 =Remove /stats/wire-packets and modify /stats instead. Make it sort by total bytes (tx and rx) per peer in descending order. Don't collect stats for "wirePacketErrors", we're just collecting: PacketsIncoming, PacketsOutgoing, PackingsIncomingOK, PacketsOutgoingOK, BytesIncoming, BytesOutgoing, BytesIncomingOK, BytesOutgoingOK
 =In the stats CLI, we'll show new columns for: Pkts Rx (%ok), Pkts Tx (%ok), Bytes Rx (%ok), Bytes Tx (%ok) - i.e. the percentage of OK packats can be calculated within the CLI display and shown in brackets
+=In stats CLI, what's the difference between stats.peerIP and peerKey.second ?
+=In stats CLI, what is the purpose of the combinedKey variable?
+=Remove firstIncomingSeen and firstOutgoingSeen - we can use PacketsIncoming and PacketsOutgoing instead if they are still used for logging.
+=Create a document to document all the endpoints available to the CLI
