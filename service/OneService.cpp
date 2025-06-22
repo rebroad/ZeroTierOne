@@ -4626,7 +4626,7 @@ public:
 		if (intro.introductionCount == 1) {
 			fprintf(stderr, "PEER_INTRO: %s (%s %s) introduced by %s %s" ZT_EOL_S,
 				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf);
-		} else if (intro.introductionCount > 1) {
+		} else if (intro.introductionCount%100 == 2) {
 			fprintf(stderr, "PEER_INTRO: %s (%s %s) re-introduced by %s %s (count: %u)" ZT_EOL_S,
 				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf, intro.introductionCount);
 		}
