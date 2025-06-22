@@ -4072,6 +4072,14 @@ public:
 			default:
 				return -1;
 		}
+
+		// Log peer file access for debugging connection establishment
+		if (type == ZT_STATE_OBJECT_PEER) {
+			char peerBuf[16];
+			Address(id[0]).toString(peerBuf);
+			fprintf(stderr, "PEER_FILE_ACCESS: %s (%.10llx.peer)" ZT_EOL_S, peerBuf, (unsigned long long)id[0]);
+		}
+
 		FILE *f = fopen(p,"rb");
 		if (f) {
 			int n = (int)fread(data,1,maxlen,f);
@@ -4095,6 +4103,22 @@ public:
 
 	inline int nodeWirePacketSendFunction(const int64_t localSocket,const struct sockaddr_storage *addr,const void *data,unsigned int len,unsigned int ttl)
 	{
+		// Log initial outgoing packet attempts (before peer file access)
+		if (len >= 16) {
+			try {
+				const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
+				Address destAddr;
+				if (len >= 13) {
+					destAddr.setTo(packetData + 8, 5);
+					char destBuf[16], ipBuf[64];
+					destAddr.toString(destBuf);
+					InetAddress(addr).toIpString(ipBuf);
+					fprintf(stderr, "PACKET_SEND_ATTEMPT: size=%u remote=%s peer=%s" ZT_EOL_S, len, ipBuf, destBuf);
+				}
+			} catch (...) {
+				// Ignore errors in logging
+			}
+		}
 #ifdef ZT_TCP_FALLBACK_RELAY
 		if(_allowTcpFallbackRelay) {
 			if (addr->ss_family == AF_INET) {
@@ -4596,9 +4620,16 @@ public:
 				}
 			}
 
-			fprintf(stderr, "PACKET_FROM: size=%lu local=%s remote=%s peer=%s source_peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-				packetSize, localBuf, ipBuf, ztBuf, sourceBuf, localPort, peerRole, peerVersion,
-				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+			// Only show source_peer if different from peer (indicating relaying)
+			if (ztAddr == sourcePeerAddr) {
+				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
+					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+			} else {
+				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s source_peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+					packetSize, ipBuf, ztBuf, sourceBuf, localPort, peerRole, peerVersion,
+					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+			}
 		}
 
 		// Update statistics for this specific ZT address + IP combination
@@ -4695,8 +4726,8 @@ public:
 					}
 				}
 
-				fprintf(stderr, "PACKET_TO1: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-					packetSize, localBuf, ipBuf, ztBuf, localPort, peerRole, peerVersion,
+				fprintf(stderr, "PACKET_TO1: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
 					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 			}
 		}
@@ -4771,8 +4802,8 @@ public:
 				}
 			}
 
-			fprintf(stderr, "PACKET_TO2: size=%u local=%s remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-				packetSize, localBuf, ipBuf, ztBuf, localPort, peerRole, peerVersion,
+			fprintf(stderr, "PACKET_TO2: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
 				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
 		}
 	}
