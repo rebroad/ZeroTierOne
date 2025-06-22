@@ -2541,7 +2541,6 @@ public:
 
 		// GET /stats - peer port usage statistics
 		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			fprintf(stderr, "DEBUG: /stats endpoint called\n");
 			json stats = json::object();
 
 			// Add port configuration information
@@ -2580,7 +2579,6 @@ public:
 
 			{
 				Mutex::Lock _l(_peerStats_m);
-				fprintf(stderr, "DEBUG: _peerStats has %zu entries\n", _peerStats.size());
 				for (const auto& peerEntry : _peerStats) {
 					sortedPeers.push_back(peerEntry);
 
