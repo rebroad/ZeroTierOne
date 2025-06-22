@@ -168,6 +168,12 @@ namespace ZeroTier {
         prometheus::simpleapi::counter_metric_t tcp_recv
         { data.Add({{"protocol","tcp"},{"direction", "rx"}}) };
 
+        // Wire Packet Processing Metrics (for detailed peer tracking)
+        prometheus::simpleapi::counter_family_t wire_packets
+        { "zt_wire_packets", "ZeroTier wire packets processed by peer and result" };
+        prometheus::simpleapi::counter_family_t wire_packet_bytes
+        { "zt_wire_packet_bytes", "ZeroTier wire packet bytes processed by peer and result" };
+
         // Network Metrics
         prometheus::simpleapi::gauge_metric_t network_num_joined
         { "zt_num_networks", "number of networks this instance is joined to" };

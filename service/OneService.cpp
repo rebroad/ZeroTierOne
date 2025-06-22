@@ -3373,8 +3373,14 @@ public:
 		Address originPeerZTAddr;
 		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline,&originPeerZTAddr);
 
-		// TODO in addition to our current port usage tracking, also track usage (number of packets AND bytes) for both where ZT_RESULT_OK and overall. So 4 subsets. Increase these tallies to both the originPeerZTAddr, the peerZTAddr (if NOT a PLANET or a MOON) and the orignPeerZTAddr's IP address, the the peerZTAddr's IP address (if NOT a PLANET or a MOON)
-		// TODO periodic housekeeping to remove tracking for inactive ztaddrs and IP addresses
+		// Track wire packet metrics for all packets (successful and failed) from identified peers
+		if (localAddr && from) {
+			const InetAddress fromAddress(from);
+			const bool isSuccessful = (rc == ZT_RESULT_OK);
+
+			// Update metrics for the logical source peer (originPeerZTAddr)
+			_updateWirePacketMetrics(originPeerZTAddr, fromAddress, isSuccessful, len, now); // TODO - handle empty originPeerZTAddr
+		}
 
 		// Track port usage only for successfully processed packets from identified peers
 		if ((rc == ZT_RESULT_OK) && localAddr && from && len >= 16 && originPeerZTAddr) {
@@ -3398,15 +3404,19 @@ public:
 							// Find which peer (if any) has an active path to this physical IP address
 							std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
 							for (const auto& peerPair : allPeers) {
-								const Address& peerZTAddr = peerPair.first;
+								const Address& directPeerZTAddr = peerPair.first;
 								const SharedPtr<Peer>& peer = peerPair.second;
 								if (peer && peer->hasActivePathTo(now, fromAddress)) {
 									// This peer has an active path to the sender IP
-									if (peerZTAddr != originPeerZTAddr) {
+									if (directPeerZTAddr != originPeerZTAddr) {
+										trackingZTAddr = directPeerZTAddr;
 										// Physical sender is different from logical source - this is relayed!
-										trackingZTAddr = peerZTAddr; // Track against the peer doing the relaying
-										ZT_PeerRole physicalRole = RR->topology->role(peerZTAddr);
+										ZT_PeerRole physicalRole = RR->topology->role(directPeerZTAddr);
+
+										// Track metrics for the physical relaying peer (if not PLANET/MOON)
 										if (physicalRole != ZT_PEER_ROLE_PLANET && physicalRole != ZT_PEER_ROLE_MOON) {
+											_updateWirePacketMetrics(directPeerZTAddr, fromAddress, true, len, now);
+
 											ZT_PeerRole sourceRole = RR->topology->role(originPeerZTAddr);
 											auto getRoleString = [](ZT_PeerRole role) -> const char* {
 												switch (role) {
@@ -4999,6 +5009,38 @@ public:
 			_iptablesEnabled = false;
 			return false;
 		}
+	}
+
+	// Helper function to update wire packet metrics for detailed peer tracking
+	void _updateWirePacketMetrics(const Address& ztAddr, const InetAddress& peerIP,
+								  bool isSuccessful, unsigned int packetSize, uint64_t now) {
+		char ztAddrStr[16];
+		ztAddr.toString(ztAddrStr);
+
+		char peerIPStr[64];
+		peerIP.toIpString(peerIPStr);
+
+		// Labels for the metrics
+		std::map<std::string, std::string> labels = {
+			{"peer_zt_addr", ztAddrStr},
+			{"peer_ip", peerIPStr},
+			{"direction", "rx"}
+		};
+
+		// Track both successful (ZT_RESULT_OK) and all packets
+		std::map<std::string, std::string> successLabels = labels;
+		successLabels["result"] = isSuccessful ? "ok" : "error";
+
+		std::map<std::string, std::string> allLabels = labels;
+		allLabels["result"] = "all";
+
+		// Update packet count metrics
+		Metrics::wire_packets.Add(successLabels).Increment();
+		Metrics::wire_packets.Add(allLabels).Increment();
+
+		// Update packet bytes metrics
+		Metrics::wire_packet_bytes.Add(successLabels).Increment(packetSize);
+		Metrics::wire_packet_bytes.Add(allLabels).Increment(packetSize);
 	}
 };
 
