@@ -2631,6 +2631,11 @@ public:
 				const std::string& ipAddr = peerKey.second;
 				const PeerStats& stats = peerEntry.second;
 
+				// Skip old IP-based entries for infrastructure nodes (they should use INFRASTRUCTURE key)
+				if (_isInfrastructureNode(ztAddr) && ipAddr != "INFRASTRUCTURE") {
+					continue;  // Skip this entry - it's an old IP-based entry for a PLANET/MOON
+				}
+
 				char ztAddrBuf[32];
 				ztAddr.toString(ztAddrBuf);
 				std::string ztAddrStr(ztAddrBuf);
