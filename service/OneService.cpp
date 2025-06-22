@@ -3359,7 +3359,6 @@ public:
 
 
 
-
 	inline void phyOnDatagram(PhySocket* sock, void** uptr, const struct sockaddr* localAddr, const struct sockaddr* from, void* data, unsigned long len)
 	{
 		if (_forceTcpRelay) {
@@ -3373,6 +3372,9 @@ public:
 
 		Address originPeerZTAddr;
 		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline,&originPeerZTAddr);
+
+		// TODO in addition to our current port usage tracking, also track usage (number of packets AND bytes) for both where ZT_RESULT_OK and overall. So 4 subsets. Increase these tallies to both the originPeerZTAddr, the peerZTAddr (if NOT a PLANET or a MOON) and the orignPeerZTAddr's IP address, the the peerZTAddr's IP address (if NOT a PLANET or a MOON)
+		// TODO periodic housekeeping to remove tracking for inactive ztaddrs and IP addresses
 
 		// Track port usage only for successfully processed packets from identified peers
 		if ((rc == ZT_RESULT_OK) && localAddr && from && len >= 16 && originPeerZTAddr) {
