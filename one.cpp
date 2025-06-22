@@ -1189,55 +1189,96 @@ static int cli(int argc,char **argv)
 					"----------", "---------------", "------------", "------------", "-------------", "-------------", "-------------------");
 
 				// Process per-IP peer data from the /stats endpoint
+				// First collect all peer data into a vector for sorting
+				std::vector<std::pair<std::string, nlohmann::json>> peerEntries;
 				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_object()) {
 					for (auto& [combinedKey, peerData] : j["peersByZtAddressAndIP"].items()) {
-						std::string ztaddr = peerData.value("ztAddress", "unknown");
-						std::string ipAddress = peerData.value("ipAddress", "-");
+						peerEntries.emplace_back(combinedKey, peerData);
+					}
 
-						// Get packet and byte statistics
-						uint64_t packetsIncoming = peerData.value("PacketsIncoming", 0ULL);
-						uint64_t packetsOutgoing = peerData.value("PacketsOutgoing", 0ULL);
-						uint64_t packetsIncomingOK = peerData.value("PacketsIncomingOK", 0ULL);
-						uint64_t packetsOutgoingOK = peerData.value("PacketsOutgoingOK", 0ULL);
-						uint64_t bytesIncoming = peerData.value("BytesIncoming", 0ULL);
-						uint64_t bytesOutgoing = peerData.value("BytesOutgoing", 0ULL);
-						uint64_t bytesIncomingOK = peerData.value("BytesIncomingOK", 0ULL);
-						uint64_t bytesOutgoingOK = peerData.value("BytesOutgoingOK", 0ULL);
+					// Sort by total bytes (incoming + outgoing) in descending order
+					std::sort(peerEntries.begin(), peerEntries.end(),
+						[](const auto& a, const auto& b) {
+							uint64_t totalA = a.second.value("BytesIncoming", 0ULL) + a.second.value("BytesOutgoing", 0ULL);
+							uint64_t totalB = b.second.value("BytesIncoming", 0ULL) + b.second.value("BytesOutgoing", 0ULL);
+							return totalA > totalB;
+						});
+				}
 
-						// Format packet statistics with percentages
-						char pktsRxStr[32], pktsTxStr[32], bytesRxStr[32], bytesTxStr[32];
+				// Now display the sorted peer data
+				for (auto& [combinedKey, peerData] : peerEntries) {
+											std::string ztaddr = peerData.value("ztAddress", "unknown");
+					std::string ipAddress = peerData.value("ipAddress", "-");
 
-						if (packetsIncoming > 0) {
-							double rxPercent = (double)packetsIncomingOK / packetsIncoming * 100.0;
+					// Truncate IPv6 addresses to 15 characters
+					if (ipAddress.length() > 15) {
+						ipAddress = ipAddress.substr(0, 15);
+					}
+
+					// Get packet and byte statistics
+					uint64_t packetsIncoming = peerData.value("PacketsIncoming", 0ULL);
+					uint64_t packetsOutgoing = peerData.value("PacketsOutgoing", 0ULL);
+					uint64_t packetsIncomingOK = peerData.value("PacketsIncomingOK", 0ULL);
+					uint64_t packetsOutgoingOK = peerData.value("PacketsOutgoingOK", 0ULL);
+					uint64_t bytesIncoming = peerData.value("BytesIncoming", 0ULL);
+					uint64_t bytesOutgoing = peerData.value("BytesOutgoing", 0ULL);
+					uint64_t bytesIncomingOK = peerData.value("BytesIncomingOK", 0ULL);
+					uint64_t bytesOutgoingOK = peerData.value("BytesOutgoingOK", 0ULL);
+
+					// Format packet statistics with percentages (only show percentage if >0 and <100)
+					char pktsRxStr[32], pktsTxStr[32], bytesRxStr[32], bytesTxStr[32];
+
+					if (packetsIncoming > 0) {
+						double rxPercent = (double)packetsIncomingOK / packetsIncoming * 100.0;
+						if (rxPercent > 0.0 && rxPercent < 100.0) {
 							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu (%.1f%%)",
 								(unsigned long long)packetsIncoming, rxPercent);
 						} else {
-							strcpy(pktsRxStr, "0 (0.0%)");
+							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu",
+								(unsigned long long)packetsIncoming);
 						}
+					} else {
+						strcpy(pktsRxStr, "0");
+					}
 
-						if (packetsOutgoing > 0) {
-							double txPercent = (double)packetsOutgoingOK / packetsOutgoing * 100.0;
+					if (packetsOutgoing > 0) {
+						double txPercent = (double)packetsOutgoingOK / packetsOutgoing * 100.0;
+						if (txPercent > 0.0 && txPercent < 100.0) {
 							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu (%.1f%%)",
 								(unsigned long long)packetsOutgoing, txPercent);
 						} else {
-							strcpy(pktsTxStr, "0 (0.0%)");
+							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu",
+								(unsigned long long)packetsOutgoing);
 						}
+					} else {
+						strcpy(pktsTxStr, "0");
+					}
 
-						if (bytesIncoming > 0) {
-							double rxBytesPercent = (double)bytesIncomingOK / bytesIncoming * 100.0;
+					if (bytesIncoming > 0) {
+						double rxBytesPercent = (double)bytesIncomingOK / bytesIncoming * 100.0;
+						if (rxBytesPercent > 0.0 && rxBytesPercent < 100.0) {
 							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu (%.1f%%)",
 								(unsigned long long)bytesIncoming, rxBytesPercent);
 						} else {
-							strcpy(bytesRxStr, "0 (0.0%)");
+							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu",
+								(unsigned long long)bytesIncoming);
 						}
+					} else {
+						strcpy(bytesRxStr, "0");
+					}
 
-						if (bytesOutgoing > 0) {
-							double txBytesPercent = (double)bytesOutgoingOK / bytesOutgoing * 100.0;
+					if (bytesOutgoing > 0) {
+						double txBytesPercent = (double)bytesOutgoingOK / bytesOutgoing * 100.0;
+						if (txBytesPercent > 0.0 && txBytesPercent < 100.0) {
 							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu (%.1f%%)",
 								(unsigned long long)bytesOutgoing, txBytesPercent);
 						} else {
-							strcpy(bytesTxStr, "0 (0.0%)");
+							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu",
+								(unsigned long long)bytesOutgoing);
 						}
+					} else {
+						strcpy(bytesTxStr, "0");
+					}
 
 						// Build port usage string in correct order
 						std::string portUsage;
