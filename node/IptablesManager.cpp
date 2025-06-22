@@ -174,9 +174,6 @@ bool IptablesManager::executeCommand(const std::string& command) const
         return false;
     }
 
-    // Debug: print the command being executed
-    fprintf(stderr, "[IptablesManager] Executing: %s\n", command.c_str());
-
     // Execute the command and capture both stdout and stderr
     std::string fullCommand = command + " 2>&1";
     FILE* pipe = popen(fullCommand.c_str(), "r");
@@ -194,8 +191,11 @@ bool IptablesManager::executeCommand(const std::string& command) const
 
     int result = pclose(pipe);
 
-    // Debug: print the result
-    fprintf(stderr, "[IptablesManager] Result: %d\n", result);
+	if (result) {
+    	// Debug: print the result
+    	fprintf(stderr, "[IptablesManager] Executed: %s\n", command.c_str());
+    	fprintf(stderr, "[IptablesManager] Result: %d\n", result);
+	}
 
     // If command failed, check for specific error conditions
     if (result != 0 && !output.empty()) {
