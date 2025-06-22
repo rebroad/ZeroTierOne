@@ -56,20 +56,13 @@ public:
     IptablesManager& operator=(IptablesManager&& other) noexcept;
 
     /**
-     * Add a peer IP address to the allowed list
+     * Add or remove a peer IP address from the allowed list
      *
      * @param ipString IP address string for ipset command
-     * @return True if peer was actually added (false if already existed)
+     * @param add True to add peer, false to remove peer
+     * @return True if peer was actually added/removed (false if already existed/didn't exist)
      */
-    bool addPeer(const std::string& ipString);
-
-    /**
-     * Remove a peer IP address from the allowed list
-     *
-     * @param ipString IP address string for ipset command
-     * @return True if peer was actually removed (false if didn't exist)
-     */
-    bool removePeer(const std::string& ipString);
+    bool updatePeer(const std::string& ipString, bool add);
 
     /**
      * Update the list of UDP ports (e.g., when secondary port changes)
