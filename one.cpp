@@ -1183,10 +1183,10 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
-					"ZT Address", "IP Address", "Pkts Rx (%ok)", "Pkts Tx (%ok)", "Bytes Rx (%ok)", "Bytes Tx (%ok)", "Port Usage (In/Out)");
-				printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
-					"----------", "---------------", "------------", "------------", "-------------", "-------------", "-------------------");
+				printf("%-10s %-15s %-14s %-14s %-8s %s" ZT_EOL_S,
+					"ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Security", "Port Usage");
+				printf("%-10s %-15s %-14s %-14s %-8s %s" ZT_EOL_S,
+					"----------", "---------------", "-----------", "-----------", "--------", "----------");
 
 				// Process per-IP peer data from the /stats endpoint
 				// First collect all peer data into a vector for sorting
@@ -1196,10 +1196,11 @@ static int cli(int argc,char **argv)
 						peerEntries.emplace_back(combinedKey, peerData);
 					}
 
-					// Sort by total bytes (incoming + outgoing) in descending order
+					// Sort by total display bytes (higher of IP vs ZT stats) in descending order
+					// This matches the sorting logic implemented in OneService.cpp
 					std::sort(peerEntries.begin(), peerEntries.end(), [](const auto& a, const auto& b) {
-						uint64_t totalA = a.second.value("BytesIncoming", 0ULL) + a.second.value("BytesOutgoing", 0ULL);
-						uint64_t totalB = b.second.value("BytesIncoming", 0ULL) + b.second.value("BytesOutgoing", 0ULL);
+						uint64_t totalA = a.second.value("displayBytesIncoming", 0ULL) + a.second.value("displayBytesOutgoing", 0ULL);
+						uint64_t totalB = b.second.value("displayBytesIncoming", 0ULL) + b.second.value("displayBytesOutgoing", 0ULL);
 						return totalA > totalB;
 					});
 				}
@@ -1214,61 +1215,64 @@ static int cli(int argc,char **argv)
 						ipAddress = ipAddress.substr(0, 15);
 					}
 
-					// Get packet and byte statistics
-					uint64_t packetsIncoming = peerData.value("PacketsIncoming", 0ULL);
-					uint64_t packetsOutgoing = peerData.value("PacketsOutgoing", 0ULL);
-					uint64_t packetsIncomingOK = peerData.value("PacketsIncomingOK", 0ULL);
-					uint64_t packetsOutgoingOK = peerData.value("PacketsOutgoingOK", 0ULL);
-					uint64_t bytesIncoming = peerData.value("BytesIncoming", 0ULL);
-					uint64_t bytesOutgoing = peerData.value("BytesOutgoing", 0ULL);
-					uint64_t bytesIncomingOK = peerData.value("BytesIncomingOK", 0ULL);
-					uint64_t bytesOutgoingOK = peerData.value("BytesOutgoingOK", 0ULL);
+					// Get display statistics (higher of IP vs ZT address stats) - these are for enforcement
+					uint64_t displayBytesIncoming = peerData.value("displayBytesIncoming", 0ULL);
+					uint64_t displayBytesOutgoing = peerData.value("displayBytesOutgoing", 0ULL);
+					std::string rxSource = peerData.value("rxSource", "?");
+					std::string txSource = peerData.value("txSource", "?");
 
-					// Format packet statistics with percentages (only show percentage if >0 and <100)
-					char pktsRxStr[32], pktsTxStr[32], bytesRxStr[32], bytesTxStr[32];
+					// Get attack detection metrics
+					uint64_t suspiciousPackets = peerData.value("SuspiciousPacketCount", 0ULL);
+					uint64_t attackEvents = peerData.value("AttackEventCount", 0ULL);
+					double maxDivergenceRatio = peerData.value("MaxDivergenceRatio", 0.0);
+					uint64_t lastAttackDetected = peerData.value("LastAttackDetected", 0ULL);
 
-					if (packetsIncoming > 0) {
-						double rxPercent = (double)packetsIncomingOK / packetsIncoming * 100.0;
-						if (rxPercent > 0.0 && rxPercent < 100.0) {
-							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu (%.1f%%)", (unsigned long long)packetsIncoming, rxPercent);
-						} else {
-							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu", (unsigned long long)packetsIncoming);
-						}
+					// Format statistics for display
+					char rxBytesStr[32], txBytesStr[32], securityStr[16];
+
+					// Format RX bytes with source indicator ("i" = IP stats, "z" = ZT address stats)
+					if (displayBytesIncoming > 1024*1024*1024) {
+						snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fG%s",
+							displayBytesIncoming / (1024.0*1024.0*1024.0), rxSource.c_str());
+					} else if (displayBytesIncoming > 1024*1024) {
+						snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fM%s",
+							displayBytesIncoming / (1024.0*1024.0), rxSource.c_str());
+					} else if (displayBytesIncoming > 1024) {
+						snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fK%s",
+							displayBytesIncoming / 1024.0, rxSource.c_str());
 					} else {
-						strcpy(pktsRxStr, "0");
+						snprintf(rxBytesStr, sizeof(rxBytesStr), "%llu%s",
+							(unsigned long long)displayBytesIncoming, rxSource.c_str());
 					}
 
-					if (packetsOutgoing > 0) {
-						double txPercent = (double)packetsOutgoingOK / packetsOutgoing * 100.0;
-						if (txPercent > 0.0 && txPercent < 100.0) {
-							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu (%.1f%%)", (unsigned long long)packetsOutgoing, txPercent);
-						} else {
-							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu", (unsigned long long)packetsOutgoing);
-						}
+					// Format TX bytes with source indicator ("i" = IP stats, "z" = ZT address stats)
+					if (displayBytesOutgoing > 1024*1024*1024) {
+						snprintf(txBytesStr, sizeof(txBytesStr), "%.1fG%s",
+							displayBytesOutgoing / (1024.0*1024.0*1024.0), txSource.c_str());
+					} else if (displayBytesOutgoing > 1024*1024) {
+						snprintf(txBytesStr, sizeof(txBytesStr), "%.1fM%s",
+							displayBytesOutgoing / (1024.0*1024.0), txSource.c_str());
+					} else if (displayBytesOutgoing > 1024) {
+						snprintf(txBytesStr, sizeof(txBytesStr), "%.1fK%s",
+							displayBytesOutgoing / 1024.0, txSource.c_str());
 					} else {
-						strcpy(pktsTxStr, "0");
+						snprintf(txBytesStr, sizeof(txBytesStr), "%llu%s",
+							(unsigned long long)displayBytesOutgoing, txSource.c_str());
 					}
 
-					if (bytesIncoming > 0) {
-						double rxBytesPercent = (double)bytesIncomingOK / bytesIncoming * 100.0;
-						if (rxBytesPercent > 0.0 && rxBytesPercent < 100.0) {
-							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu (%.1f%%)", (unsigned long long)bytesIncoming, rxBytesPercent);
+					// Format security status based on attack detection
+					if (attackEvents > 0) {
+						if (maxDivergenceRatio >= 20.0) {
+							strcpy(securityStr, "DANGER");
+						} else if (maxDivergenceRatio >= 5.0) {
+							strcpy(securityStr, "WARNING");
 						} else {
-							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu", (unsigned long long)bytesIncoming);
+							strcpy(securityStr, "MINOR");
 						}
+					} else if (suspiciousPackets > 100) {
+						strcpy(securityStr, "SUSPECT");
 					} else {
-						strcpy(bytesRxStr, "0");
-					}
-
-					if (bytesOutgoing > 0) {
-						double txBytesPercent = (double)bytesOutgoingOK / bytesOutgoing * 100.0;
-						if (txBytesPercent > 0.0 && txBytesPercent < 100.0) {
-							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu (%.1f%%)", (unsigned long long)bytesOutgoing, txBytesPercent);
-						} else {
-							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu", (unsigned long long)bytesOutgoing);
-						}
-					} else {
-						strcpy(bytesTxStr, "0");
+						strcpy(securityStr, "OK");
 					}
 
 					// Build port usage string in correct order
@@ -1350,8 +1354,8 @@ static int cli(int argc,char **argv)
 
 					if (!hasAnyTraffic) portUsage = "none";
 
-					printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
-						ztaddr.c_str(), ipAddress.c_str(), pktsRxStr, pktsTxStr, bytesRxStr, bytesTxStr, portUsage.c_str());
+					printf("%-10s %-15s %-14s %-14s %-8s %s" ZT_EOL_S,
+						ztaddr.c_str(), ipAddress.c_str(), rxBytesStr, txBytesStr, securityStr, portUsage.c_str());
 				}
 			}
 			return 0;
