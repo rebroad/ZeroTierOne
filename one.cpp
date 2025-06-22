@@ -1190,24 +1190,23 @@ static int cli(int argc,char **argv)
 
 				// Process per-IP peer data from the /stats endpoint
 				// First collect all peer data into a vector for sorting
-				std::vector<std::pair<std::string, nlohmann::json>> peerEntries;
+				std::vector<std::pair<std::string, nlohmann::json> > peerEntries;
 				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_object()) {
 					for (auto& [combinedKey, peerData] : j["peersByZtAddressAndIP"].items()) {
 						peerEntries.emplace_back(combinedKey, peerData);
 					}
 
 					// Sort by total bytes (incoming + outgoing) in descending order
-					std::sort(peerEntries.begin(), peerEntries.end(),
-						[](const auto& a, const auto& b) {
-							uint64_t totalA = a.second.value("BytesIncoming", 0ULL) + a.second.value("BytesOutgoing", 0ULL);
-							uint64_t totalB = b.second.value("BytesIncoming", 0ULL) + b.second.value("BytesOutgoing", 0ULL);
-							return totalA > totalB;
-						});
+					std::sort(peerEntries.begin(), peerEntries.end(), [](const auto& a, const auto& b) {
+						uint64_t totalA = a.second.value("BytesIncoming", 0ULL) + a.second.value("BytesOutgoing", 0ULL);
+						uint64_t totalB = b.second.value("BytesIncoming", 0ULL) + b.second.value("BytesOutgoing", 0ULL);
+						return totalA > totalB;
+					});
 				}
 
 				// Now display the sorted peer data
 				for (auto& [combinedKey, peerData] : peerEntries) {
-											std::string ztaddr = peerData.value("ztAddress", "unknown");
+					std::string ztaddr = peerData.value("ztAddress", "unknown");
 					std::string ipAddress = peerData.value("ipAddress", "-");
 
 					// Truncate IPv6 addresses to 15 characters
@@ -1231,11 +1230,9 @@ static int cli(int argc,char **argv)
 					if (packetsIncoming > 0) {
 						double rxPercent = (double)packetsIncomingOK / packetsIncoming * 100.0;
 						if (rxPercent > 0.0 && rxPercent < 100.0) {
-							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu (%.1f%%)",
-								(unsigned long long)packetsIncoming, rxPercent);
+							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu (%.1f%%)", (unsigned long long)packetsIncoming, rxPercent);
 						} else {
-							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu",
-								(unsigned long long)packetsIncoming);
+							snprintf(pktsRxStr, sizeof(pktsRxStr), "%llu", (unsigned long long)packetsIncoming);
 						}
 					} else {
 						strcpy(pktsRxStr, "0");
@@ -1244,11 +1241,9 @@ static int cli(int argc,char **argv)
 					if (packetsOutgoing > 0) {
 						double txPercent = (double)packetsOutgoingOK / packetsOutgoing * 100.0;
 						if (txPercent > 0.0 && txPercent < 100.0) {
-							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu (%.1f%%)",
-								(unsigned long long)packetsOutgoing, txPercent);
+							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu (%.1f%%)", (unsigned long long)packetsOutgoing, txPercent);
 						} else {
-							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu",
-								(unsigned long long)packetsOutgoing);
+							snprintf(pktsTxStr, sizeof(pktsTxStr), "%llu", (unsigned long long)packetsOutgoing);
 						}
 					} else {
 						strcpy(pktsTxStr, "0");
@@ -1257,11 +1252,9 @@ static int cli(int argc,char **argv)
 					if (bytesIncoming > 0) {
 						double rxBytesPercent = (double)bytesIncomingOK / bytesIncoming * 100.0;
 						if (rxBytesPercent > 0.0 && rxBytesPercent < 100.0) {
-							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu (%.1f%%)",
-								(unsigned long long)bytesIncoming, rxBytesPercent);
+							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu (%.1f%%)", (unsigned long long)bytesIncoming, rxBytesPercent);
 						} else {
-							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu",
-								(unsigned long long)bytesIncoming);
+							snprintf(bytesRxStr, sizeof(bytesRxStr), "%llu", (unsigned long long)bytesIncoming);
 						}
 					} else {
 						strcpy(bytesRxStr, "0");
@@ -1270,102 +1263,96 @@ static int cli(int argc,char **argv)
 					if (bytesOutgoing > 0) {
 						double txBytesPercent = (double)bytesOutgoingOK / bytesOutgoing * 100.0;
 						if (txBytesPercent > 0.0 && txBytesPercent < 100.0) {
-							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu (%.1f%%)",
-								(unsigned long long)bytesOutgoing, txBytesPercent);
+							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu (%.1f%%)", (unsigned long long)bytesOutgoing, txBytesPercent);
 						} else {
-							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu",
-								(unsigned long long)bytesOutgoing);
+							snprintf(bytesTxStr, sizeof(bytesTxStr), "%llu", (unsigned long long)bytesOutgoing);
 						}
 					} else {
 						strcpy(bytesTxStr, "0");
 					}
 
-						// Build port usage string in correct order
-						std::string portUsage;
-						bool hasAnyTraffic = false;
+					// Build port usage string in correct order
+					std::string portUsage;
+					bool hasAnyTraffic = false;
 
-						// Get port configuration to determine correct order
-						uint32_t primaryPort = 9993;   // Default
-						uint32_t secondaryPort = 0;
-						uint32_t tertiaryPort = 0;
+					// Get port configuration to determine correct order
+					uint32_t primaryPort = 9993;   // Default
+					uint32_t secondaryPort = 0;
+					uint32_t tertiaryPort = 0;
 
-						if (j.contains("portConfiguration")) {
-							auto& portConfig = j["portConfiguration"];
-							primaryPort = portConfig.value("primaryPort", 9993U);
-							secondaryPort = portConfig.value("secondaryPort", 0U);
-							tertiaryPort = portConfig.value("tertiaryPort", 0U);
-						}
-
-						// Get port data
-						auto incomingPorts = peerData.value("incomingPorts", nlohmann::json::object());
-						auto outgoingPorts = peerData.value("outgoingPorts", nlohmann::json::object());
-
-						// Order ports: primary, secondary, tertiary, then any others
-						std::vector<std::string> orderedPorts;
-						std::set<std::string> usedPorts;
-
-						// Add primary port first
-						std::string primaryStr = std::to_string(primaryPort);
-						if (incomingPorts.contains(primaryStr) || outgoingPorts.contains(primaryStr)) {
-							orderedPorts.push_back(primaryStr);
-							usedPorts.insert(primaryStr);
-						}
-
-						// Add secondary port if enabled
-						if (secondaryPort > 0) {
-							std::string secondaryStr = std::to_string(secondaryPort);
-							if (incomingPorts.contains(secondaryStr) || outgoingPorts.contains(secondaryStr)) {
-								orderedPorts.push_back(secondaryStr);
-								usedPorts.insert(secondaryStr);
-							}
-						}
-
-						// Add tertiary port
-						if (tertiaryPort > 0) {
-							std::string tertiaryStr = std::to_string(tertiaryPort);
-							if (incomingPorts.contains(tertiaryStr) || outgoingPorts.contains(tertiaryStr)) {
-								orderedPorts.push_back(tertiaryStr);
-								usedPorts.insert(tertiaryStr);
-							}
-						}
-
-						// Add any other ports not already included
-						std::set<std::string> allPorts;
-						for (auto& [port, count] : incomingPorts.items()) {
-							if (usedPorts.find(port) == usedPorts.end()) {
-								allPorts.insert(port);
-							}
-						}
-						for (auto& [port, count] : outgoingPorts.items()) {
-							if (usedPorts.find(port) == usedPorts.end()) {
-								allPorts.insert(port);
-							}
-						}
-						for (const auto& port : allPorts) {
-							orderedPorts.push_back(port);
-						}
-
-						// Build the display string
-						bool first = true;
-						for (const auto& port : orderedPorts) {
-							if (!first) portUsage += ", ";
-
-							uint64_t inCount = incomingPorts.value(port, 0ULL);
-							uint64_t outCount = outgoingPorts.value(port, 0ULL);
-
-							portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
-							first = false;
-							hasAnyTraffic = true;
-						}
-
-						if (!hasAnyTraffic) portUsage = "none";
-
-						printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
-							ztaddr.c_str(), ipAddress.c_str(), pktsRxStr, pktsTxStr, bytesRxStr, bytesTxStr, portUsage.c_str());
+					if (j.contains("portConfiguration")) {
+						auto& portConfig = j["portConfiguration"];
+						primaryPort = portConfig.value("primaryPort", 9993U);
+						secondaryPort = portConfig.value("secondaryPort", 0U);
+						tertiaryPort = portConfig.value("tertiaryPort", 0U);
 					}
+
+					// Get port data
+					auto incomingPorts = peerData.value("incomingPorts", nlohmann::json::object());
+					auto outgoingPorts = peerData.value("outgoingPorts", nlohmann::json::object());
+
+					// Order ports: primary, secondary, tertiary, then any others
+					std::vector<std::string> orderedPorts;
+					std::set<std::string> usedPorts;
+
+					// Add primary port first
+					std::string primaryStr = std::to_string(primaryPort);
+					if (incomingPorts.contains(primaryStr) || outgoingPorts.contains(primaryStr)) {
+						orderedPorts.push_back(primaryStr);
+						usedPorts.insert(primaryStr);
+					}
+
+					// Add secondary port if enabled
+					if (secondaryPort > 0) {
+						std::string secondaryStr = std::to_string(secondaryPort);
+						if (incomingPorts.contains(secondaryStr) || outgoingPorts.contains(secondaryStr)) {
+							orderedPorts.push_back(secondaryStr);
+							usedPorts.insert(secondaryStr);
+						}
+					}
+
+					// Add tertiary port
+					if (tertiaryPort > 0) {
+						std::string tertiaryStr = std::to_string(tertiaryPort);
+						if (incomingPorts.contains(tertiaryStr) || outgoingPorts.contains(tertiaryStr)) {
+							orderedPorts.push_back(tertiaryStr);
+							usedPorts.insert(tertiaryStr);
+						}
+					}
+
+					// Add any other ports not already included
+					std::set<std::string> allPorts;
+					for (auto& [port, count] : incomingPorts.items()) {
+						if (usedPorts.find(port) == usedPorts.end()) {
+							allPorts.insert(port);
+						}
+					}
+					for (auto& [port, count] : outgoingPorts.items()) {
+						if (usedPorts.find(port) == usedPorts.end()) {
+							allPorts.insert(port);
+						}
+					}
+					for (const auto& port : allPorts) {
+						orderedPorts.push_back(port);
+					}
+
+					// Build the display string
+					bool first = true;
+					for (const auto& port : orderedPorts) {
+						if (!first) portUsage += ", ";
+						uint64_t inCount = incomingPorts.value(port, 0ULL);
+						uint64_t outCount = outgoingPorts.value(port, 0ULL);
+
+						portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
+						first = false;
+						hasAnyTraffic = true;
+					}
+
+					if (!hasAnyTraffic) portUsage = "none";
+
+					printf("%-10s %-15s %-12s %-12s %-12s %-12s %s" ZT_EOL_S,
+						ztaddr.c_str(), ipAddress.c_str(), pktsRxStr, pktsTxStr, bytesRxStr, bytesTxStr, portUsage.c_str());
 				}
-
-
 			}
 			return 0;
 		} else {
