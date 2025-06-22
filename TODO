@@ -16,3 +16,15 @@
 =In stats CLI, what is the purpose of the combinedKey variable?
 =Remove firstIncomingSeen and firstOutgoingSeen - we can use PacketsIncoming and PacketsOutgoing instead if they are still used for logging.
 =Create a document to document all the endpoints available to the CLI
+
+= Stats - we need to capture total bytes in and out per IP address - the size of the entire packet including headers, and the time last communicated with (tx or rx)
+        - we need to capture total bytes in and out per ztaddr - the size of the entire packet including headers, and the time last communicated with (tx or rx)
+		- we need to continue capturing the port usage against the ztaddr/IPaddr combination
+		- we need to be able to look up all ztaddrs associated with an IP address (use the port usage stats?)
+		- we need to be able to look up all IP addresses associated with a ztaddr
+  - for the stats display we should iterate through the port usage list (with it's combination of ztaddr and IPaddr). For each item in this list we query the total bytes in/out for its ztaddr and for its IP address. Whichever is the higher RX we use that. Whichever is the higher TX we use that. We order the displayed list (ordering done in one.cpp) by highest RX+TX descending.
+       - next to the RX and TX values we show either an "i" or a "z" to indicate whether the value was taken from the IP address stats or from the ztaddr stats.
+
+	   Before you start with these changes, tell me where we currently collect the port usage stats, and where we update collect the zt_peer_packets metrics and let me know which is the better location for collecting the port usage stats and the pros and cons of the existing location (for collection) vs where zt_peer_packets metrics are collected.
+
+	   Is this all clear what we need to do or do you have any questions?
