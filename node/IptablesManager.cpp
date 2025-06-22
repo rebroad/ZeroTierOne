@@ -191,11 +191,11 @@ bool IptablesManager::executeCommand(const std::string& command) const
 
     int result = pclose(pipe);
 
-	if (result) {
-    	// Debug: print the result
-    	fprintf(stderr, "[IptablesManager] Executed: %s\n", command.c_str());
-    	fprintf(stderr, "[IptablesManager] Result: %d\n", result);
-	}
+    if (result) {
+        // Debug: print the result
+        fprintf(stderr, "[IptablesManager] Executed: %s\n", command.c_str());
+        fprintf(stderr, "[IptablesManager] Result: %d\n", result);
+    }
 
     // If command failed, check for specific error conditions
     if (result != 0 && !output.empty()) {
@@ -364,57 +364,40 @@ void IptablesManager::removeIptablesRules()
     executeCommand("iptables -X zt_rules 2>/dev/null");
 }
 
-bool IptablesManager::addPeer(const std::string& ipString)
+bool IptablesManager::updatePeer(const std::string& ipString, bool add)
 {
     if (!_initialized) {
         return false;
     }
 
-    // Check if peer is already tracked to avoid unnecessary ipset commands
+    // Check if operation is needed to avoid unnecessary ipset commands
     {
         Mutex::Lock _l(_peers_mutex);
-        if (_activePeers.find(ipString) != _activePeers.end()) {
+        bool peerExists = (_activePeers.find(ipString) != _activePeers.end());
+
+        if (add && peerExists) {
             return false; // Already exists, skip expensive ipset command
         }
-    }
-
-    std::string cmd = "ipset add zt_peers " + ipString;
-    bool success = executeCommand(cmd);
-
-    if (success) {
-        Mutex::Lock _l(_peers_mutex);
-        _activePeers.insert(ipString);
-        fprintf(stderr, "INFO: Added peer %s to iptables ipset" ZT_EOL_S, ipString.c_str());
-    } else {
-        fprintf(stderr, "WARNING: Failed to add peer %s to iptables ipset" ZT_EOL_S, ipString.c_str());
-    }
-
-    return success;
-}
-
-bool IptablesManager::removePeer(const std::string& ipString)
-{
-    if (!_initialized) {
-        return false;
-    }
-
-    // Check if peer is tracked to avoid unnecessary ipset commands
-    {
-        Mutex::Lock _l(_peers_mutex);
-        if (_activePeers.find(ipString) == _activePeers.end()) {
+        if (!add && !peerExists) {
             return false; // Doesn't exist, skip expensive ipset command
         }
     }
 
-    std::string cmd = "ipset del zt_peers " + ipString;
+    // Build ipset command
+    std::string cmd = "ipset " + std::string(add ? "add" : "del") + " zt_peers " + ipString;
     bool success = executeCommand(cmd);
 
     if (success) {
         Mutex::Lock _l(_peers_mutex);
-        _activePeers.erase(ipString);
-        fprintf(stderr, "INFO: Removed peer %s from iptables ipset" ZT_EOL_S, ipString.c_str());
+        if (add) {
+            _activePeers.insert(ipString);
+        } else {
+            _activePeers.erase(ipString);
+        }
     } else {
-        fprintf(stderr, "WARNING: Failed to remove peer %s from iptables ipset" ZT_EOL_S, ipString.c_str());
+        const char* operation = add ? "add" : "remove";
+        fprintf(stderr, "WARNING: Failed to %s peer %s %s iptables ipset" ZT_EOL_S,
+                operation, ipString.c_str(), add ? "to" : "from");
     }
 
     return success;
