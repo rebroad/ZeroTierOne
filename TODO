@@ -1,6 +1,7 @@
 = Remove security endpont (and CLI)
 = Add CLI commands to use the debug endpoints
 = When we remove a peer we should remove it from the stats too
+= Shrink stats columns for RX and TX and add RX/TX or TX/RX to the ttle of port usage
 =We need to gracefully deal with ipset not being found - do we really need to depend on it?
 =Create local firewall functionality that mimicks the ZT Central firewall
 =if findip finds no result, then at least show which peer recommended the ztaddr
