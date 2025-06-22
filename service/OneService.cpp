@@ -933,6 +933,11 @@ public:
 	std::map<InetAddress, PeerIntroduction> _peerIntroductions;
 	Mutex _peerIntroductions_m;
 
+	// Track first-time events for debugging
+	std::set<std::pair<Address, std::string>> _seenPeerFileAccess; // Track first peer file access per ZT address
+	std::set<std::pair<Address, std::string>> _seenPacketSendAttempts; // Track first packet send attempt per ZT address + IP
+	Mutex _firstTimeEvents_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -4073,11 +4078,19 @@ public:
 				return -1;
 		}
 
-		// Log peer file access for debugging connection establishment
+		// Log peer file access for debugging connection establishment (first time only)
 		if (type == ZT_STATE_OBJECT_PEER) {
-			char peerBuf[16];
-			Address(id[0]).toString(peerBuf);
-			fprintf(stderr, "PEER_FILE_ACCESS: %s (%.10llx.peer)" ZT_EOL_S, peerBuf, (unsigned long long)id[0]);
+			Address peerAddr(id[0]);
+			{
+				Mutex::Lock _l(_firstTimeEvents_m);
+				auto peerKey = std::make_pair(peerAddr, std::string("file_access"));
+				if (_seenPeerFileAccess.find(peerKey) == _seenPeerFileAccess.end()) {
+					_seenPeerFileAccess.insert(peerKey);
+					char peerBuf[16];
+					peerAddr.toString(peerBuf);
+					fprintf(stderr, "PEER_FILE_ACCESS: %s (%.10llx.peer)" ZT_EOL_S, peerBuf, (unsigned long long)id[0]);
+				}
+			}
 		}
 
 		FILE *f = fopen(p,"rb");
@@ -4103,17 +4116,26 @@ public:
 
 	inline int nodeWirePacketSendFunction(const int64_t localSocket,const struct sockaddr_storage *addr,const void *data,unsigned int len,unsigned int ttl)
 	{
-		// Log initial outgoing packet attempts (before peer file access)
+		// Log initial outgoing packet attempts (before peer file access) - first time only per peer+IP
 		if (len >= 16) {
 			try {
 				const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
 				Address destAddr;
 				if (len >= 13) {
 					destAddr.setTo(packetData + 8, 5);
-					char destBuf[16], ipBuf[64];
-					destAddr.toString(destBuf);
+					char ipBuf[64];
 					InetAddress(addr).toIpString(ipBuf);
-					fprintf(stderr, "PACKET_SEND_ATTEMPT: size=%u remote=%s peer=%s" ZT_EOL_S, len, ipBuf, destBuf);
+
+					{
+						Mutex::Lock _l(_firstTimeEvents_m);
+						auto attemptKey = std::make_pair(destAddr, std::string(ipBuf));
+						if (_seenPacketSendAttempts.find(attemptKey) == _seenPacketSendAttempts.end()) {
+							_seenPacketSendAttempts.insert(attemptKey);
+							char destBuf[16];
+							destAddr.toString(destBuf);
+							fprintf(stderr, "PACKET_SEND_ATTEMPT: size=%u remote=%s peer=%s" ZT_EOL_S, len, ipBuf, destBuf);
+						}
+					}
 				}
 			} catch (...) {
 				// Ignore errors in logging
