@@ -4802,7 +4802,16 @@ public:
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
 		peerAddress.toIpString(ipBuf);
-		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+
+		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
+		std::string keyIP;
+		if (_isInfrastructureNode(ztAddr)) {
+			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
+		} else {
+			keyIP = std::string(ipBuf);
+		}
+
+		auto peerKey = std::make_pair(ztAddr, keyIP);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstIncoming = (_seenIncomingPeerPorts.find(peerPortKey) == _seenIncomingPeerPorts.end());
 
@@ -4878,7 +4887,7 @@ public:
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
-		stats.peerIP = std::string(ipBuf);
+		stats.peerIP = std::string(ipBuf);  // Always use real IP for logging, even for infrastructure
 
 		if (stats.firstIncomingSeen == 0) {
 			stats.firstIncomingSeen = now;
@@ -4895,7 +4904,16 @@ public:
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
 		remoteAddress.toIpString(ipBuf);
-		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+
+		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
+		std::string keyIP;
+		if (_isInfrastructureNode(ztAddr)) {
+			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
+		} else {
+			keyIP = std::string(ipBuf);
+		}
+
+		auto peerKey = std::make_pair(ztAddr, keyIP);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
@@ -4985,7 +5003,16 @@ public:
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
 		remoteAddress.toIpString(ipBuf);
-		auto peerKey = std::make_pair(ztAddr, std::string(ipBuf));
+
+		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
+		std::string keyIP;
+		if (_isInfrastructureNode(ztAddr)) {
+			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
+		} else {
+			keyIP = std::string(ipBuf);
+		}
+
+		auto peerKey = std::make_pair(ztAddr, keyIP);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
@@ -5301,33 +5328,23 @@ public:
 	// Attack detection through divergence analysis
 	// Helper function to check if a ZT address is a PLANET or MOON (infrastructure node)
 	bool _isInfrastructureNode(const Address& ztAddr) {
-		if (!_node) {
-			fprintf(stderr, "DEBUG: _isInfrastructureNode called but _node is null for %llx\n", (unsigned long long)ztAddr.toInt());
-			return false;
-		}
+		if (!_node) return false;
 
 		try {
 			const Node* node = reinterpret_cast<const Node*>(_node);
 			if (!node || !node->online()) {
-				fprintf(stderr, "DEBUG: _isInfrastructureNode called but node is not online for %llx\n", (unsigned long long)ztAddr.toInt());
 				return false;
 			}
 
 			const RuntimeEnvironment *RR = &(node->_RR);
 			if (!RR || !RR->topology) {
-				fprintf(stderr, "DEBUG: _isInfrastructureNode called but topology is null for %llx\n", (unsigned long long)ztAddr.toInt());
 				return false;
 			}
 
 			ZT_PeerRole role = RR->topology->role(ztAddr);
-			bool isInfra = (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON);
-
-			fprintf(stderr, "DEBUG: _isInfrastructureNode for %llx: role=%d, isInfra=%s\n",
-				(unsigned long long)ztAddr.toInt(), (int)role, isInfra ? "true" : "false");
-
-			return isInfra;
+			return (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON);
 		} catch (...) {
-			fprintf(stderr, "DEBUG: _isInfrastructureNode exception for %llx\n", (unsigned long long)ztAddr.toInt());
+			// Ignore errors during node initialization
 			return false;
 		}
 	}
