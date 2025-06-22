@@ -5111,9 +5111,11 @@ public:
 
 	// Fast wire packet tracking using direct memory updates (replaces slow Prometheus metrics)
 	void _trackWirePacket(const Address& ztAddr, const InetAddress& peerIP,
-						  bool isSuccessful, unsigned int packetSize, const char* direction) {
+						  bool isSuccessful, unsigned int packetSize, bool incoming) {
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
+
+		// TODO - handle ztAddr being empty (e.g. for invald packets)
 
 		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, std::string(peerIPStr));
 
@@ -5126,17 +5128,19 @@ public:
 		}
 
 		// Update wire packet counters based on direction
-		if (strcmp(direction, "rx") == 0) {
-			stats.wirePacketsIncoming++;
-			stats.wirePacketBytesIncoming += packetSize;
-			if (!isSuccessful) {
-				stats.wirePacketErrorsIncoming++;
+		if (incoming) {
+			stats.PacketsIncoming++;
+			stats.BytesIncoming += packetSize;
+			if (isSuccessful) {
+				stats.PacketIncomingOK++;
+				stats.BytesIncomingOK += packetSize;
 			}
-		} else if (strcmp(direction, "tx") == 0) {
-			stats.wirePacketsOutgoing++;
-			stats.wirePacketBytesOutgoing += packetSize;
-			if (!isSuccessful) {
-				stats.wirePacketErrorsOutgoing++;
+		} else {
+			stats.PacketsOutgoing++;
+			stats.BytesOutgoing += packetSize;
+			if (isSuccessful) {
+				stats.PacketOutgoingOK++;
+				stats.BytesOutgoingOK += packetSize;
 			}
 		}
 	}
