@@ -24,8 +24,8 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 ## Core Service Endpoints
 
 ### `/status`
-**Methods**: `GET`  
-**Description**: Get running node status and addressing information  
+**Methods**: `GET`
+**Description**: Get running node status and addressing information
 **CLI Command**: `zerotier-cli info`
 
 **Response Fields**:
@@ -45,8 +45,8 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 | clock | integer | Current system clock (ms since epoch) |
 
 ### `/health`
-**Methods**: `GET`  
-**Description**: Get health status of the service  
+**Methods**: `GET`
+**Description**: Get health status of the service
 **CLI Command**: Not directly accessible
 
 ---
@@ -54,15 +54,15 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 ## Network Management
 
 ### `/network`
-**Methods**: `GET`  
-**Description**: Get all network memberships  
+**Methods**: `GET`
+**Description**: Get all network memberships
 **CLI Command**: `zerotier-cli listnetworks`
 
 **Returns**: Array of network objects
 
 ### `/network/<network_id>`
-**Methods**: `GET`, `POST`, `PUT`, `DELETE`  
-**Description**: Get, join, configure, or leave a specific network  
+**Methods**: `GET`, `POST`, `PUT`, `DELETE`
+**Description**: Get, join, configure, or leave a specific network
 **CLI Commands**:
 - Join: `zerotier-cli join <network_id>`
 - Leave: `zerotier-cli leave <network_id>`
@@ -96,15 +96,15 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 ## Peer Management
 
 ### `/peer`
-**Methods**: `GET`  
-**Description**: Get all current peers  
+**Methods**: `GET`
+**Description**: Get all current peers
 **CLI Command**: `zerotier-cli peers`
 
 **Returns**: Array of peer objects
 
 ### `/peer/<address>`
-**Methods**: `GET`, `POST`  
-**Description**: Get or configure information about a specific peer  
+**Methods**: `GET`, `POST`
+**Description**: Get or configure information about a specific peer
 **CLI Command**: `zerotier-cli peers` (shows specific peer info)
 
 **Peer Object Fields**:
@@ -124,13 +124,13 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 ## Moon Management
 
 ### `/moon`
-**Methods**: `GET`  
-**Description**: List all moons  
+**Methods**: `GET`
+**Description**: List all moons
 **CLI Command**: `zerotier-cli listmoons`
 
 ### `/moon/<moon_id>`
-**Methods**: `GET`, `POST`, `PUT`, `DELETE`  
-**Description**: Get, orbit, or deorbit a specific moon  
+**Methods**: `GET`, `POST`, `PUT`, `DELETE`
+**Description**: Get, orbit, or deorbit a specific moon
 **CLI Commands**:
 - Orbit: `zerotier-cli orbit <moon_id> <moon_seed>`
 - Deorbit: `zerotier-cli deorbit <moon_id>`
@@ -140,18 +140,18 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 ## Bonding and Path Management
 
 ### `/bond/show/<address>`
-**Methods**: `GET`  
-**Description**: Show bonding information for a specific peer  
+**Methods**: `GET`
+**Description**: Show bonding information for a specific peer
 **CLI Command**: `zerotier-cli bond <address> show`
 
 ### `/bond/rotate/<address>`
-**Methods**: `POST`, `PUT`  
-**Description**: Rotate bonding policy for a peer  
+**Methods**: `POST`, `PUT`
+**Description**: Rotate bonding policy for a peer
 **CLI Command**: `zerotier-cli bond <address> rotate`
 
 ### `/bond/setmtu/<mtu>/<device>/<address>`
-**Methods**: `POST`, `PUT`  
-**Description**: Set MTU for a specific bond  
+**Methods**: `POST`, `PUT`
+**Description**: Set MTU for a specific bond
 **CLI Command**: `zerotier-cli bond <address> setmtu <mtu> <device>`
 
 ---
@@ -159,13 +159,13 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 ## Configuration Management
 
 ### `/config`
-**Methods**: `GET`  
-**Description**: Get current configuration  
+**Methods**: `GET`
+**Description**: Get current configuration
 **CLI Command**: Not directly accessible
 
 ### `/config/settings`
-**Methods**: `POST`, `PUT`  
-**Description**: Update configuration settings  
+**Methods**: `POST`, `PUT`
+**Description**: Update configuration settings
 **CLI Command**: `zerotier-cli set <setting> <value>`
 
 ---
@@ -173,23 +173,23 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 ## Security and Monitoring
 
 ### `/security/events`
-**Methods**: `GET`  
-**Description**: Get security events  
+**Methods**: `GET`
+**Description**: Get security events
 **CLI Command**: `zerotier-cli security events`
 
 ### `/security/metrics`
-**Methods**: `GET`  
-**Description**: Get security metrics  
+**Methods**: `GET`
+**Description**: Get security metrics
 **CLI Command**: `zerotier-cli security metrics`
 
 ### `/security/threats`
-**Methods**: `GET`  
-**Description**: Get security threats information  
+**Methods**: `GET`
+**Description**: Get security threats information
 **CLI Command**: `zerotier-cli security threats`
 
 ### `/stats`
-**Methods**: `GET`  
-**Description**: Get comprehensive peer statistics with advanced aggregation and security monitoring  
+**Methods**: `GET`
+**Description**: Get comprehensive peer statistics with advanced aggregation and security monitoring
 **CLI Command**: `zerotier-cli stats`
 
 **Features**:
@@ -259,9 +259,9 @@ abc123def  192.168.1.100  1.5Mi         2.1Mz         OK       9993:45/12
 ## Prometheus Metrics
 
 ### `/metrics`
-**Methods**: `GET`  
-**Description**: Get Prometheus-formatted metrics  
-**Authentication**: Requires `metricstoken.secret`  
+**Methods**: `GET`
+**Description**: Get Prometheus-formatted metrics
+**Authentication**: Requires `metricstoken.secret`
 **CLI Access**: Not directly available via CLI
 
 **Example Usage**:
@@ -269,7 +269,7 @@ abc123def  192.168.1.100  1.5Mi         2.1Mz         OK       9993:45/12
 # Linux
 curl -H "X-ZT1-Auth: $(sudo cat /var/lib/zerotier-one/metricstoken.secret)" http://localhost:9993/metrics
 
-# macOS  
+# macOS
 curl -H "X-ZT1-Auth: $(sudo cat /Library/Application\ Support/ZeroTier/One/metricstoken.secret)" http://localhost:9993/metrics
 
 # Windows PowerShell (Admin)
@@ -281,19 +281,19 @@ Invoke-RestMethod -Headers @{'X-ZT1-Auth' = "$(Get-Content C:\ProgramData\ZeroTi
 ## Advanced Endpoints
 
 ### `/sso`
-**Methods**: `GET`  
-**Description**: Single Sign-On endpoint for SSO-enabled networks  
+**Methods**: `GET`
+**Description**: Single Sign-On endpoint for SSO-enabled networks
 **CLI Command**: Not directly accessible
 
 ### `/iptables`
-**Methods**: `POST`  
-**Description**: Configure iptables integration  
+**Methods**: `POST`
+**Description**: Configure iptables integration
 **CLI Command**: `zerotier-cli set-iptables-enabled <setting>`
 
 ### `/debug/peer`
-**Methods**: `GET`  
-**Description**: Debug endpoint for peer validation and status checking  
-**Parameters**: `?ztaddr=<address>`  
+**Methods**: `GET`
+**Description**: Debug endpoint for peer validation and status checking
+**Parameters**: `?ztaddr=<address>`
 **CLI Command**: Not directly accessible
 
 **Response Example**:
@@ -322,9 +322,9 @@ Invoke-RestMethod -Headers @{'X-ZT1-Auth' = "$(Get-Content C:\ProgramData\ZeroTi
 ```
 
 ### `/debug/lookup`
-**Methods**: `GET`  
-**Description**: Lookup ZT addresses by IP address or IP addresses by ZT address  
-**Parameters**: 
+**Methods**: `GET`
+**Description**: Lookup ZT addresses by IP address or IP addresses by ZT address
+**Parameters**:
 - `?ip=<ip_address>` - Find all ZT addresses for an IP
 - `?ztaddr=<address>` - Find all IP addresses for a ZT address
 **CLI Command**: Not directly accessible
@@ -377,8 +377,8 @@ curl "http://localhost:9993/debug/lookup?ztaddr=abc123def" -H "X-ZT1-Auth: $(cat
 ## App Server
 
 ### `/app/*`
-**Methods**: `GET`  
-**Description**: Static file server for Single Page Applications  
+**Methods**: `GET`
+**Description**: Static file server for Single Page Applications
 **Base URL**: `http://localhost:9993/app/<app-path>`
 
 The service can host static web applications in subdirectories under the `app/` folder in the ZeroTier home directory.
@@ -430,7 +430,7 @@ For each peer entry, the system:
 
 The system monitors for divergence between wire-level and authenticated packet counts:
 - **Divergence Ratio**: `WireBytes / AuthBytes`
-- **Thresholds**: 
+- **Thresholds**:
   - `>= 20.0`: DANGER (severe attack)
   - `>= 5.0`: WARNING (moderate attack)
   - `< 5.0`: MINOR (low-level suspicious activity)
@@ -486,4 +486,4 @@ The system provides bidirectional lookup capabilities:
 | N/A | `/debug/lookup?ip=<ip>` | GET | Find ZT addresses for IP |
 | N/A | `/debug/lookup?ztaddr=<addr>` | GET | Find IPs for ZT address |
 
-This comprehensive reference should help developers integrate with the ZeroTier One service API effectively. 
+This comprehensive reference should help developers integrate with the ZeroTier One service API effectively.
