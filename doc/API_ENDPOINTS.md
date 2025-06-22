@@ -189,16 +189,70 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 
 ### `/stats`
 **Methods**: `GET`  
-**Description**: Get detailed peer statistics and wire packet metrics, sorted by total bytes  
+**Description**: Get comprehensive peer statistics with advanced aggregation and security monitoring  
 **CLI Command**: `zerotier-cli stats`
 
 **Features**:
-- Peer statistics sorted by total bytes (incoming + outgoing) in descending order
-- Wire packet metrics including success rates
-- Port usage statistics
-- Packet and byte counts with OK percentages
+- **Two-Tier Statistics System**:
+  - **Tier 1 (Wire-level)**: All incoming packets including spoofed/malicious (UNTRUSTED)
+  - **Tier 2 (Protocol-level)**: Only authenticated ZeroTier packets (TRUSTED)
+- **Smart Aggregation**: Compares IP-level vs ZT-address-level stats, uses higher values
+- **Infrastructure Filtering**: Excludes IP-level stats for PLANET/MOON nodes
+- **Source Indicators**: Shows "i" (IP stats) or "z" (ZT address stats) for transparency
+- **Attack Detection**: Divergence analysis between wire and authenticated packet counts
+- **Port Usage Tracking**: Detailed port usage statistics per peer
+- **Sorting**: Ordered by highest total bytes (RX+TX) using the higher of IP vs ZT stats
 
-**Note**: As of recent updates, the `/stats/wire-packets` endpoint has been removed and its functionality merged into `/stats`.
+**Response Structure**:
+```json
+{
+  "peersByZtAddressAndIP": {
+    "abc123def@192.168.1.100": {
+      "ztAddress": "abc123def",
+      "ipAddress": "192.168.1.100",
+      "displayBytesIncoming": 1572864,
+      "displayBytesOutgoing": 2097152,
+      "rxSource": "i",
+      "txSource": "z",
+      "isInfrastructureNode": false,
+      "WireBytesIncoming": 1572864,
+      "WireBytesOutgoing": 2097152,
+      "AuthBytesIncoming": 1572864,
+      "AuthBytesOutgoing": 2097152,
+      "SuspiciousPacketCount": 0,
+      "AttackEventCount": 0,
+      "MaxDivergenceRatio": 0.0,
+      "incomingPorts": {"9993": 45},
+      "outgoingPorts": {"9993": 12}
+    }
+  }
+}
+```
+
+**Key Fields**:
+| Field | Type | Description |
+|-------|------|-------------|
+| displayBytesIncoming | integer | Higher of IP vs ZT address incoming bytes (use for enforcement) |
+| displayBytesOutgoing | integer | Higher of IP vs ZT address outgoing bytes (use for enforcement) |
+| rxSource | string | "i" if display RX from IP stats, "z" if from ZT address stats |
+| txSource | string | "i" if display TX from IP stats, "z" if from ZT address stats |
+| isInfrastructureNode | boolean | True if ZT address is PLANET/MOON (IP stats excluded) |
+| WireBytesIncoming/Outgoing | integer | All wire-level packets (includes attacks) |
+| AuthBytesIncoming/Outgoing | integer | Only authenticated packets (trusted) |
+| SuspiciousPacketCount | integer | Packets that failed authentication |
+| AttackEventCount | integer | Number of attack detection events |
+| MaxDivergenceRatio | number | Highest wire:auth ratio detected |
+
+**CLI Display Format**:
+```
+ZT Address IP Address     RX Bytes      TX Bytes      Security Port Usage
+---------- --------------- ------------- ------------- -------- ----------
+abc123def  192.168.1.100  1.5Mi         2.1Mz         OK       9993:45/12
+```
+- `1.5Mi` = 1.5MB from IP stats (higher), `2.1Mz` = 2.1MB from ZT stats (higher)
+- Security: OK/SUSPECT/MINOR/WARNING/DANGER based on attack detection
+
+**Note**: The `/stats/wire-packets` endpoint has been removed and its functionality merged into `/stats`.
 
 ---
 
@@ -242,6 +296,82 @@ Invoke-RestMethod -Headers @{'X-ZT1-Auth' = "$(Get-Content C:\ProgramData\ZeroTi
 **Parameters**: `?ztaddr=<address>`  
 **CLI Command**: Not directly accessible
 
+**Response Example**:
+```json
+{
+  "ztAddress": "abc123def",
+  "isValidAddress": true,
+  "nodeReady": true,
+  "existsInTopology": true,
+  "isAlive": true,
+  "hasDirectPath": true,
+  "remoteVersionKnown": true,
+  "remoteVersion": "1.10.6",
+  "hasStatsEntry": true,
+  "totalIncoming": 1572864,
+  "totalOutgoing": 2097152,
+  "ipAddressCount": 2,
+  "statsPerIP": [
+    {
+      "ipAddress": "192.168.1.100",
+      "totalIncoming": 1048576,
+      "totalOutgoing": 1572864
+    }
+  ]
+}
+```
+
+### `/debug/lookup`
+**Methods**: `GET`  
+**Description**: Lookup ZT addresses by IP address or IP addresses by ZT address  
+**Parameters**: 
+- `?ip=<ip_address>` - Find all ZT addresses for an IP
+- `?ztaddr=<address>` - Find all IP addresses for a ZT address
+**CLI Command**: Not directly accessible
+
+**Usage Examples**:
+```bash
+# Find all ZT addresses using IP 192.168.1.100
+curl "http://localhost:9993/debug/lookup?ip=192.168.1.100" -H "X-ZT1-Auth: $(cat authtoken.secret)"
+
+# Find all IP addresses for ZT address abc123def
+curl "http://localhost:9993/debug/lookup?ztaddr=abc123def" -H "X-ZT1-Auth: $(cat authtoken.secret)"
+```
+
+**Response Examples**:
+
+*Lookup by IP*:
+```json
+{
+  "ipAddress": "192.168.1.100",
+  "ztAddresses": [
+    {
+      "ztAddress": "abc123def",
+      "isInfrastructure": false
+    },
+    {
+      "ztAddress": "def456abc",
+      "isInfrastructure": true
+    }
+  ]
+}
+```
+
+*Lookup by ZT Address*:
+```json
+{
+  "ztAddress": "abc123def",
+  "ipAddresses": ["192.168.1.100", "10.0.0.50"],
+  "isInfrastructure": false
+}
+```
+
+**Features**:
+- **Infrastructure Detection**: Identifies PLANET/MOON nodes
+- **Multi-mapping Support**: Shows all associations (one IP can have multiple ZT addresses)
+- **Real-time Data**: Uses current statistics database
+- **Security Context**: Helps identify potential IP spoofing or relay scenarios
+
 ---
 
 ## App Server
@@ -252,6 +382,66 @@ Invoke-RestMethod -Headers @{'X-ZT1-Auth' = "$(Get-Content C:\ProgramData\ZeroTi
 **Base URL**: `http://localhost:9993/app/<app-path>`
 
 The service can host static web applications in subdirectories under the `app/` folder in the ZeroTier home directory.
+
+---
+
+## Statistics System Architecture
+
+### Two-Tier Statistics Model
+
+ZeroTier One implements a sophisticated two-tier statistics system designed for both bandwidth management and security monitoring:
+
+#### **Tier 1: Wire-Level Statistics (UNTRUSTED)**
+- **Purpose**: Network monitoring, attack detection, debugging
+- **Scope**: ALL incoming packets that can be attributed to a ZT address
+- **Includes**: Spoofed packets, malformed packets, failed authentication, replay attacks
+- **Fields**: `WirePacketsIncoming/Outgoing`, `WireBytesIncoming/Outgoing`
+- **Use Case**: Detecting unusual traffic patterns, DoS attacks, network diagnostics
+
+#### **Tier 2: Protocol-Level Statistics (TRUSTED)**
+- **Purpose**: Bandwidth enforcement, billing, user quotas
+- **Scope**: Only cryptographically verified ZeroTier protocol packets
+- **Includes**: Successfully authenticated packets only
+- **Fields**: `AuthPacketsIncoming/Outgoing`, `AuthBytesIncoming/Outgoing`
+- **Use Case**: Accurate bandwidth measurement for enforcement decisions
+
+### Smart Aggregation System
+
+The system aggregates statistics at two levels:
+
+1. **By IP Address**: Sum of all traffic from/to a specific IP address
+2. **By ZT Address**: Sum of all traffic from/to a specific ZeroTier address
+
+For each peer entry, the system:
+1. Compares IP-level vs ZT-address-level aggregated stats
+2. Uses the **higher value** for each direction (RX/TX)
+3. Marks the source with indicators: "i" (IP stats) or "z" (ZT address stats)
+4. Provides `displayBytesIncoming/Outgoing` fields for enforcement decisions
+
+### Infrastructure Node Filtering
+
+**PLANET and MOON nodes are treated specially**:
+- **ZT Address Stats**: Always collected (for monitoring infrastructure health)
+- **IP Address Stats**: **EXCLUDED** from aggregation (prevents pollution of IP-based quotas)
+- **Rationale**: Infrastructure nodes shouldn't affect per-IP bandwidth analysis
+- **Detection**: Uses `topology->role()` to identify `ZT_PEER_ROLE_PLANET`/`ZT_PEER_ROLE_MOON`
+
+### Attack Detection
+
+The system monitors for divergence between wire-level and authenticated packet counts:
+- **Divergence Ratio**: `WireBytes / AuthBytes`
+- **Thresholds**: 
+  - `>= 20.0`: DANGER (severe attack)
+  - `>= 5.0`: WARNING (moderate attack)
+  - `< 5.0`: MINOR (low-level suspicious activity)
+- **Metrics**: Tracks `SuspiciousPacketCount`, `AttackEventCount`, `MaxDivergenceRatio`
+
+### Lookup Functions
+
+The system provides bidirectional lookup capabilities:
+- **IP → ZT Addresses**: Find all ZeroTier addresses using a specific IP
+- **ZT Address → IPs**: Find all IP addresses used by a ZeroTier address
+- **Use Cases**: Security analysis, debugging connectivity issues, identifying relay scenarios
 
 ---
 
@@ -276,21 +466,24 @@ The service can host static web applications in subdirectories under the `app/` 
 
 ## CLI to API Mapping
 
-| CLI Command | HTTP Endpoint | Method |
-|-------------|---------------|---------|
-| `zerotier-cli info` | `/status` | GET |
-| `zerotier-cli listnetworks` | `/network` | GET |
-| `zerotier-cli join <nwid>` | `/network/<nwid>` | POST |
-| `zerotier-cli leave <nwid>` | `/network/<nwid>` | DELETE |
-| `zerotier-cli peers` | `/peer` | GET |
-| `zerotier-cli listmoons` | `/moon` | GET |
-| `zerotier-cli orbit <moon> <seed>` | `/moon/<moon>` | POST |
-| `zerotier-cli deorbit <moon>` | `/moon/<moon>` | DELETE |
-| `zerotier-cli stats` | `/stats` | GET |
-| `zerotier-cli security events` | `/security/events` | GET |
-| `zerotier-cli security metrics` | `/security/metrics` | GET |
-| `zerotier-cli security threats` | `/security/threats` | GET |
-| `zerotier-cli bond <addr> show` | `/bond/show/<addr>` | GET |
-| `zerotier-cli bond <addr> rotate` | `/bond/rotate/<addr>` | POST |
+| CLI Command | HTTP Endpoint | Method | Notes |
+|-------------|---------------|---------|-------|
+| `zerotier-cli info` | `/status` | GET | |
+| `zerotier-cli listnetworks` | `/network` | GET | |
+| `zerotier-cli join <nwid>` | `/network/<nwid>` | POST | |
+| `zerotier-cli leave <nwid>` | `/network/<nwid>` | DELETE | |
+| `zerotier-cli peers` | `/peer` | GET | |
+| `zerotier-cli listmoons` | `/moon` | GET | |
+| `zerotier-cli orbit <moon> <seed>` | `/moon/<moon>` | POST | |
+| `zerotier-cli deorbit <moon>` | `/moon/<moon>` | DELETE | |
+| `zerotier-cli stats` | `/stats` | GET | Enhanced with two-tier stats & infrastructure filtering |
+| `zerotier-cli security events` | `/security/events` | GET | |
+| `zerotier-cli security metrics` | `/security/metrics` | GET | |
+| `zerotier-cli security threats` | `/security/threats` | GET | |
+| `zerotier-cli bond <addr> show` | `/bond/show/<addr>` | GET | |
+| `zerotier-cli bond <addr> rotate` | `/bond/rotate/<addr>` | POST | |
+| N/A | `/debug/peer?ztaddr=<addr>` | GET | Debug peer validation & stats |
+| N/A | `/debug/lookup?ip=<ip>` | GET | Find ZT addresses for IP |
+| N/A | `/debug/lookup?ztaddr=<addr>` | GET | Find IPs for ZT address |
 
 This comprehensive reference should help developers integrate with the ZeroTier One service API effectively. 
