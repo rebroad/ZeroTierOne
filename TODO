@@ -6,3 +6,5 @@
 =Expand peers CLI (arg=extra) to show networks for each leaf
 =Explore existing lowBandwidthModeEnabled functionality
 =Explain why/what we're sending in the PACKET_TO logs (see if we can combined PACKET_TO1 and PACKET_TO2 logging)
+=Explain why/what we're sending in the PACKET_SEND_ATTEMPT logs
+=Create a way to assign friendly names to ztaddrs (for use in logging and in CLI outputs)
