@@ -385,7 +385,8 @@ zerotier-idtool: zerotier-one
 zerotier-cli: zerotier-one
 	ln -sf zerotier-one zerotier-cli
 
-$(ONE_OBJS): zeroidc smeeclient
+# Only OneService.o actually uses the Rust libraries, so only it should depend on them
+service/OneService.o: zeroidc smeeclient
 
 libzerotiercore.a:	FORCE
 	make CFLAGS="-O3 -fstack-protector -fPIC" CXXFLAGS="-O3 -std=c++17 -fstack-protector -fPIC" $(CORE_OBJS)
