@@ -5087,7 +5087,7 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			{
 				InetAddress localAddr;
 				localAddr.fromString("0.0.0.0/0"); // Placeholder local address
-				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localPort, localPort, OSUtils::now(), packetSize);
+				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), packetSize);
 			}
 			break;
 	}
