@@ -3371,11 +3371,11 @@ public:
 			_lastDirectReceiveFromGlobal = now;
 		}
 
-		Address sourcePeerAddr;
-		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline,&sourcePeerAddr);
+		Address originPeerZTAddr;
+		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline,&originPeerZTAddr);
 
 		// Track port usage only for successfully processed packets from identified peers
-		if ((rc == ZT_RESULT_OK) && localAddr && from && len >= 16 && sourcePeerAddr) {
+		if ((rc == ZT_RESULT_OK) && localAddr && from && len >= 16 && originPeerZTAddr) {
 			const InetAddress localAddress(localAddr);
 			const InetAddress fromAddress(from);
 			const unsigned int localPort = localAddress.port();
@@ -3385,7 +3385,7 @@ public:
 				(_allowSecondaryPort && localPort == _ports[1])) {
 
 				// Determine the correct ZT address for tracking purposes
-				Address trackingAddr = sourcePeerAddr;
+				Address trackingZTAddr = originPeerZTAddr;
 
 				// Check if this packet is being relayed through a PLANET/MOON
 				// We need to find which peer actually owns this physical IP address
@@ -3396,16 +3396,16 @@ public:
 							// Find which peer (if any) has an active path to this physical IP address
 							std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
 							for (const auto& peerPair : allPeers) {
-								const Address& peerAddr = peerPair.first;
+								const Address& peerZTAddr = peerPair.first;
 								const SharedPtr<Peer>& peer = peerPair.second;
 								if (peer && peer->hasActivePathTo(now, fromAddress)) {
 									// This peer has an active path to the sender IP
-									if (peerAddr != sourcePeerAddr) {
+									if (peerZTAddr != originPeerZTAddr) {
 										// Physical sender is different from logical source - this is relayed!
-										trackingAddr = peerAddr; // Track against the peer doing the relaying
-										ZT_PeerRole physicalRole = RR->topology->role(peerAddr);
+										trackingZTAddr = peerZTAddr; // Track against the peer doing the relaying
+										ZT_PeerRole physicalRole = RR->topology->role(peerZTAddr);
 										if (physicalRole != ZT_PEER_ROLE_PLANET && physicalRole != ZT_PEER_ROLE_MOON) {
-											ZT_PeerRole sourceRole = RR->topology->role(sourcePeerAddr);
+											ZT_PeerRole sourceRole = RR->topology->role(originPeerZTAddr);
 											auto getRoleString = [](ZT_PeerRole role) -> const char* {
 												switch (role) {
 												case ZT_PEER_ROLE_PLANET: return "PLANET";
@@ -3415,8 +3415,8 @@ public:
 												}
 											};
 											char physicalBuf[16], logicalBuf[16], ipBuf[64];
-											peerAddr.toString(physicalBuf);
-											sourcePeerAddr.toString(logicalBuf);
+											peerZTAddr.toString(physicalBuf);
+											originPeerZTAddr.toString(logicalBuf);
 											fromAddress.toIpString(ipBuf);
 											const char* logPrefix = (physicalRole == ZT_PEER_ROLE_LEAF) ? "LEAF_RELAY_DETECTED" : "RELAY_DETECTED";
 											fprintf(stderr, "%s: %s %s at %s relaying packet from %s %s" ZT_EOL_S,
@@ -3433,7 +3433,7 @@ public:
 					}
 				}
 
-				_trackIncomingPeerPortUsage(trackingAddr, fromAddress, localAddress, localPort, now, len, sourcePeerAddr);
+				_trackIncomingPeerPortUsage(trackingZTAddr, fromAddress, localAddress, localPort, now, len, originPeerZTAddr);
 			}
 		}
 
