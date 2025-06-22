@@ -9,3 +9,4 @@
 =Explain what we're sending in the PACKET_SEND_ATTEMPT logs
 =Explain what we're receiving in the PACKET_FROM log messages
 =Create a way to assign friendly names to ztaddrs (for use in logging and in CLI outputs)
+=Why are we using "rx" and "tx" in functions instead of a bool?
