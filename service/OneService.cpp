@@ -2541,6 +2541,7 @@ public:
 
 		// GET /stats - peer port usage statistics
 		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+			fprintf(stderr, "DEBUG: /stats endpoint called\n");
 			json stats = json::object();
 
 			// Add port configuration information
@@ -2579,6 +2580,7 @@ public:
 
 			{
 				Mutex::Lock _l(_peerStats_m);
+				fprintf(stderr, "DEBUG: _peerStats has %zu entries\n", _peerStats.size());
 				for (const auto& peerEntry : _peerStats) {
 					sortedPeers.push_back(peerEntry);
 
@@ -5215,7 +5217,15 @@ public:
 
 		// TODO - handle ztAddr being empty (e.g. for invald packets)
 
-		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, std::string(peerIPStr));
+		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
+		std::string keyIP;
+		if (_isInfrastructureNode(ztAddr)) {
+			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
+		} else {
+			keyIP = std::string(peerIPStr);
+		}
+
+		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, keyIP);
 
 		Mutex::Lock _l(_peerStats_m);
 		PeerStats& stats = _peerStats[peerKey];
@@ -5257,7 +5267,16 @@ public:
 								   unsigned int packetSize, bool incoming, uint64_t now) {
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
-		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, std::string(peerIPStr));
+
+		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
+		std::string keyIP;
+		if (_isInfrastructureNode(ztAddr)) {
+			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
+		} else {
+			keyIP = std::string(peerIPStr);
+		}
+
+		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, keyIP);
 
 		Mutex::Lock _l(_peerStats_m);
 		PeerStats& stats = _peerStats[peerKey];
@@ -5282,21 +5301,35 @@ public:
 	// Attack detection through divergence analysis
 	// Helper function to check if a ZT address is a PLANET or MOON (infrastructure node)
 	bool _isInfrastructureNode(const Address& ztAddr) {
-		if (!_node) return false;
+		if (!_node) {
+			fprintf(stderr, "DEBUG: _isInfrastructureNode called but _node is null for %llx\n", (unsigned long long)ztAddr.toInt());
+			return false;
+		}
 
 		try {
 			const Node* node = reinterpret_cast<const Node*>(_node);
-			if (node && node->online()) {
-				const RuntimeEnvironment *RR = &(node->_RR);
-				if (RR && RR->topology) {
-					ZT_PeerRole role = RR->topology->role(ztAddr);
-					return (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON);
-				}
+			if (!node || !node->online()) {
+				fprintf(stderr, "DEBUG: _isInfrastructureNode called but node is not online for %llx\n", (unsigned long long)ztAddr.toInt());
+				return false;
 			}
+
+			const RuntimeEnvironment *RR = &(node->_RR);
+			if (!RR || !RR->topology) {
+				fprintf(stderr, "DEBUG: _isInfrastructureNode called but topology is null for %llx\n", (unsigned long long)ztAddr.toInt());
+				return false;
+			}
+
+			ZT_PeerRole role = RR->topology->role(ztAddr);
+			bool isInfra = (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON);
+
+			fprintf(stderr, "DEBUG: _isInfrastructureNode for %llx: role=%d, isInfra=%s\n",
+				(unsigned long long)ztAddr.toInt(), (int)role, isInfra ? "true" : "false");
+
+			return isInfra;
 		} catch (...) {
-			// Ignore errors during node initialization
+			fprintf(stderr, "DEBUG: _isInfrastructureNode exception for %llx\n", (unsigned long long)ztAddr.toInt());
+			return false;
 		}
-		return false;
 	}
 
 	// Helper function to look up all ZT addresses associated with an IP address
