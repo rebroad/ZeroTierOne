@@ -699,7 +699,7 @@ static void SnodeVirtualNetworkFrameFunction(ZT_Node *node,void *uptr,void *tptr
 static int SnodePathCheckFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int64_t localSocket,const struct sockaddr_storage *remoteAddr);
 static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int family,struct sockaddr_storage *result);
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len);
-static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort = 0);
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort, unsigned int packetSize);
 
 static int ShttpOnMessageBegin(http_parser *parser);
 static int ShttpOnUrl(http_parser *parser,const char *ptr,size_t length);
@@ -5064,7 +5064,7 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodePathLookupFunction(ztaddr,family,result); }
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
-static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort)
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort, unsigned int packetSize)
 {
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
@@ -5087,7 +5087,7 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			{
 				InetAddress localAddr;
 				localAddr.fromString("0.0.0.0/0"); // Placeholder local address
-				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), 0);
+				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localPort, localPort, OSUtils::now(), packetSize);
 			}
 			break;
 	}
