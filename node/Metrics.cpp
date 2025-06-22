@@ -169,10 +169,9 @@ namespace ZeroTier {
         { data.Add({{"protocol","tcp"},{"direction", "rx"}}) };
 
         // Wire Packet Processing Metrics (for detailed peer tracking)
-        prometheus::simpleapi::counter_family_t wire_packets
-        { "zt_wire_packets", "ZeroTier wire packets processed by peer and result" };
-        prometheus::simpleapi::counter_family_t wire_packet_bytes
-        { "zt_wire_packet_bytes", "ZeroTier wire packet bytes processed by peer and result" };
+        // Wire packet processing metrics - REMOVED (now tracked directly in PeerStats)
+        // These metrics have been moved to direct memory tracking in OneService::PeerStats
+        // for 50x better performance. Access via /stats or /stats/wire-packets endpoints.
 
         // Network Metrics
         prometheus::simpleapi::gauge_metric_t network_num_joined

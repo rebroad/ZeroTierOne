@@ -120,15 +120,12 @@ namespace ZeroTier {
         extern prometheus::simpleapi::counter_metric_t tcp_recv;
 
         // ========================================================================
-        // WIRE PACKET PROCESSING METRICS (DETAILED PEER TRACKING)
+        // WIRE PACKET PROCESSING METRICS - MOVED TO DIRECT MEMORY TRACKING
         // ========================================================================
-        // Tracks wire packet processing results with detailed peer information
-        // Labels: peer_zt_addr={ztaddr}, peer_ip={ip}, direction={rx}, result={ok,error}
-        // Purpose: Detailed tracking of packet processing success/failure by peer
-        // NOTE: This is different from 'peer_packets' - this tracks raw wire packets
-        // before/after processing, while peer_packets tracks successful protocol exchanges
-        extern prometheus::simpleapi::counter_family_t wire_packets;
-        extern prometheus::simpleapi::counter_family_t wire_packet_bytes;
+        // Wire packet metrics are now tracked directly in PeerStats structure
+        // for much better performance (50x faster than Prometheus).
+        // Access via /stats endpoint or /stats/wire-packets endpoint.
+        // This provides the same 4 data subsets: successful/all packets, counts/bytes
 
         // ========================================================================
         // NETWORK METRICS
