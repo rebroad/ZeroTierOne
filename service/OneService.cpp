@@ -4443,22 +4443,18 @@ public:
 
 			// Track outgoing packet port usage (safe version without getsockname)
 			if (r) {
-				// Determine local port based on socket
-				unsigned int localPort = _primaryPort; // Default fallback
-				if (localSocket == (int64_t)((uintptr_t)_binder.udpV4()) || localSocket == (int64_t)((uintptr_t)_binder.udpV6())) {
-					localPort = _primaryPort;
-				} else {
-					// Try to identify which secondary/tertiary port this is
-					// For now, use primary port as fallback - this could be enhanced later
-				}
-
 				const InetAddress remoteAddress(addr);
 				Address destAddr;
-				destAddr.setTo(((const uint8_t*)data) + 8, 5);
+				if (len >= 13) {
+					destAddr.setTo(((const uint8_t*)data) + 8, 5);
+				} else {
+					// For short packets, use zero address as placeholder
+					destAddr.zero();
+				}
 
-				char remoteIPStr[64];
-				remoteAddress.toIpString(remoteIPStr);
-				_trackOutgoingPeerPortUsage(destAddr, remoteAddress, InetAddress(), localPort, OSUtils::now(), len);
+				// For specific socket sends, use primary port as default
+				// TODO: Could be enhanced to detect secondary/tertiary ports if needed
+				_trackOutgoingPeerPortUsage(destAddr, remoteAddress, InetAddress(), _primaryPort, OSUtils::now(), len);
 			}
 
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
@@ -4472,10 +4468,13 @@ public:
 			if (r) {
 				const InetAddress remoteAddress(addr);
 				Address destAddr;
-				destAddr.setTo(((const uint8_t*)data) + 8, 5);
+				if (len >= 13) {
+					destAddr.setTo(((const uint8_t*)data) + 8, 5);
+				} else {
+					// For short packets, use zero address as placeholder
+					destAddr.zero();
+				}
 
-				char remoteIPStr[64];
-				remoteAddress.toIpString(remoteIPStr);
 				// For broadcast sends, use primary port
 				_trackOutgoingPeerPortUsage(destAddr, remoteAddress, InetAddress(), _primaryPort, OSUtils::now(), len);
 			}
