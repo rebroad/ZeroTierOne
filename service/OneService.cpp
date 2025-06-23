@@ -4441,10 +4441,25 @@ public:
 
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 
-			// DISABLED: Track outgoing packet for first-time logging (causes deadlock)
-			// if (r && len >= 16) {
-			//	_trackOutgoingPacketSend(localSocket, addr, data, len);
-			// }
+			// Track outgoing packet port usage (safe version without getsockname)
+			if (r) {
+				// Determine local port based on socket
+				unsigned int localPort = _primaryPort; // Default fallback
+				if (localSocket == (int64_t)((uintptr_t)_binder.udpV4()) || localSocket == (int64_t)((uintptr_t)_binder.udpV6())) {
+					localPort = _primaryPort;
+				} else {
+					// Try to identify which secondary/tertiary port this is
+					// For now, use primary port as fallback - this could be enhanced later
+				}
+
+				const InetAddress remoteAddress(addr);
+				Address destAddr;
+				destAddr.setTo(((const uint8_t*)data) + 8, 5);
+
+				char remoteIPStr[64];
+				remoteAddress.toIpString(remoteIPStr);
+				_trackOutgoingPeerPortUsage(destAddr, remoteAddress, InetAddress(), localPort, OSUtils::now(), len);
+			}
 
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
@@ -4453,10 +4468,17 @@ public:
 		} else {
 			const bool r = _binder.udpSendAll(_phy,addr,data,len,ttl);
 
-			// DISABLED: Track outgoing packet for first-time logging (causes deadlock)
-			// if (r && len >= 16) {
-			//	_trackOutgoingPacketSend(-1, addr, data, len);
-			// }
+			// Track outgoing packet port usage for broadcast sends
+			if (r) {
+				const InetAddress remoteAddress(addr);
+				Address destAddr;
+				destAddr.setTo(((const uint8_t*)data) + 8, 5);
+
+				char remoteIPStr[64];
+				remoteAddress.toIpString(remoteIPStr);
+				// For broadcast sends, use primary port
+				_trackOutgoingPeerPortUsage(destAddr, remoteAddress, InetAddress(), _primaryPort, OSUtils::now(), len);
+			}
 
 			return (r ? 0 : -1);
 		}
