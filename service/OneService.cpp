@@ -3709,22 +3709,6 @@ public:
 			// Track all incoming wire traffic against null address for IP-level monitoring
 			_trackWirePacket(Address(), fromAddress, isSuccessful, len, true); // true = incoming packet
 
-			// Log packets with corrupted/invalid ZT addresses for debugging
-			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr) {
-				const uint64_t addrInt = originPeerZTAddr.toInt();
-				if (addrInt == 0 || addrInt == 0xFFFFFFFFFFLL) {
-					char ipBuf[64];
-					fromAddress.toIpString(ipBuf);
-					fprintf(stderr, "CORRUPTED_ZT_ADDR: Packet from %s has invalid ZT address (0x%010llx), packet_len=%lu, min_len=%u" ZT_EOL_S,
-						ipBuf, (unsigned long long)addrInt, len, ZT_PROTO_MIN_PACKET_LENGTH);
-				}
-			} else if (len < ZT_PROTO_MIN_PACKET_LENGTH) {
-				char ipBuf[64];
-				fromAddress.toIpString(ipBuf);
-				fprintf(stderr, "SHORT_PACKET: Packet from %s too short (%lu < %u bytes)" ZT_EOL_S,
-					ipBuf, len, ZT_PROTO_MIN_PACKET_LENGTH);
-			}
-
 			// TIER 2: Authenticated packet tracking happens in Peer::received() after validation
 
 			// Track port usage only for successfully processed packets from identified peers
