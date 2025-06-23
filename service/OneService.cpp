@@ -4983,46 +4983,13 @@ public:
 				bool hasDirectPath = false;
 				bool existsInTopology = false;
 
-				// Only access node internals if node is fully initialized AND we have a valid runtime environment
-				if (_node) {
-					try {
-						// Check if the node is in a safe state for topology access
-						const Node* node = reinterpret_cast<const Node*>(_node);
-						if (node && node->online()) {  // Only access if node is online
-							const RuntimeEnvironment *RR = &(node->_RR);
-							if (RR && RR->topology) {  // Verify topology exists
-								SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
-								existsInTopology = (existingPeer.ptr() != nullptr);
-
-								if (existingPeer) {
-									// Get peer role
-									ZT_PeerRole role = RR->topology->role(ztAddr);
-									switch (role) {
-										case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
-										case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
-										case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
-										default: peerRole = "UNKNOWN"; break;
-									}
-
-									isAlive = existingPeer->isAlive(now);
-									hasDirectPath = !existingPeer->paths(now).empty();
-
-									// Get version if known
-									if (existingPeer->remoteVersionKnown()) {
-										static char versionBuf[64];
-										snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
-											existingPeer->remoteVersionMajor(),
-											existingPeer->remoteVersionMinor(),
-											existingPeer->remoteVersionRevision());
-										peerVersion = versionBuf;
-									}
-								}
-							}
-						}
-					} catch (...) {
-						// Ignore errors during node initialization - topology not ready yet
-					}
-				}
+				// Don't access topology from packet send path - causes deadlocks
+				// Just use minimal info available without locks
+				peerRole = "UNKNOWN";
+				peerVersion = "unknown";
+				existsInTopology = false;
+				isAlive = false;
+				hasDirectPath = false;
 
 				fprintf(stderr, "PACKET_TO1: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
@@ -5062,52 +5029,12 @@ public:
 			localAddress.toIpString(localBuf);
 
 			// Enhanced logging for outgoing packets with full details
+			// Avoid topology access from packet send path to prevent deadlocks
 			const char* peerRole = "UNKNOWN";
 			const char* peerVersion = "unknown";
 			bool isAlive = false;
 			bool hasDirectPath = false;
 			bool existsInTopology = false;
-
-			// Only access node internals if node is fully initialized AND we have a valid runtime environment
-			if (_node) {
-				try {
-					// Check if the node is in a safe state for topology access
-					const Node* node = reinterpret_cast<const Node*>(_node);
-					if (node && node->online()) {  // Only access if node is online
-						const RuntimeEnvironment *RR = &(node->_RR);
-						if (RR && RR->topology) {  // Verify topology exists
-							SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
-							existsInTopology = (existingPeer.ptr() != nullptr);
-
-							if (existingPeer) {
-								// Get peer role
-								ZT_PeerRole role = RR->topology->role(ztAddr);
-								switch (role) {
-									case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
-									case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
-									case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
-									default: peerRole = "UNKNOWN"; break;
-								}
-
-								isAlive = existingPeer->isAlive(now);
-								hasDirectPath = !existingPeer->paths(now).empty();
-
-								// Get version if known
-								if (existingPeer->remoteVersionKnown()) {
-									static char versionBuf[64];
-									snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
-										existingPeer->remoteVersionMajor(),
-										existingPeer->remoteVersionMinor(),
-										existingPeer->remoteVersionRevision());
-									peerVersion = versionBuf;
-								}
-							}
-						}
-					}
-				} catch (...) {
-					// Ignore errors during node initialization - topology not ready yet
-				}
-			}
 
 			fprintf(stderr, "PACKET_TO2: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
