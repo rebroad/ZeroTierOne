@@ -110,6 +110,12 @@ void Peer::received(
 		path->trustedPacketReceived(now);
 	}
 
+	// Trigger callback for authenticated packet tracking (TIER 2)
+	if (RR->peerEventCallback) {
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
+			path->address(), _id.address(), Address(), true, 0, payloadLength);
+	}
+
 	if (hops == 0) {
 		// If this is a direct packet (no hops), update existing paths or learn new ones
 		bool havePath = false;
