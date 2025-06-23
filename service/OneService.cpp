@@ -901,9 +901,9 @@ public:
 
 	// Peer-port usage tracking (now per ZT address + IP address combination)
 	struct PeerStats {
-		std::map<unsigned int, uint64_t> incomingPortCounts; // port -> incoming count
-		std::map<unsigned int, uint64_t> outgoingPortCounts; // port -> outgoing count
-		std::string peerIP; // The specific IP address for this stats entry
+		std::map<unsigned int, uint64_t> incomingPortCounts;   // port -> incoming count
+		std::map<unsigned int, uint64_t> outgoingPortCounts;   // port -> outgoing count
+		std::string peerIP;									   // The specific IP address for this stats entry
 
 		// Original packet tracking (successful ZT protocol exchanges)
 		uint64_t totalIncoming;
@@ -914,43 +914,43 @@ public:
 		uint64_t lastOutgoingSeen;
 
 		// TIER 1: Wire-level stats (UNTRUSTED - includes spoofed/malicious packets)
-		uint64_t WirePacketsIncoming;       // All incoming wire packets (including attacks)
-		uint64_t WirePacketsOutgoing;       // All outgoing wire packets
-		uint64_t WirePacketsIncomingOK;     // Wire packets that passed initial parsing
-		uint64_t WirePacketsOutgoingOK;     // Wire packets successfully sent
-		uint64_t WireBytesIncoming;         // All incoming wire packet bytes (including attacks)
-		uint64_t WireBytesOutgoing;         // All outgoing wire packet bytes
-		uint64_t WireBytesIncomingOK;       // Wire packet bytes that passed initial parsing
-		uint64_t WireBytesOutgoingOK;       // Wire packet bytes successfully sent
+		uint64_t WirePacketsIncoming;	// All incoming wire packets (including attacks)
+		uint64_t WirePacketsOutgoing;	// All outgoing wire packets
+		uint64_t WirePacketsIncomingOK;	// Wire packets that passed initial parsing
+		uint64_t WirePacketsOutgoingOK;	// Wire packets successfully sent
+		uint64_t WireBytesIncoming;		// All incoming wire packet bytes (including attacks)
+		uint64_t WireBytesOutgoing;		// All outgoing wire packet bytes
+		uint64_t WireBytesIncomingOK;	// Wire packet bytes that passed initial parsing
+		uint64_t WireBytesOutgoingOK;	// Wire packet bytes successfully sent
 
 		// TIER 2: Protocol-level stats (TRUSTED - cryptographically verified only)
-		uint64_t AuthPacketsIncoming;       // Only authenticated ZeroTier packets
-		uint64_t AuthPacketsOutgoing;       // Only authenticated outgoing packets
-		uint64_t AuthBytesIncoming;         // Only authenticated incoming bytes
-		uint64_t AuthBytesOutgoing;         // Only authenticated outgoing bytes
+		uint64_t AuthPacketsIncoming;	// Only authenticated ZeroTier packets
+		uint64_t AuthPacketsOutgoing;	// Only authenticated outgoing packets
+		uint64_t AuthBytesIncoming;		// Only authenticated incoming bytes
+		uint64_t AuthBytesOutgoing;		// Only authenticated outgoing bytes
 
 		// Attack detection metrics
-		uint64_t lastAttackDetected;        // Timestamp of last detected attack
-		uint64_t attackEventCount;          // Number of times divergence detected
-		double maxDivergenceRatio;          // Highest wire:auth ratio seen
-		uint64_t suspiciousPacketCount;     // Packets that failed authentication
-		uint64_t lastDivergenceCheck;       // Last time we checked for divergence
+		uint64_t lastAttackDetected;	// Timestamp of last detected attack
+		uint64_t attackEventCount;		// Number of times divergence detected
+		double maxDivergenceRatio;		// Highest wire:auth ratio seen
+		uint64_t suspiciousPacketCount;	// Packets that failed authentication
+		uint64_t lastDivergenceCheck;	// Last time we checked for divergence
 
 		// Time tracking for last communication (use authenticated packets only)
-		uint64_t lastAuthIncomingSeen;      // Last authenticated incoming packet
-		uint64_t lastAuthOutgoingSeen;      // Last authenticated outgoing packet
+		uint64_t lastAuthIncomingSeen;	// Last authenticated incoming packet
+		uint64_t lastAuthOutgoingSeen;	// Last authenticated outgoing packet
 
-		PeerStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0),
-					  lastIncomingSeen(0), lastOutgoingSeen(0),
-					  WirePacketsIncoming(0), WirePacketsOutgoing(0),
-					  WirePacketsIncomingOK(0), WirePacketsOutgoingOK(0),
-					  WireBytesIncoming(0), WireBytesOutgoing(0),
-					  WireBytesIncomingOK(0), WireBytesOutgoingOK(0),
-					  AuthPacketsIncoming(0), AuthPacketsOutgoing(0),
-					  AuthBytesIncoming(0), AuthBytesOutgoing(0),
-					  lastAttackDetected(0), attackEventCount(0), maxDivergenceRatio(0.0),
-					  suspiciousPacketCount(0), lastDivergenceCheck(0),
-					  lastAuthIncomingSeen(0), lastAuthOutgoingSeen(0) {}
+		PeerStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0)
+					, lastIncomingSeen(0), lastOutgoingSeen(0)
+					, WirePacketsIncoming(0), WirePacketsOutgoing(0)
+					, WirePacketsIncomingOK(0), WirePacketsOutgoingOK(0)
+					, WireBytesIncoming(0), WireBytesOutgoing(0)
+					, WireBytesIncomingOK(0), WireBytesOutgoingOK(0)
+					, AuthPacketsIncoming(0), AuthPacketsOutgoing(0)
+					, AuthBytesIncoming(0), AuthBytesOutgoing(0)
+					, lastAttackDetected(0), attackEventCount(0), maxDivergenceRatio(0.0)
+					, suspiciousPacketCount(0), lastDivergenceCheck(0)
+					, lastAuthIncomingSeen(0), lastAuthOutgoingSeen(0) {}
 	};
 	std::map<std::pair<Address, std::string>, PeerStats> _peerStats; // Track by ZT address + IP string
 	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenIncomingPeerPorts; // For first-time incoming logging
@@ -959,23 +959,22 @@ public:
 
 	// Peer introduction tracking for misbehavior detection
 	struct PeerIntroduction {
-		Address targetPeerAddr;    // ZT address of the peer at the introduced IP
-		Address introducedBy;      // Which peer introduced this IP
-		uint64_t firstIntroduced;  // When first introduced
-		uint64_t lastIntroduced;   // When last introduced
-		uint32_t introductionCount; // How many times introduced
-		uint32_t failedAttempts;   // How many connection attempts failed
-		uint64_t lastConnectionAttempt; // When we last tried to connect
-		bool hasEverConnected;     // Whether this IP ever successfully connected
-		PeerIntroduction() : firstIntroduced(0), lastIntroduced(0), introductionCount(0),
-							failedAttempts(0), lastConnectionAttempt(0), hasEverConnected(false) {}
+		Address targetPeerAddr;			  // ZT address of the peer at the introduced IP
+		Address introducedBy;			  // Which peer introduced this IP
+		uint64_t firstIntroduced;		  // When first introduced
+		uint64_t lastIntroduced;		  // When last introduced
+		uint32_t introductionCount;		  // How many times introduced
+		uint32_t failedAttempts;		  // How many connection attempts failed
+		uint64_t lastConnectionAttempt;	  // When we last tried to connect
+		bool hasEverConnected;			  // Whether this IP ever successfully connected
+		PeerIntroduction() : firstIntroduced(0), lastIntroduced(0), introductionCount(0), failedAttempts(0), lastConnectionAttempt(0), hasEverConnected(false) {}
 	};
 	std::map<InetAddress, PeerIntroduction> _peerIntroductions;
 	Mutex _peerIntroductions_m;
 
 	// Track first-time events for debugging
-	std::set<std::pair<Address, std::string>> _seenPeerFileAccess; // Track first peer file access per ZT address
-	std::set<std::pair<Address, std::string>> _seenPacketSendAttempts; // Track first packet send attempt per ZT address + IP
+	std::set<std::pair<Address, std::string> > _seenPeerFileAccess;		  // Track first peer file access per ZT address
+	std::set<std::pair<Address, std::string> > _seenPacketSendAttempts;	  // Track first packet send attempt per ZT address + IP
 	Mutex _firstTimeEvents_m;
 
 	// end member variables ----------------------------------------------------
@@ -3706,39 +3705,27 @@ public:
 			const InetAddress fromAddress(from);
 			const bool isSuccessful = (rc == ZT_RESULT_OK);
 
-			// TIER 1: Track all wire-level packets with validation check
-			// Only track if we have minimum packet length and extracted valid ZT address
+			// TIER 1: Track basic wire-level metrics (without ZT addresses due to unreliability)
+			// Track all incoming wire traffic against null address for IP-level monitoring
+			_trackWirePacket(Address(), fromAddress, isSuccessful, len, true); // true = incoming packet
+
+			// Log packets with corrupted/invalid ZT addresses for debugging
 			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr) {
-				// Validate that the extracted address is reasonable (not all zeros, not all ones)
 				const uint64_t addrInt = originPeerZTAddr.toInt();
-				if (addrInt != 0 && addrInt != 0xFFFFFFFFFFLL) {
-					_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true); // true = incoming packet
-				} else {
-					// Log corrupted ZT address for debugging
+				if (addrInt == 0 || addrInt == 0xFFFFFFFFFFLL) {
 					char ipBuf[64];
 					fromAddress.toIpString(ipBuf);
 					fprintf(stderr, "CORRUPTED_ZT_ADDR: Packet from %s has invalid ZT address (0x%010llx), packet_len=%lu, min_len=%u" ZT_EOL_S,
 						ipBuf, (unsigned long long)addrInt, len, ZT_PROTO_MIN_PACKET_LENGTH);
-
-					// Track against null address to capture wire traffic from unknown sources
-					_trackWirePacket(Address(), fromAddress, false, len, true);
 				}
-			} else {
-				// Track packets that are too short or failed address extraction against null address
-				_trackWirePacket(Address(), fromAddress, false, len, true);
-
-				if (len < ZT_PROTO_MIN_PACKET_LENGTH) {
-					char ipBuf[64];
-					fromAddress.toIpString(ipBuf);
-					fprintf(stderr, "SHORT_PACKET: Packet from %s too short (%lu < %u bytes)" ZT_EOL_S,
-						ipBuf, len, ZT_PROTO_MIN_PACKET_LENGTH);
-				}
+			} else if (len < ZT_PROTO_MIN_PACKET_LENGTH) {
+				char ipBuf[64];
+				fromAddress.toIpString(ipBuf);
+				fprintf(stderr, "SHORT_PACKET: Packet from %s too short (%lu < %u bytes)" ZT_EOL_S,
+					ipBuf, len, ZT_PROTO_MIN_PACKET_LENGTH);
 			}
 
-			// TIER 2: Track authenticated packets (this will be called from within packet processing)
-			if (isSuccessful && originPeerZTAddr) {
-				_trackAuthenticatedPacket(originPeerZTAddr, fromAddress, len, true, now); // true = incoming packet
-			}
+			// TIER 2: Authenticated packet tracking happens in Peer::received() after validation
 
 			// Track port usage only for successfully processed packets from identified peers
 			const InetAddress localAddress(localAddr);
@@ -3764,10 +3751,10 @@ public:
 				// We need to find which peer actually owns this physical IP address
 				if (_node) {
 					try {
-						const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+						const RuntimeEnvironment* RR = &(reinterpret_cast<const Node*>(_node)->_RR);
 						if (RR && RR->topology) {
 							// Find which peer (if any) has an active path to this physical IP address
-							std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
+							std::vector<std::pair<Address, SharedPtr<Peer> > > allPeers = RR->topology->allPeers();
 							// ANALYSIS: RR->topology->peerByIp() doesn't exist
 							// _node->peers() is just overhead (calls allPeers() internally)
 							// _getZtAddressesForIP() is O(32) vs this O(7) - keep current approach
@@ -3803,7 +3790,7 @@ public:
 												getRoleString(sourceRole), logicalBuf);
 										}
 									}
-									break; // Found the peer that owns this IP, no need to continue
+									break;	 // Found the peer that owns this IP, no need to continue
 								}
 							}
 						}
@@ -5736,6 +5723,10 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 				localAddr.fromString("0.0.0.0/0"); // Placeholder local address
 				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), packetSize);
 			}
+			break;
+		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
+			// TIER 2: Track authenticated packets with validated ZT addresses
+			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, packetSize, true, OSUtils::now()); // true = incoming packet
 			break;
 	}
 }
