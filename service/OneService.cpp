@@ -3607,10 +3607,6 @@ public:
 
 			// Track port usage for ALL ports (known and unknown)
 			{
-
-				// Determine the correct ZT address for tracking purposes
-				Address trackingZTAddr = originPeerZTAddr;
-
 				// Check if this packet is being relayed through a PLANET/MOON
 				// We need to find which peer actually owns this physical IP address
 				if (_node) {
@@ -3625,7 +3621,6 @@ public:
 								if (peer && peer->hasActivePathTo(now, fromAddress)) {
 									// This peer has an active path to the sender IP
 									if (directPeerZTAddr != originPeerZTAddr) {
-										trackingZTAddr = directPeerZTAddr;
 										// Physical sender is different from logical source - this is relayed!
 										ZT_PeerRole physicalRole = RR->topology->role(directPeerZTAddr);
 
@@ -3661,7 +3656,7 @@ public:
 					}
 				}
 
-				_trackIncomingPeerPortUsage(trackingZTAddr, fromAddress, localAddress, localPort, now, len, originPeerZTAddr);
+				_trackIncomingPeerPortUsage(originPeerZTAddr, fromAddress, localAddress, localPort, now, len, originPeerZTAddr);
 			}
 		}
 
