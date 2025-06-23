@@ -3705,21 +3705,20 @@ public:
 			const InetAddress fromAddress(from);
 			const bool isSuccessful = (rc == ZT_RESULT_OK);
 
-			// TIER 1: Track basic wire-level metrics (without ZT addresses due to unreliability)
-			// Track all incoming wire traffic against null address for IP-level monitoring
-			_trackWirePacket(Address(), fromAddress, isSuccessful, len, true); // true = incoming packet
+			// TIER 1: Track basic wire-level metrics (IP-level only, no ZT addresses)
+			// Only track non-infrastructure traffic to avoid noise from root servers
+			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {
+				_trackWirePacket(Address(), fromAddress, isSuccessful, len, true); // true = incoming packet
+			}
 
-			// TIER 2: Authenticated packet tracking happens in Peer::received() after validation
+			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
 
-			// Track port usage only for successfully processed packets from identified peers
+			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			const InetAddress localAddress(localAddr);
 			const unsigned int localPort = localAddress.port();
-
-			// Track all ports - categorize as primary/secondary/tertiary or "other"
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort ||
 								(_allowSecondaryPort && localPort == _ports[1]));
 
-			// Log any traffic on unexpected ports (ALPHA/BETA debugging)
 			if (!isKnownPort) {
 				char ztAddrBuf[16], ipBuf[64];
 				originPeerZTAddr.toString(ztAddrBuf);
@@ -3727,63 +3726,6 @@ public:
 				fprintf(stderr, "UNEXPECTED_PORT: Received packet from %s (%s) on port %u (Primary: %u, Secondary: %s%u, Tertiary: %u)" ZT_EOL_S,
 					ztAddrBuf, ipBuf, localPort, _primaryPort,
 					_allowSecondaryPort ? "" : "disabled/", _allowSecondaryPort ? _ports[1] : 0, _tertiaryPort);
-			}
-
-			// Track port usage for ALL ports (known and unknown)
-			{
-				// Check if this packet is being relayed through a PLANET/MOON
-				// We need to find which peer actually owns this physical IP address
-				if (_node) {
-					try {
-						const RuntimeEnvironment* RR = &(reinterpret_cast<const Node*>(_node)->_RR);
-						if (RR && RR->topology) {
-							// Find which peer (if any) has an active path to this physical IP address
-							std::vector<std::pair<Address, SharedPtr<Peer> > > allPeers = RR->topology->allPeers();
-							// ANALYSIS: RR->topology->peerByIp() doesn't exist
-							// _node->peers() is just overhead (calls allPeers() internally)
-							// _getZtAddressesForIP() is O(32) vs this O(7) - keep current approach
-							for (const auto& peerPair : allPeers) {
-								const Address& directPeerZTAddr = peerPair.first;
-								const SharedPtr<Peer>& peer = peerPair.second;
-								if (peer && peer->hasActivePathTo(now, fromAddress)) {
-									// This peer has an active path to the sender IP
-									if (directPeerZTAddr != originPeerZTAddr) {
-										// Physical sender is different from logical source - this is relayed!
-										ZT_PeerRole physicalRole = RR->topology->role(directPeerZTAddr);
-
-										// Track metrics for the physical relaying peer (if not PLANET/MOON)
-										if (physicalRole != ZT_PEER_ROLE_PLANET && physicalRole != ZT_PEER_ROLE_MOON) {
-											_trackWirePacket(directPeerZTAddr, fromAddress, true, len, true);
-
-											ZT_PeerRole sourceRole = RR->topology->role(originPeerZTAddr);
-											auto getRoleString = [](ZT_PeerRole role) -> const char* {
-												switch (role) {
-												case ZT_PEER_ROLE_PLANET: return "PLANET";
-												case ZT_PEER_ROLE_MOON: return "MOON";
-												case ZT_PEER_ROLE_LEAF: return "LEAF";
-												default: return "UNKNOWN";
-												}
-											};
-											char physicalBuf[16], logicalBuf[16], ipBuf[64];
-											directPeerZTAddr.toString(physicalBuf);
-											originPeerZTAddr.toString(logicalBuf);
-											fromAddress.toIpString(ipBuf);
-											const char* logPrefix = (physicalRole == ZT_PEER_ROLE_LEAF) ? "LEAF_RELAY_DETECTED" : "RELAY_DETECTED";
-											fprintf(stderr, "%s: %s %s at %s relaying packet from %s %s" ZT_EOL_S,
-												logPrefix, getRoleString(physicalRole), physicalBuf, ipBuf,
-												getRoleString(sourceRole), logicalBuf);
-										}
-									}
-									break;	 // Found the peer that owns this IP, no need to continue
-								}
-							}
-						}
-					} catch (...) {
-						// Ignore errors during topology access - use original sourcePeerAddr
-					}
-				}
-
-				_trackIncomingPeerPortUsage(originPeerZTAddr, fromAddress, localAddress, localPort, now, len, originPeerZTAddr);
 			}
 		}
 
@@ -5330,9 +5272,7 @@ public:
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
 
-		// TODO - handle ztAddr being empty (e.g. for invald packets)
-
-		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
+		// Handle null ZT addresses (TIER 1 wire-level tracking without ZT validation)
 		std::string keyIP;
 		if (_isInfrastructureNode(ztAddr)) {
 			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
@@ -5370,6 +5310,7 @@ public:
 		}
 
 		// Perform periodic attack detection (every 10 seconds per peer)
+		// TODO - is this now pointless given that ztAddr is now always zero?
 		uint64_t now = OSUtils::now();
 		if ((now - stats.lastDivergenceCheck) > 10000) {
 			_checkForAttackDivergence(ztAddr, peerIP, stats, now);
@@ -5711,6 +5652,14 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
 			// TIER 2: Track authenticated packets with validated ZT addresses
 			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, packetSize, true, OSUtils::now()); // true = incoming packet
+
+			// Also track port usage for authenticated packets
+			{
+				InetAddress localAddr; // TODO we can remove localAddr from _trackIncomingPeerPortUsage
+				localAddr.fromString("0.0.0.0"); // We'll set the port below
+				localAddr.setPort(localPort);
+				service->_trackIncomingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), packetSize, peerZtAddr);
+			}
 			break;
 	}
 }
