@@ -2721,6 +2721,40 @@ public:
 			}
 			stats["peersByZtAddressAndIP"] = peerStats;
 
+			// Add diagnostic information about lookup table sizes vs allPeers count
+			{
+				Mutex::Lock _l(_peerStats_m);
+				stats["diagnostics"] = json::object();
+				stats["diagnostics"]["peerStatsTableSize"] = _peerStats.size();
+				stats["diagnostics"]["seenIncomingPeerPortsSize"] = _seenIncomingPeerPorts.size();
+				stats["diagnostics"]["seenOutgoingPeerPortsSize"] = _seenOutgoingPeerPorts.size();
+
+				// Count unique IP addresses and ZT addresses in the lookup table
+				std::set<std::string> uniqueIPs;
+				std::set<Address> uniqueZTAddresses;
+				for (const auto& entry : _peerStats) {
+					uniqueIPs.insert(entry.first.second);       // IP address
+					uniqueZTAddresses.insert(entry.first.first); // ZT address
+				}
+				stats["diagnostics"]["uniqueIPAddresses"] = uniqueIPs.size();
+				stats["diagnostics"]["uniqueZTAddresses"] = uniqueZTAddresses.size();
+			}
+
+			// Add allPeers count for comparison
+			if (_node) {
+				try {
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+					if (RR && RR->topology) {
+						std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
+						stats["diagnostics"]["allPeersCount"] = allPeers.size();
+					}
+				} catch (...) {
+					stats["diagnostics"]["allPeersCount"] = "unavailable";
+				}
+			} else {
+				stats["diagnostics"]["allPeersCount"] = "node_not_ready";
+			}
+
 			setContent(req, res, stats.dump(2));
 		};
 		_controlPlane.Get("/stats", statsGet);
@@ -3579,11 +3613,14 @@ public:
 			const InetAddress fromAddress(from);
 			const bool isSuccessful = (rc == ZT_RESULT_OK);
 
+			// TODO - how reliable is originPeerZTAddr? Could it be corrupted?
+
 			// Update metrics for the logical source peer (originPeerZTAddr)
 			_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true); // true = incoming packet
 
 			// For successful packets, also track authenticated level (Tier 2)
 			if (isSuccessful) {
+				// TODO - should this be moved to Peer::receive() ?
 				_trackAuthenticatedPacket(originPeerZTAddr, fromAddress, len, true, now); // true = incoming packet
 			}
 
@@ -3615,6 +3652,8 @@ public:
 						if (RR && RR->topology) {
 							// Find which peer (if any) has an active path to this physical IP address
 							std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
+							// TODO - could we use RR->topology->peerByIp() instead?
+							//  or _getZtAddressesForIP(std::string(ipStr)) ?
 							for (const auto& peerPair : allPeers) {
 								const Address& directPeerZTAddr = peerPair.first;
 								const SharedPtr<Peer>& peer = peerPair.second;

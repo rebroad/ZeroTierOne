@@ -1131,8 +1131,28 @@ static int cli(int argc,char **argv)
 				// Show total peer count
 				if (j.contains("totalPeerCount")) {
 					unsigned int peerCount = j["totalPeerCount"];
-					printf("Total Peers: %u" ZT_EOL_S ZT_EOL_S, peerCount);
+					printf("Total Peers: %u" ZT_EOL_S, peerCount);
 				}
+
+				// Show diagnostic information about lookup table sizes
+				if (j.contains("diagnostics")) {
+					auto& diag = j["diagnostics"];
+					printf("Lookup Table Diagnostics:" ZT_EOL_S);
+					printf("  Lookup Table Entries:  %u (ZT+IP combinations)" ZT_EOL_S,
+						(unsigned int)diag.value("peerStatsTableSize", 0));
+					printf("    Unique ZT Addresses: %u" ZT_EOL_S,
+						(unsigned int)diag.value("uniqueZTAddresses", 0));
+					printf("    Unique IP Addresses: %u" ZT_EOL_S,
+						(unsigned int)diag.value("uniqueIPAddresses", 0));
+					printf("  AllPeers (topology):   %s" ZT_EOL_S,
+						diag.value("allPeersCount", "unknown").is_string() ?
+						diag.value("allPeersCount", "unknown").get<std::string>().c_str() :
+						std::to_string((unsigned int)diag.value("allPeersCount", 0)).c_str());
+					printf("  Port Tracking Entries: %u incoming, %u outgoing" ZT_EOL_S,
+						(unsigned int)diag.value("seenIncomingPeerPortsSize", 0),
+						(unsigned int)diag.value("seenOutgoingPeerPortsSize", 0));
+				}
+				printf(ZT_EOL_S);
 
 				// Show port configuration
 				if (j.contains("portConfiguration")) {
