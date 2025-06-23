@@ -2736,6 +2736,7 @@ public:
 				try {
 					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
 					if (RR && RR->topology) {
+						// NOTE: _node->peers()->peerCount would be identical (calls allPeers() internally)
 						std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
 						stats["diagnostics"]["allPeersCount"] = allPeers.size();
 					}
@@ -2895,6 +2896,107 @@ public:
 			setContent(req, res, result.dump(2));
 		};
 		_controlPlane.Get("/debug/lookup", debugLookupGet);
+
+		// IP-centric stats endpoint - shows one primary ZT address per IP
+		auto ipStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
+				res.status = 403;
+				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
+				return;
+			}
+
+			json stats = json::object();
+
+			// Get primary ZT address for each IP
+			std::map<std::string, Address> primaryZtPerIP = _getPrimaryZtAddressPerIP();
+
+			// Build IP-centric view
+			json ipStats = json::object();
+			{
+				Mutex::Lock _l(_peerStats_m);
+
+				// Aggregate stats by IP address (sum all ZT addresses for that IP)
+				std::map<std::string, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
+				std::map<std::string, std::map<unsigned int, uint64_t>> ipIncomingPorts, ipOutgoingPorts;
+
+				for (const auto& entry : _peerStats) {
+					const Address& ztAddr = entry.first.first;
+					const std::string& ipAddr = entry.first.second;
+					const PeerStats& peerStats = entry.second;
+
+					// Skip infrastructure entries
+					if (ipAddr == "INFRASTRUCTURE" || _isInfrastructureNode(ztAddr)) {
+						continue;
+					}
+
+					// Aggregate by IP address
+					ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
+					ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
+					ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr],
+						std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen));
+
+					// Aggregate port usage
+					for (const auto& portCount : peerStats.incomingPortCounts) {
+						ipIncomingPorts[ipAddr][portCount.first] += portCount.second;
+					}
+					for (const auto& portCount : peerStats.outgoingPortCounts) {
+						ipOutgoingPorts[ipAddr][portCount.first] += portCount.second;
+					}
+				}
+
+				// Create stats for each IP with its primary ZT address
+				for (const auto& ipEntry : primaryZtPerIP) {
+					const std::string& ipAddr = ipEntry.first;
+					const Address& primaryZt = ipEntry.second;
+
+					char ztAddrBuf[32];
+					primaryZt.toString(ztAddrBuf);
+
+					json ipStat = json::object();
+					ipStat["ipAddress"] = ipAddr;
+					ipStat["primaryZtAddress"] = std::string(ztAddrBuf);
+					ipStat["totalIncoming"] = ipIncomingBytes[ipAddr];
+					ipStat["totalOutgoing"] = ipOutgoingBytes[ipAddr];
+					ipStat["lastSeen"] = ipLastSeen[ipAddr];
+
+					// Port usage for this IP (aggregated from all ZT addresses)
+					json incomingPorts = json::object();
+					for (const auto& portCount : ipIncomingPorts[ipAddr]) {
+						incomingPorts[std::to_string(portCount.first)] = portCount.second;
+					}
+					ipStat["incomingPorts"] = incomingPorts;
+
+					json outgoingPorts = json::object();
+					for (const auto& portCount : ipOutgoingPorts[ipAddr]) {
+						outgoingPorts[std::to_string(portCount.first)] = portCount.second;
+					}
+					ipStat["outgoingPorts"] = outgoingPorts;
+
+					// Count how many ZT addresses are associated with this IP
+					std::vector<Address> allZtForIP = _getZtAddressesForIP(ipAddr);
+					ipStat["ztAddressCount"] = allZtForIP.size();
+
+					// List all ZT addresses for this IP (for reference)
+					json ztAddresses = json::array();
+					for (const Address& zt : allZtForIP) {
+						char ztBuf[32];
+						zt.toString(ztBuf);
+						ztAddresses.push_back(std::string(ztBuf));
+					}
+					ipStat["allZtAddresses"] = ztAddresses;
+
+					ipStats[ipAddr] = ipStat;
+				}
+			}
+
+			stats["peersByIP"] = ipStats;
+			stats["summary"] = json::object();
+			stats["summary"]["uniqueIPs"] = primaryZtPerIP.size();
+			stats["summary"]["description"] = "IP-centric view showing primary ZT address per IP";
+
+			setContent(req, res, stats.dump(2));
+		};
+		_controlPlane.Get("/stats/by-ip", ipStatsGet);
 
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
@@ -3643,8 +3745,9 @@ public:
 						if (RR && RR->topology) {
 							// Find which peer (if any) has an active path to this physical IP address
 							std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
-							// TODO - could we use RR->topology->peerByIp() instead?
-							//  or _getZtAddressesForIP(std::string(ipStr)) ?
+							// ANALYSIS: RR->topology->peerByIp() doesn't exist
+							// _node->peers() is just overhead (calls allPeers() internally)
+							// _getZtAddressesForIP() is O(32) vs this O(7) - keep current approach
 							for (const auto& peerPair : allPeers) {
 								const Address& directPeerZTAddr = peerPair.first;
 								const SharedPtr<Peer>& peer = peerPair.second;
@@ -5435,6 +5538,135 @@ public:
 				// This could integrate with iptables or other firewall systems
 			}
 		}
+	}
+
+	// Helper function to get the "primary" ZT address for each IP address
+	// Uses HYBRID approach: topology for speed + lookup table for completeness
+	// TODO - is this function really that useful - when would it ever need to be used?
+	std::map<std::string, Address> _getPrimaryZtAddressPerIP() {
+		std::map<std::string, Address> primaryZtPerIP;
+
+		// STEP 1: Get all active peers from topology (FAST - O(7))
+		std::vector<std::pair<Address, SharedPtr<Peer>>> topologyPeers;
+		if (_node) {
+			try {
+				const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+				if (RR && RR->topology) {
+					topologyPeers = RR->topology->allPeers();
+				}
+			} catch (...) {
+				// Topology not ready, fall back to lookup table only
+			}
+		}
+
+		// STEP 2: Build IP->ZT mapping from topology peers (with active path filtering)
+		std::map<std::string, std::vector<std::pair<Address, uint64_t>>> topologyIPToZt;
+		for (const auto& peerEntry : topologyPeers) {
+			const Address& ztAddr = peerEntry.first;
+			const SharedPtr<Peer>& peer = peerEntry.second;
+
+			// Skip infrastructure nodes
+			if (_isInfrastructureNode(ztAddr)) {
+				continue;
+			}
+
+			// Only include peers with active paths
+			if (peer && peer->hasActivePathTo(OSUtils::now())) {
+				std::vector<SharedPtr<Path>> paths = peer->paths(OSUtils::now());
+				for (const auto& path : paths) {
+					if (path) {
+						char ipBuf[64];
+						path->address().toIpString(ipBuf);
+						std::string ipAddr(ipBuf);
+
+						// Use last communication time as priority metric
+						uint64_t lastComm = std::max(peer->lastReceive(), peer->lastSend());
+						topologyIPToZt[ipAddr].emplace_back(ztAddr, lastComm);
+					}
+				}
+			}
+		}
+
+		// STEP 3: Select primary ZT address per IP from topology data
+		for (const auto& ipEntry : topologyIPToZt) {
+			const std::string& ipAddr = ipEntry.first;
+			const auto& ztCandidates = ipEntry.second;
+
+			if (ztCandidates.empty()) continue;
+
+			// Find most recently active peer for this IP
+			Address primaryZt = ztCandidates[0].first;
+			uint64_t primaryLastComm = ztCandidates[0].second;
+
+			for (const auto& candidate : ztCandidates) {
+				if (candidate.second > primaryLastComm) {
+					primaryZt = candidate.first;
+					primaryLastComm = candidate.second;
+				}
+			}
+
+			primaryZtPerIP[ipAddr] = primaryZt;
+		}
+
+		// STEP 4: Fill gaps with lookup table data (for peers not in topology)
+		{
+			Mutex::Lock _l(_peerStats_m);
+
+			// Group lookup table entries by IP
+			std::map<std::string, std::vector<std::pair<Address, const PeerStats*>>> lookupIPToZt;
+			for (const auto& entry : _peerStats) {
+				const Address& ztAddr = entry.first.first;
+				const std::string& ipAddr = entry.first.second;
+				const PeerStats& stats = entry.second;
+
+				// Skip infrastructure entries and IPs already handled by topology
+				if (ipAddr == "INFRASTRUCTURE" || _isInfrastructureNode(ztAddr) ||
+					primaryZtPerIP.find(ipAddr) != primaryZtPerIP.end()) {
+					continue;
+				}
+
+				lookupIPToZt[ipAddr].emplace_back(ztAddr, &stats);
+			}
+
+			// Select primary ZT address for remaining IPs using lookup table logic
+			for (const auto& ipEntry : lookupIPToZt) {
+				const std::string& ipAddr = ipEntry.first;
+				const auto& ztCandidates = ipEntry.second;
+
+				if (ztCandidates.empty()) continue;
+
+				// Use same selection criteria as before
+				Address primaryZt = ztCandidates[0].first;
+				const PeerStats* primaryStats = ztCandidates[0].second;
+				uint64_t primaryLastAuth = std::max(primaryStats->lastAuthIncomingSeen, primaryStats->lastAuthOutgoingSeen);
+				uint64_t primaryAuthTraffic = primaryStats->AuthBytesIncoming + primaryStats->AuthBytesOutgoing;
+
+				for (const auto& candidate : ztCandidates) {
+					const Address& ztAddr = candidate.first;
+					const PeerStats* stats = candidate.second;
+					uint64_t lastAuth = std::max(stats->lastAuthIncomingSeen, stats->lastAuthOutgoingSeen);
+					uint64_t authTraffic = stats->AuthBytesIncoming + stats->AuthBytesOutgoing;
+
+					if (lastAuth > primaryLastAuth) {
+						primaryZt = ztAddr;
+						primaryStats = stats;
+						primaryLastAuth = lastAuth;
+						primaryAuthTraffic = authTraffic;
+					} else if (lastAuth == primaryLastAuth && authTraffic > primaryAuthTraffic) {
+						primaryZt = ztAddr;
+						primaryStats = stats;
+						primaryAuthTraffic = authTraffic;
+					} else if (lastAuth == 0 && primaryLastAuth == 0 && ztAddr < primaryZt) {
+						primaryZt = ztAddr;
+						primaryStats = stats;
+					}
+				}
+
+				primaryZtPerIP[ipAddr] = primaryZt;
+			}
+		}
+
+		return primaryZtPerIP;
 	}
 };
 
