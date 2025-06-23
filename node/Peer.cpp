@@ -113,7 +113,7 @@ void Peer::received(
 	// Trigger callback for authenticated packet tracking (TIER 2)
 	if (RR->peerEventCallback) {
 		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
-			path->address(), _id.address(), Address(), true, 0, payloadLength);
+			path->address(), _id.address(), Address(), true, path->localPort(), payloadLength);
 	}
 
 	if (hops == 0) {
