@@ -2560,16 +2560,7 @@ public:
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
 
-			// Get total peer count from node
-			unsigned int peerCount = 0;
-			if (_node) {
-				ZT_PeerList *allPeers = _node->peers();
-				if (allPeers) {
-					peerCount = allPeers->peerCount;
-					_node->freeQueryResult(allPeers);
-				}
-			}
-			stats["totalPeerCount"] = peerCount;
+			// Note: Total peer count is included in diagnostics section below
 
 			// Get peer statistics - implement steps 6 & 7: compare IP vs ZT stats, use higher values
 			// Step 1: Aggregate stats by IP address and by ZT address separately

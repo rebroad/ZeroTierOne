@@ -1128,22 +1128,15 @@ static int cli(int argc,char **argv)
 			} else {
 				printf("200 stats - Peer Port Usage Statistics" ZT_EOL_S);
 
-				// Show total peer count
-				if (j.contains("totalPeerCount")) {
-					unsigned int peerCount = j["totalPeerCount"];
-					printf("Total Peers: %u" ZT_EOL_S, peerCount);
-				}
+				// Total peer count is now shown in diagnostics section below
 
 				// Show diagnostic information about lookup table sizes
 				if (j.contains("diagnostics")) {
 					auto& diag = j["diagnostics"];
 					printf("Lookup Table Diagnostics:" ZT_EOL_S);
-					printf("  Lookup Table Entries:  %u (ZT+IP combinations)" ZT_EOL_S,
-						(unsigned int)diag.value("peerStatsTableSize", 0));
-					printf("    Unique ZT Addresses: %u" ZT_EOL_S,
-						(unsigned int)diag.value("uniqueZTAddresses", 0));
-					printf("    Unique IP Addresses: %u" ZT_EOL_S,
-						(unsigned int)diag.value("uniqueIPAddresses", 0));
+					printf("  Lookup Table Entries:  %u (ZT+IP combinations)" ZT_EOL_S, (unsigned int)diag.value("peerStatsTableSize", 0));
+					printf("    Unique ZT Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueZTAddresses", 0));
+					printf("    Unique IP Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueIPAddresses", 0));
 					// Check if allPeersCount is a string or number and format accordingly
 					std::string allPeersStr;
 					if (diag.contains("allPeersCount")) {
@@ -1211,10 +1204,10 @@ static int cli(int argc,char **argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-10s %-15s %-14s %-14s %-8s %s" ZT_EOL_S,
-					"ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Security", "Port Usage");
-				printf("%-10s %-15s %-14s %-14s %-8s %s" ZT_EOL_S,
-					"----------", "---------------", "-----------", "-----------", "--------", "----------");
+				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
+					"ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Security", "Last Seen", "Port Usage");
+				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
+					"----------", "---------------", "---------", "---------", "--------", "----------", "----------");
 
 				// Process per-IP peer data from the /stats endpoint
 				// First collect all peer data into a vector for sorting
@@ -1255,8 +1248,11 @@ static int cli(int argc,char **argv)
 					double maxDivergenceRatio = peerData.value("MaxDivergenceRatio", 0.0);
 					uint64_t lastAttackDetected = peerData.value("LastAttackDetected", 0ULL);
 
+					// Get last seen timestamps (use authenticated packets for accuracy)
+					uint64_t lastSeen = peerData.value("lastIncomingSeen", 0ULL);
+
 					// Format statistics for display
-					char rxBytesStr[32], txBytesStr[32], securityStr[16];
+					char rxBytesStr[32], txBytesStr[32], securityStr[16], lastSeenStr[16];
 
 					// Format RX bytes with source indicator ("i" = IP stats, "z" = ZT address stats)
 					if (displayBytesIncoming > 1024*1024*1024) {
@@ -1301,6 +1297,23 @@ static int cli(int argc,char **argv)
 						strcpy(securityStr, "SUSPECT");
 					} else {
 						strcpy(securityStr, "OK");
+					}
+
+					// Format last seen time
+					if (lastSeen == 0) {
+						strcpy(lastSeenStr, "never");
+					} else {
+						uint64_t now = OSUtils::now();
+						uint64_t secondsAgo = (now - lastSeen) / 1000;
+						if (secondsAgo < 60) {
+							snprintf(lastSeenStr, sizeof(lastSeenStr), "%lus", (unsigned long)secondsAgo);
+						} else if (secondsAgo < 3600) {
+							snprintf(lastSeenStr, sizeof(lastSeenStr), "%lum", (unsigned long)(secondsAgo / 60));
+						} else if (secondsAgo < 86400) {
+							snprintf(lastSeenStr, sizeof(lastSeenStr), "%luh", (unsigned long)(secondsAgo / 3600));
+						} else {
+							snprintf(lastSeenStr, sizeof(lastSeenStr), "%lud", (unsigned long)(secondsAgo / 86400));
+						}
 					}
 
 					// Build port usage string in correct order
@@ -1400,8 +1413,8 @@ static int cli(int argc,char **argv)
 
 					if (!hasAnyTraffic) portUsage = "none";
 
-					printf("%-10s %-15s %-14s %-14s %-8s %s" ZT_EOL_S,
-						ztaddr.c_str(), ipAddress.c_str(), rxBytesStr, txBytesStr, securityStr, portUsage.c_str());
+					printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
+						ztaddr.c_str(), ipAddress.c_str(), rxBytesStr, txBytesStr, securityStr, lastSeenStr, portUsage.c_str());
 				}
 			}
 			return 0;
@@ -1517,7 +1530,6 @@ static int cli(int argc,char **argv)
 
 			dump << ZT_EOL_S;
 		}
-
 
 		FSRef fsref;
 		UInt8 path[PATH_MAX];
