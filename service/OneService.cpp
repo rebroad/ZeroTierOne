@@ -3717,7 +3717,7 @@ public:
 					// Log corrupted ZT address for debugging
 					char ipBuf[64];
 					fromAddress.toIpString(ipBuf);
-					fprintf(stderr, "CORRUPTED_ZT_ADDR: Packet from %s has invalid ZT address (0x%010llx), packet_len=%u, min_len=%u" ZT_EOL_S,
+					fprintf(stderr, "CORRUPTED_ZT_ADDR: Packet from %s has invalid ZT address (0x%010llx), packet_len=%lu, min_len=%u" ZT_EOL_S,
 						ipBuf, (unsigned long long)addrInt, len, ZT_PROTO_MIN_PACKET_LENGTH);
 
 					// Track against null address to capture wire traffic from unknown sources
@@ -3730,7 +3730,7 @@ public:
 				if (len < ZT_PROTO_MIN_PACKET_LENGTH) {
 					char ipBuf[64];
 					fromAddress.toIpString(ipBuf);
-					fprintf(stderr, "SHORT_PACKET: Packet from %s too short (%u < %u bytes)" ZT_EOL_S,
+					fprintf(stderr, "SHORT_PACKET: Packet from %s too short (%lu < %u bytes)" ZT_EOL_S,
 						ipBuf, len, ZT_PROTO_MIN_PACKET_LENGTH);
 				}
 			}
@@ -5593,8 +5593,8 @@ public:
 				continue;
 			}
 
-			// Only include peers with active paths
-			if (peer && peer->hasActivePathTo(OSUtils::now())) {
+			// Only include peers that are alive and have paths
+			if (peer && peer->isAlive(OSUtils::now())) {
 				std::vector<SharedPtr<Path>> paths = peer->paths(OSUtils::now());
 				for (const auto& path : paths) {
 					if (path) {
@@ -5602,8 +5602,8 @@ public:
 						path->address().toIpString(ipBuf);
 						std::string ipAddr(ipBuf);
 
-						// Use last communication time as priority metric
-						uint64_t lastComm = std::max(peer->lastReceive(), peer->lastSend());
+						// Use last receive time as priority metric (lastSend() doesn't exist in Peer class)
+						uint64_t lastComm = peer->lastReceive();
 						topologyIPToZt[ipAddr].emplace_back(ztAddr, lastComm);
 					}
 				}
