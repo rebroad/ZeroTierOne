@@ -1324,30 +1324,48 @@ static int cli(int argc,char **argv)
 						}
 					}
 
-					// Add any other ports not already included
-					std::set<std::string> allPorts;
+					// Collect other ports (not primary/secondary/tertiary)
+					std::set<std::string> otherPorts;
+					uint64_t otherIncoming = 0, otherOutgoing = 0;
 					for (auto& [port, count] : incomingPorts.items()) {
 						if (usedPorts.find(port) == usedPorts.end()) {
-							allPorts.insert(port);
+							otherPorts.insert(port);
+							otherIncoming += count.get<uint64_t>();
 						}
 					}
 					for (auto& [port, count] : outgoingPorts.items()) {
 						if (usedPorts.find(port) == usedPorts.end()) {
-							allPorts.insert(port);
+							otherPorts.insert(port);
+							otherOutgoing += outgoingPorts.value(port, 0ULL);
 						}
 					}
-					for (const auto& port : allPorts) {
-						orderedPorts.push_back(port);
+
+					// Add summary for other ports if any exist
+					if (!otherPorts.empty()) {
+						if (otherPorts.size() == 1) {
+							// If only one "other" port, show it explicitly
+							orderedPorts.push_back(*otherPorts.begin());
+						} else {
+							// If multiple "other" ports, show them as a summary
+							orderedPorts.push_back("other");
+						}
 					}
 
 					// Build the display string
 					bool first = true;
 					for (const auto& port : orderedPorts) {
 						if (!first) portUsage += ", ";
-						uint64_t inCount = incomingPorts.value(port, 0ULL);
-						uint64_t outCount = outgoingPorts.value(port, 0ULL);
 
-						portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
+						if (port == "other") {
+							// Special handling for summarized other ports
+							portUsage += "other:" + std::to_string(otherIncoming) + "/" + std::to_string(otherOutgoing);
+						} else {
+							// Normal port display
+							uint64_t inCount = incomingPorts.value(port, 0ULL);
+							uint64_t outCount = outgoingPorts.value(port, 0ULL);
+							portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
+						}
+
 						first = false;
 						hasAnyTraffic = true;
 					}

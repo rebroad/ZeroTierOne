@@ -3591,9 +3591,22 @@ public:
 			const InetAddress localAddress(localAddr);
 			const unsigned int localPort = localAddress.port();
 
-			// Only track if this is one of our configured ports
-			if (localPort == _primaryPort || localPort == _tertiaryPort ||
-				(_allowSecondaryPort && localPort == _ports[1])) {
+			// Track all ports - categorize as primary/secondary/tertiary or "other"
+			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort ||
+								(_allowSecondaryPort && localPort == _ports[1]));
+
+			// Log any traffic on unexpected ports (ALPHA/BETA debugging)
+			if (!isKnownPort) {
+				char ztAddrBuf[16], ipBuf[64];
+				originPeerZTAddr.toString(ztAddrBuf);
+				fromAddress.toIpString(ipBuf);
+				fprintf(stderr, "UNEXPECTED_PORT: Received packet from %s (%s) on port %u (Primary: %u, Secondary: %s%u, Tertiary: %u)" ZT_EOL_S,
+					ztAddrBuf, ipBuf, localPort, _primaryPort,
+					_allowSecondaryPort ? "" : "disabled/", _allowSecondaryPort ? _ports[1] : 0, _tertiaryPort);
+			}
+
+			// Track port usage for ALL ports (known and unknown)
+			{
 
 				// Determine the correct ZT address for tracking purposes
 				Address trackingZTAddr = originPeerZTAddr;
