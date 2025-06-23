@@ -1144,10 +1144,18 @@ static int cli(int argc,char **argv)
 						(unsigned int)diag.value("uniqueZTAddresses", 0));
 					printf("    Unique IP Addresses: %u" ZT_EOL_S,
 						(unsigned int)diag.value("uniqueIPAddresses", 0));
-					printf("  AllPeers (topology):   %s" ZT_EOL_S,
-						diag.value("allPeersCount", "unknown").is_string() ?
-						diag.value("allPeersCount", "unknown").get<std::string>().c_str() :
-						std::to_string((unsigned int)diag.value("allPeersCount", 0)).c_str());
+					// Check if allPeersCount is a string or number and format accordingly
+					std::string allPeersStr;
+					if (diag.contains("allPeersCount")) {
+						if (diag["allPeersCount"].is_string()) {
+							allPeersStr = diag["allPeersCount"].get<std::string>();
+						} else {
+							allPeersStr = std::to_string((unsigned int)diag["allPeersCount"]);
+						}
+					} else {
+						allPeersStr = "unknown";
+					}
+					printf("  AllPeers (topology):   %s" ZT_EOL_S, allPeersStr.c_str());
 					printf("  Port Tracking Entries: %u incoming, %u outgoing" ZT_EOL_S,
 						(unsigned int)diag.value("seenIncomingPeerPortsSize", 0),
 						(unsigned int)diag.value("seenOutgoingPeerPortsSize", 0));
