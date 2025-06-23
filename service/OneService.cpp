@@ -3581,12 +3581,14 @@ public:
 
 			// Update metrics for the logical source peer (originPeerZTAddr)
 			_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true); // true = incoming packet
-		}
 
-		// Track port usage only for successfully processed packets from identified peers
-		if ((rc == ZT_RESULT_OK) && localAddr && from && len >= 16 && originPeerZTAddr) {
+			// For successful packets, also track authenticated level (Tier 2)
+			if (isSuccessful) {
+				_trackAuthenticatedPacket(originPeerZTAddr, fromAddress, len, true, now); // true = incoming packet
+			}
+
+			// Track port usage only for successfully processed packets from identified peers
 			const InetAddress localAddress(localAddr);
-			const InetAddress fromAddress(from);
 			const unsigned int localPort = localAddress.port();
 
 			// Only track if this is one of our configured ports
