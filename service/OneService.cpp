@@ -3706,14 +3706,37 @@ public:
 			const InetAddress fromAddress(from);
 			const bool isSuccessful = (rc == ZT_RESULT_OK);
 
-			// TODO - how reliable is originPeerZTAddr? Could it be corrupted?
+			// TIER 1: Track all wire-level packets with validation check
+			// Only track if we have minimum packet length and extracted valid ZT address
+			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr) {
+				// Validate that the extracted address is reasonable (not all zeros, not all ones)
+				const uint64_t addrInt = originPeerZTAddr.toInt();
+				if (addrInt != 0 && addrInt != 0xFFFFFFFFFFLL) {
+					_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true); // true = incoming packet
+				} else {
+					// Log corrupted ZT address for debugging
+					char ipBuf[64];
+					fromAddress.toIpString(ipBuf);
+					fprintf(stderr, "CORRUPTED_ZT_ADDR: Packet from %s has invalid ZT address (0x%010llx), packet_len=%u, min_len=%u" ZT_EOL_S,
+						ipBuf, (unsigned long long)addrInt, len, ZT_PROTO_MIN_PACKET_LENGTH);
 
-			// Update metrics for the logical source peer (originPeerZTAddr)
-			_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true); // true = incoming packet
+					// Track against null address to capture wire traffic from unknown sources
+					_trackWirePacket(Address(), fromAddress, false, len, true);
+				}
+			} else {
+				// Track packets that are too short or failed address extraction against null address
+				_trackWirePacket(Address(), fromAddress, false, len, true);
 
-			// For successful packets, also track authenticated level (Tier 2)
-			if (isSuccessful) {
-				// TODO - should this be moved to Peer::receive() ?
+				if (len < ZT_PROTO_MIN_PACKET_LENGTH) {
+					char ipBuf[64];
+					fromAddress.toIpString(ipBuf);
+					fprintf(stderr, "SHORT_PACKET: Packet from %s too short (%u < %u bytes)" ZT_EOL_S,
+						ipBuf, len, ZT_PROTO_MIN_PACKET_LENGTH);
+				}
+			}
+
+			// TIER 2: Track authenticated packets (this will be called from within packet processing)
+			if (isSuccessful && originPeerZTAddr) {
 				_trackAuthenticatedPacket(originPeerZTAddr, fromAddress, len, true, now); // true = incoming packet
 			}
 
