@@ -914,18 +914,12 @@ public:
 		uint64_t lastOutgoingSeen;
 
 		// TIER 1: Wire-level stats (UNTRUSTED - includes spoofed/malicious packets)
-		uint64_t WirePacketsIncoming;	// All incoming wire packets (including attacks)
-		uint64_t WirePacketsOutgoing;	// All outgoing wire packets
-		uint64_t WirePacketsIncomingOK;	// Wire packets that passed initial parsing
-		uint64_t WirePacketsOutgoingOK;	// Wire packets successfully sent
 		uint64_t WireBytesIncoming;		// All incoming wire packet bytes (including attacks)
 		uint64_t WireBytesOutgoing;		// All outgoing wire packet bytes
 		uint64_t WireBytesIncomingOK;	// Wire packet bytes that passed initial parsing
 		uint64_t WireBytesOutgoingOK;	// Wire packet bytes successfully sent
 
 		// TIER 2: Protocol-level stats (TRUSTED - cryptographically verified only)
-		uint64_t AuthPacketsIncoming;	// Only authenticated ZeroTier packets
-		uint64_t AuthPacketsOutgoing;	// Only authenticated outgoing packets
 		uint64_t AuthBytesIncoming;		// Only authenticated incoming bytes
 		uint64_t AuthBytesOutgoing;		// Only authenticated outgoing bytes
 
@@ -942,11 +936,8 @@ public:
 
 		PeerStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0)
 					, lastIncomingSeen(0), lastOutgoingSeen(0)
-					, WirePacketsIncoming(0), WirePacketsOutgoing(0)
-					, WirePacketsIncomingOK(0), WirePacketsOutgoingOK(0)
 					, WireBytesIncoming(0), WireBytesOutgoing(0)
 					, WireBytesIncomingOK(0), WireBytesOutgoingOK(0)
-					, AuthPacketsIncoming(0), AuthPacketsOutgoing(0)
 					, AuthBytesIncoming(0), AuthBytesOutgoing(0)
 					, lastAttackDetected(0), attackEventCount(0), maxDivergenceRatio(0.0)
 					, suspiciousPacketCount(0), lastDivergenceCheck(0)
@@ -2581,15 +2572,20 @@ public:
 					if (!_isInfrastructureNode(ztAddr)) {
 						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
-						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr],
-							std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen));
+						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
 					}
 
-					// Aggregate by ZT address (use wire-level stats)
-					ztIncomingBytes[ztAddr] += peerStats.WireBytesIncoming;
-					ztOutgoingBytes[ztAddr] += peerStats.WireBytesOutgoing;
-					ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr],
-						std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen));
+					// Aggregate by ZT address (combine wire-level + authenticated stats for complete picture)
+					// Only aggregate bytes for valid (non-null) ZT addresses to avoid inflated stats from TIER 1 tracking
+					if (ztAddr) {
+						// Use higher of wire-level vs authenticated bytes (since wire-level may miss some traffic due to filtering)
+						uint64_t totalIncoming = std::max(peerStats.WireBytesIncoming, peerStats.AuthBytesIncoming);
+						uint64_t totalOutgoing = std::max(peerStats.WireBytesOutgoing, peerStats.AuthBytesOutgoing);
+
+						ztIncomingBytes[ztAddr] += totalIncoming;
+						ztOutgoingBytes[ztAddr] += totalOutgoing;
+						ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr], peerStats.lastAuthIncomingSeen);
+					}
 				}
 			}
 
@@ -2669,18 +2665,12 @@ public:
 				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
 
 				// TIER 1: Wire-level tracking (UNTRUSTED - for monitoring/attack detection only)
-				peerStat["WirePacketsIncoming"] = stats.WirePacketsIncoming;
-				peerStat["WirePacketsOutgoing"] = stats.WirePacketsOutgoing;
 				peerStat["WireBytesIncoming"] = stats.WireBytesIncoming;
 				peerStat["WireBytesOutgoing"] = stats.WireBytesOutgoing;
-				peerStat["WirePacketsIncomingOK"] = stats.WirePacketsIncomingOK;
-				peerStat["WirePacketsOutgoingOK"] = stats.WirePacketsOutgoingOK;
 				peerStat["WireBytesIncomingOK"] = stats.WireBytesIncomingOK;
 				peerStat["WireBytesOutgoingOK"] = stats.WireBytesOutgoingOK;
 
 				// TIER 2: Protocol-level tracking (TRUSTED - for bandwidth enforcement)
-				peerStat["AuthPacketsIncoming"] = stats.AuthPacketsIncoming;
-				peerStat["AuthPacketsOutgoing"] = stats.AuthPacketsOutgoing;
 				peerStat["AuthBytesIncoming"] = stats.AuthBytesIncoming;
 				peerStat["AuthBytesOutgoing"] = stats.AuthBytesOutgoing;
 
@@ -2931,8 +2921,7 @@ public:
 					// Aggregate by IP address
 					ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 					ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
-					ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr],
-						std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen));
+					ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
 
 					// Aggregate port usage
 					for (const auto& portCount : peerStats.incomingPortCounts) {
@@ -5292,19 +5281,15 @@ public:
 
 		// Update wire packet counters based on direction
 		if (incoming) {
-			stats.WirePacketsIncoming++;
 			stats.WireBytesIncoming += packetSize;
 			if (isSuccessful) {
-				stats.WirePacketsIncomingOK++;
 				stats.WireBytesIncomingOK += packetSize;
 			} else {
-				stats.suspiciousPacketCount++;
+				stats.suspiciousPacketCount++;  // Keep this for attack detection
 			}
 		} else {
-			stats.WirePacketsOutgoing++;
 			stats.WireBytesOutgoing += packetSize;
 			if (isSuccessful) {
-				stats.WirePacketsOutgoingOK++;
 				stats.WireBytesOutgoingOK += packetSize;
 			}
 		}
@@ -5344,11 +5329,9 @@ public:
 
 		// Update authenticated packet counters
 		if (incoming) {
-			stats.AuthPacketsIncoming++;
 			stats.AuthBytesIncoming += packetSize;
 			stats.lastAuthIncomingSeen = now;
 		} else {
-			stats.AuthPacketsOutgoing++;
 			stats.AuthBytesOutgoing += packetSize;
 			stats.lastAuthOutgoingSeen = now;
 		}
@@ -5406,15 +5389,8 @@ public:
 
 	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& peerIP,
 								   PeerStats& stats, uint64_t now) {
-		// Calculate divergence ratios
-		double incomingRatio = 0.0;
+		// Calculate divergence ratios (byte-based analysis only since we removed packet counts)
 		double incomingByteRatio = 0.0;
-
-		if (stats.AuthPacketsIncoming > 0) {
-			incomingRatio = (double)stats.WirePacketsIncoming / (double)stats.AuthPacketsIncoming;
-		} else if (stats.WirePacketsIncoming > 100) {
-			incomingRatio = 999.0; // High number to indicate suspicious activity
-		}
 
 		if (stats.AuthBytesIncoming > 0) {
 			incomingByteRatio = (double)stats.WireBytesIncoming / (double)stats.AuthBytesIncoming;
@@ -5423,28 +5399,27 @@ public:
 		}
 
 		// Update maximum divergence ratio seen
-		double maxRatio = std::max(incomingRatio, incomingByteRatio);
-		if (maxRatio > stats.maxDivergenceRatio) {
-			stats.maxDivergenceRatio = maxRatio;
+		if (incomingByteRatio > stats.maxDivergenceRatio) {
+			stats.maxDivergenceRatio = incomingByteRatio;
 		}
 
 		// Define attack thresholds
 		const double MINOR_ATTACK_THRESHOLD = 5.0;    // 5:1 ratio indicates possible attack
 		const double MAJOR_ATTACK_THRESHOLD = 20.0;   // 20:1 ratio indicates definite attack
-		const uint64_t MIN_PACKETS_FOR_ANALYSIS = 50; // Need minimum sample size
+		const uint64_t MIN_BYTES_FOR_ANALYSIS = 5000; // Need minimum sample size (5KB)
 
 		// Only analyze if we have sufficient data
-		if (stats.WirePacketsIncoming < MIN_PACKETS_FOR_ANALYSIS) {
+		if (stats.WireBytesIncoming < MIN_BYTES_FOR_ANALYSIS) {
 			return;
 		}
 
 		bool attackDetected = false;
 		const char* attackSeverity = "";
 
-		if (maxRatio >= MAJOR_ATTACK_THRESHOLD) {
+		if (incomingByteRatio >= MAJOR_ATTACK_THRESHOLD) {
 			attackDetected = true;
 			attackSeverity = "MAJOR";
-		} else if (maxRatio >= MINOR_ATTACK_THRESHOLD) {
+		} else if (incomingByteRatio >= MINOR_ATTACK_THRESHOLD) {
 			attackDetected = true;
 			attackSeverity = "MINOR";
 		}
@@ -5459,16 +5434,16 @@ public:
 			peerIP.toIpString(peerIPStr);
 
 			fprintf(stderr, "ATTACK_DETECTED: %s attack on peer %s from IP %s - "
-							"Wire/Auth ratio: %.1f:1 (packets), %.1f:1 (bytes) - "
-							"Wire: %llu pkts/%llu bytes, Auth: %llu pkts/%llu bytes, "
-							"Suspicious: %llu pkts, Events: %llu" ZT_EOL_S,
-				attackSeverity, ztAddrStr, peerIPStr, incomingRatio, incomingByteRatio,
-				(unsigned long long)stats.WirePacketsIncoming, (unsigned long long)stats.WireBytesIncoming,
-				(unsigned long long)stats.AuthPacketsIncoming, (unsigned long long)stats.AuthBytesIncoming,
+							"Wire/Auth byte ratio: %.1f:1 - "
+							"Wire: %llu bytes, Auth: %llu bytes, "
+							"Suspicious: %llu packets, Events: %llu" ZT_EOL_S,
+				attackSeverity, ztAddrStr, peerIPStr, incomingByteRatio,
+				(unsigned long long)stats.WireBytesIncoming,
+				(unsigned long long)stats.AuthBytesIncoming,
 				(unsigned long long)stats.suspiciousPacketCount, (unsigned long long)stats.attackEventCount);
 
 			// For major attacks, consider additional defensive measures
-			if (maxRatio >= MAJOR_ATTACK_THRESHOLD) {
+			if (incomingByteRatio >= MAJOR_ATTACK_THRESHOLD) {
 				// TODO: Implement rate limiting, temporary blocks, or other defensive measures
 				// This could integrate with iptables or other firewall systems
 			}
