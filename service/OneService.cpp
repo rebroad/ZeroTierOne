@@ -5478,8 +5478,8 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			// TIER 2: Track authenticated packets with validated ZT addresses
 			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, packetSize, true, OSUtils::now()); // true = incoming packet
 
-			// Also track port usage for authenticated packets
-			{
+			// Also track port usage for authenticated packets (skip invalid port 0)
+			if (localPort > 0) {
 				InetAddress localAddr; // TODO we can remove localAddr from _trackIncomingPeerPortUsage
 				localAddr.fromString("0.0.0.0"); // We'll set the port below
 				localAddr.setPort(localPort);
