@@ -179,44 +179,44 @@ namespace ZeroTier {
 std::string ssoResponseTemplate = R"""(
 <!doctype html>
 <html class="no-js" lang="">
-    <head>
-        <meta charset="utf-8">
-        <meta http-equiv="x-ua-compatible" content="ie=edge">
-        <title>Network SSO Login {{ networkId }}</title>
-        <meta name="description" content="">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style type="text/css">
-         html,body {
-             background: #eeeeee;
-             margin: 0;
-             padding: 0;
-             font-family: "System Sans Serif";
-             font-weight: normal;
-             font-size: 12pt;
-             height: 100%;
-             width: 100%;
-         }
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="x-ua-compatible" content="ie=edge">
+		<title>Network SSO Login {{ networkId }}</title>
+		<meta name="description" content="">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<style type="text/css">
+		 html,body {
+			 background: #eeeeee;
+			 margin: 0;
+			 padding: 0;
+			 font-family: "System Sans Serif";
+			 font-weight: normal;
+			 font-size: 12pt;
+			 height: 100%;
+			 width: 100%;
+		 }
 
-         .container {
-             position: absolute;
-             left: 50%;
-             top: 50%;
-             -webkit-transform: translate(-50%, -50%);
-             transform: translate(-50%, -50%);
-         }
-         .iconwrapper {
-             margin: 10px 10px 10px 10px;
-         }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="iconwrapper">
-                <svg id="Layer_1" width="225px" height="225px" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 225 225"><defs><style>.cls-1{fill:#fdb25d;}.cls-2{fill:none;stroke:#000;stroke-miterlimit:10;stroke-width:6.99px;}</style></defs><rect class="cls-1" width="225" height="225" rx="35.74"/><line class="cls-2" x1="25.65" y1="32.64" x2="199.35" y2="32.64"/><line class="cls-2" x1="112.5" y1="201.02" x2="112.5" y2="32.64"/><circle class="cls-2" cx="112.5" cy="115.22" r="56.54"/></svg>
-            </div>
-            <div class="text">{{ messageText }}</div>
-        </div>
-    </body>
+		 .container {
+			 position: absolute;
+			 left: 50%;
+			 top: 50%;
+			 -webkit-transform: translate(-50%, -50%);
+			 transform: translate(-50%, -50%);
+		 }
+		 .iconwrapper {
+			 margin: 10px 10px 10px 10px;
+		 }
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<div class="iconwrapper">
+				<svg id="Layer_1" width="225px" height="225px" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 225 225"><defs><style>.cls-1{fill:#fdb25d;}.cls-2{fill:none;stroke:#000;stroke-miterlimit:10;stroke-width:6.99px;}</style></defs><rect class="cls-1" width="225" height="225" rx="35.74"/><line class="cls-2" x1="25.65" y1="32.64" x2="199.35" y2="32.64"/><line class="cls-2" x1="112.5" y1="201.02" x2="112.5" y2="32.64"/><circle class="cls-2" cx="112.5" cy="115.22" r="56.54"/></svg>
+			</div>
+			<div class="text">{{ messageText }}</div>
+		</div>
+	</body>
 </html>
 )""";
 
@@ -4255,7 +4255,7 @@ class OneServiceImpl : public OneService {
 
 		return false;
 	}
-};
+}; // End of OneServiceImpl class
 
 static int SnodeVirtualNetworkConfigFunction(ZT_Node* node, void* uptr, void* tptr, uint64_t nwid, void** nuptr, enum ZT_VirtualNetworkConfigOperation op, const ZT_VirtualNetworkConfig* nwconf)
 {

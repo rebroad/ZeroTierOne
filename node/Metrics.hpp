@@ -22,10 +22,15 @@ extern std::shared_ptr<Registry> registry_ptr;
 
 namespace ZeroTier {
 namespace Metrics {
-// Packet Type Counts
+// ========================================================================
+// PACKET TYPE METRICS
+// ========================================================================
+// Tracks ZeroTier protocol packet types (HELLO, OK, FRAME, etc.) by direction
+// Labels: packet_type={nop,error,ack,qos,hello,ok,whois,etc}, direction={rx,tx}
+// Purpose: Monitor which ZeroTier protocol messages are being exchanged
 extern prometheus::simpleapi::counter_family_t packets;
 
-// incoming packets
+// Incoming ZeroTier protocol packets by type
 extern prometheus::simpleapi::counter_metric_t pkt_nop_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_in;
 extern prometheus::simpleapi::counter_metric_t pkt_ack_in;
@@ -48,7 +53,7 @@ extern prometheus::simpleapi::counter_metric_t pkt_user_message_in;
 extern prometheus::simpleapi::counter_metric_t pkt_remote_trace_in;
 extern prometheus::simpleapi::counter_metric_t pkt_path_negotiation_request_in;
 
-// outgoing packets
+// Outgoing ZeroTier protocol packets by type
 extern prometheus::simpleapi::counter_metric_t pkt_nop_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_out;
 extern prometheus::simpleapi::counter_metric_t pkt_ack_out;
@@ -71,10 +76,15 @@ extern prometheus::simpleapi::counter_metric_t pkt_user_message_out;
 extern prometheus::simpleapi::counter_metric_t pkt_remote_trace_out;
 extern prometheus::simpleapi::counter_metric_t pkt_path_negotiation_request_out;
 
-// Packet Error Counts
+// ========================================================================
+// PROTOCOL ERROR METRICS
+// ========================================================================
+// Tracks ZeroTier protocol-level errors by type and direction
+// Labels: error_type={obj_not_found,unsupported_operation,etc}, direction={rx,tx}
+// Purpose: Monitor protocol errors and authentication failures
 extern prometheus::simpleapi::counter_family_t packet_errors;
 
-// incoming errors
+// Incoming protocol errors
 extern prometheus::simpleapi::counter_metric_t pkt_error_obj_not_found_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_unsupported_op_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_identity_collision_in;
@@ -84,7 +94,7 @@ extern prometheus::simpleapi::counter_metric_t pkt_error_unwanted_multicast_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_authentication_required_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_internal_server_error_in;
 
-// outgoing errors
+// Outgoing protocol errors
 extern prometheus::simpleapi::counter_metric_t pkt_error_obj_not_found_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_unsupported_op_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_identity_collision_out;
@@ -94,27 +104,60 @@ extern prometheus::simpleapi::counter_metric_t pkt_error_unwanted_multicast_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_authentication_required_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_internal_server_error_out;
 
-// Data Sent/Received Metrics
+// ========================================================================
+// PHYSICAL TRANSPORT METRICS
+// ========================================================================
+// Tracks raw UDP/TCP bytes sent/received at the physical transport layer
+// Labels: protocol={udp,tcp}, direction={rx,tx}
+// Purpose: Monitor total bandwidth usage by transport protocol
+// NOTE: This tracks actual bytes on the wire, not ZeroTier packet content
 extern prometheus::simpleapi::counter_family_t data;
 extern prometheus::simpleapi::counter_metric_t udp_send;
 extern prometheus::simpleapi::counter_metric_t udp_recv;
 extern prometheus::simpleapi::counter_metric_t tcp_send;
 extern prometheus::simpleapi::counter_metric_t tcp_recv;
 
-// Network Metrics
-extern prometheus::simpleapi::gauge_metric_t network_num_joined;
-extern prometheus::simpleapi::gauge_family_t network_num_multicast_groups;
-extern prometheus::simpleapi::counter_family_t network_packets;
+// ========================================================================
+// NETWORK METRICS
+// ========================================================================
+// Tracks network-level statistics and multicast subscriptions
+extern prometheus::simpleapi::gauge_metric_t   network_num_joined;          // Number of networks joined
+extern prometheus::simpleapi::gauge_family_t   network_num_multicast_groups; // Multicast groups per network
+extern prometheus::simpleapi::counter_family_t network_packets;             // Packets per network
 
 #ifndef ZT_NO_PEER_METRICS
-// Peer Metrics
-extern prometheus::CustomFamily<prometheus::Histogram<uint64_t> >& peer_latency;
-extern prometheus::simpleapi::gauge_family_t peer_path_count;
+// ========================================================================
+// PER-PEER METRICS
+// ========================================================================
+// Tracks statistics for individual peers in the network
+
+// Peer latency histogram - tracks round-trip times to peers
+// Labels: node_id={peer_zt_address}
+// Purpose: Monitor network quality and peer connectivity
+extern prometheus::CustomFamily<prometheus::Histogram<uint64_t>> &peer_latency;
+
+// Number of active/dead paths to each peer
+// Labels: node_id={peer_zt_address}, status={alive,dead}
+// Purpose: Monitor path redundancy and connectivity health
+extern prometheus::simpleapi::gauge_family_t   peer_path_count;
+
+// Successful packet exchanges with peers (after processing)
+// Labels: direction={rx,tx}, node_id={peer_zt_address}
+// Purpose: Monitor successful communication with specific peers
+// NOTE: This counts successful ZeroTier protocol exchanges, incremented
+// in Peer::received() and Peer::recordOutgoingPacket() after processing
 extern prometheus::simpleapi::counter_family_t peer_packets;
+
+// Packet processing errors from peers
+// Labels: node_id={peer_zt_address}
+// Purpose: Monitor peers sending malformed or invalid packets
 extern prometheus::simpleapi::counter_family_t peer_packet_errors;
 #endif
 
-// General Controller Metrics
+// ========================================================================
+// CONTROLLER METRICS
+// ========================================================================
+// Metrics for ZeroTier network controller functionality
 extern prometheus::simpleapi::gauge_metric_t network_count;
 extern prometheus::simpleapi::gauge_metric_t member_count;
 extern prometheus::simpleapi::counter_metric_t network_changes;
