@@ -72,7 +72,8 @@ public:
 		const void *packetData,
 		unsigned int packetLength,
 		volatile int64_t *nextBackgroundTaskDeadline,
-		Address *sourcePeerAddress = nullptr);
+		Address *sourcePeerAddress = nullptr,
+		unsigned int localPort = 0);
 	ZT_ResultCode processVirtualNetworkFrame(
 		void *tptr,
 		int64_t now,

@@ -3645,7 +3645,11 @@ public:
 		}
 
 		Address originPeerZTAddr;
-		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline,&originPeerZTAddr);
+		// Get local port from localAddr
+		const InetAddress localAddress(localAddr);
+		const unsigned int localPort = localAddress.port();
+
+		const ZT_ResultCode rc = _node->processWirePacket(nullptr,now,reinterpret_cast<int64_t>(sock),reinterpret_cast<const struct sockaddr_storage *>(from),data,len,&_nextBackgroundTaskDeadline,&originPeerZTAddr,localPort);
 
 		// Track wire packet metrics for all packets (successful and failed) from identified peers
 		if (localAddr && from) {
@@ -3655,16 +3659,12 @@ public:
 			// TIER 1: Track basic wire-level metrics (IP-level only, no ZT addresses)
 			// Only track non-infrastructure traffic to avoid noise from root servers
 			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {
-				const InetAddress localAddress(localAddr);
-				const unsigned int localPort = localAddress.port();
 				_trackWirePacket(Address(), fromAddress, isSuccessful, len, true, localPort); // true = incoming packet
 			}
 
 			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
-			const InetAddress localAddress(localAddr);
-			const unsigned int localPort = localAddress.port();
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort ||
 								(_allowSecondaryPort && localPort == _ports[1]));
 
@@ -5478,8 +5478,8 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			// TIER 2: Track authenticated packets with validated ZT addresses
 			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, packetSize, true, OSUtils::now()); // true = incoming packet
 
-			// Also track port usage for authenticated packets (skip invalid port 0)
-			if (localPort > 0) {
+			// Also track port usage for authenticated packets
+			{
 				InetAddress localAddr; // TODO we can remove localAddr from _trackIncomingPeerPortUsage
 				localAddr.fromString("0.0.0.0"); // We'll set the port below
 				localAddr.setPort(localPort);
