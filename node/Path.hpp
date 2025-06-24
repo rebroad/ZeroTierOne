@@ -28,6 +28,7 @@
 #include "Utils.hpp"
 #include "Packet.hpp"
 #include "RingBuffer.hpp"
+#include "../osdep/Phy.hpp"
 
 /**
  * Maximum return value of preferenceRank()
@@ -183,6 +184,11 @@ public:
 	 * @return Local port corresponding to the localSocket
 	 */
 	inline int64_t localPort() const { return _localPort; }
+
+	/**
+	 * Set the local port for this path
+	 */
+	inline void setLocalPort(unsigned int port) { _localPort = port; }
 
 	/**
 	 * @return Physical address

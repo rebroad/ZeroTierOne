@@ -74,7 +74,7 @@ static bool _ipv6GetPayload(const uint8_t *frameData,unsigned int frameLen,unsig
 	return false; // overflow == invalid
 }
 
-void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddress &fromAddr,const void *data,unsigned int len)
+void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddress &fromAddr,const void *data,unsigned int len,unsigned int localPort)
 {
 	int32_t flowId = ZT_QOS_NO_FLOW;
 	try {
@@ -82,6 +82,8 @@ void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddre
 
 		const SharedPtr<Path> path(RR->topology->getPath(localSocket,fromAddr));
 		path->received(now);
+		// Store the local port in the path for use in Peer::received callback
+		path->setLocalPort(localPort);
 
 		if (len == 13) {
 			/* LEGACY: before VERB_PUSH_DIRECT_PATHS, peers used broadcast
