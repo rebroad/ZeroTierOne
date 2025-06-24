@@ -168,11 +168,6 @@ namespace ZeroTier {
         prometheus::simpleapi::counter_metric_t tcp_recv
         { data.Add({{"protocol","tcp"},{"direction", "rx"}}) };
 
-        // Wire Packet Processing Metrics (for detailed peer tracking)
-        // Wire packet processing metrics - REMOVED (now tracked directly in PeerStats)
-        // These metrics have been moved to direct memory tracking in OneService::PeerStats
-        // for 50x better performance. Access via /stats or /stats/wire-packets endpoints.
-
         // Network Metrics
         prometheus::simpleapi::gauge_metric_t network_num_joined
         { "zt_num_networks", "number of networks this instance is joined to" };

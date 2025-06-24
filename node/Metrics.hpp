@@ -120,14 +120,6 @@ namespace ZeroTier {
         extern prometheus::simpleapi::counter_metric_t tcp_recv;
 
         // ========================================================================
-        // WIRE PACKET PROCESSING METRICS - MOVED TO DIRECT MEMORY TRACKING
-        // ========================================================================
-        // Wire packet metrics are now tracked directly in PeerStats structure
-        // for much better performance (50x faster than Prometheus).
-        // Access via /stats endpoint or /stats/wire-packets endpoint.
-        // This provides the same 4 data subsets: successful/all packets, counts/bytes
-
-        // ========================================================================
         // NETWORK METRICS
         // ========================================================================
         // Tracks network-level statistics and multicast subscriptions
@@ -201,6 +193,8 @@ namespace ZeroTier {
         extern prometheus::simpleapi::counter_metric_t redis_mem_notification;
         extern prometheus::simpleapi::counter_metric_t redis_net_notification;
         extern prometheus::simpleapi::counter_metric_t redis_node_checkin;
+
+        
 
         // Central DB Pool Metrics
         extern prometheus::simpleapi::counter_metric_t conn_counter;

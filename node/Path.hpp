@@ -28,7 +28,6 @@
 #include "Utils.hpp"
 #include "Packet.hpp"
 #include "RingBuffer.hpp"
-#include "../osdep/Phy.hpp"
 
 /**
  * Maximum return value of preferenceRank()
@@ -186,7 +185,7 @@ public:
 	inline int64_t localPort() const { return _localPort; }
 
 	/**
-	 * Set the local port for this path
+	 * Set the local port for this path - TODO is this function needed?
 	 */
 	inline void setLocalPort(unsigned int port) { _localPort = port; }
 
