@@ -918,7 +918,8 @@ public:
 		std::map<unsigned int, uint64_t> incomingPortCounts;       // port -> auth incoming count
 		std::map<unsigned int, uint64_t> outgoingPortCounts;       // port -> auth outgoing count
 
-		std::string peerIP;									       // The specific IP address for this stats entry
+		InetAddress ipAddr;									       // The specific IP address for this stats entry
+		Address ztAddr;										       // The specific ZT address for this stats entry
 
 		// Original packet tracking (successful ZT protocol exchanges)
 		uint64_t totalIncoming;
@@ -984,7 +985,7 @@ public:
 	Mutex _firstTimeEvents_m;
 
 	// Fast lookup table for infrastructure node IP addresses (planets/moons)
-	std::set<std::string> _infrastructureIPs;
+	std::set<InetAddress> _infrastructureIPs;
 	Mutex _infrastructureIPs_m;
 
 	// end member variables ----------------------------------------------------
@@ -1153,7 +1154,7 @@ public:
 			}
 
 			// Set up unified peer event callback for iptables, introductions, and connection attempts
-			_node->setPeerEventCallback(SpeerEventCallback, this);
+			_node->setPeerEventCallback(SpeerEventCallback, this); // TODO - do we need this? What for?
 
 			// local.conf
 			readLocalSettings();
@@ -2489,9 +2490,9 @@ public:
 
 			// Get peer statistics - implement steps 6 & 7: compare IP vs ZT stats, use higher values
 			// Step 1: Aggregate stats by IP address and by ZT address separately
-			std::map<std::string, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
+			std::map<InetAddress, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
 			std::map<Address, uint64_t> ztIncomingBytes, ztOutgoingBytes, ztLastSeen;
-			std::vector<std::pair<std::pair<Address, std::string>, PeerStats>> sortedPeers;
+			std::vector<std::pair<std::pair<Address, InetAddress>, PeerStats>> sortedPeers;
 
 			{
 				Mutex::Lock _l(_peerStats_m); // TODO - is lock-free an option?
@@ -2499,12 +2500,12 @@ public:
 					sortedPeers.push_back(peerEntry);
 
 					const Address& ztAddr = peerEntry.first.first;
-					const std::string& ipAddr = peerEntry.first.second;
+					const InetAddress& ipAddr = peerEntry.first.second;
 					const PeerStats& peerStats = peerEntry.second;
 
 					// Aggregate by IP address (use wire-level stats as they include all traffic)
 					// BUT exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
-					if (!_isInfrastructureIP(ipAddr)) { // TODO - change ipAddr to a non-string ?
+					if (!_isInfrastructureIP(ipAddr)) {
 						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
 						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
@@ -2529,9 +2530,9 @@ public:
 			std::sort(sortedPeers.begin(), sortedPeers.end(),
 				[&](const auto& a, const auto& b) {
 					const Address& ztAddrA = a.first.first;
-					const std::string& ipAddrA = a.first.second;
+					const InetAddress& ipAddrA = a.first.second;
 					const Address& ztAddrB = b.first.first;
-					const std::string& ipAddrB = b.first.second;
+					const InetAddress& ipAddrB = b.first.second;
 
 					// Get higher RX value (IP vs ZT)
 					uint64_t rxA = std::max(ipIncomingBytes[ipAddrA], ztIncomingBytes[ztAddrA]);
@@ -2544,23 +2545,25 @@ public:
 					return (rxA + txA) > (rxB + txB);
 				});
 
-			json peerStats = json::object();
+			json peerStats = json::array();
 			for (const auto& peerEntry : sortedPeers) {
-				const std::pair<Address, std::string>& peerKey = peerEntry.first;
+				const std::pair<Address, InetAddress>& peerKey = peerEntry.first;
 				const Address& ztAddr = peerKey.first;
-				const std::string& ipAddr = peerKey.second;
+				const InetAddress& ipAddr = peerKey.second;
 				const PeerStats& stats = peerEntry.second;
 
-				char ztAddrBuf[32];
-				ztAddr.toString(ztAddrBuf);
-				std::string ztAddrStr(ztAddrBuf);
+				// Convert InetAddress to string for JSON output
+				char ipAddrStr[64];
+				ipAddr.toIpString(ipAddrStr);
+				std::string ipAddrString(ipAddrStr);
 
-				// Create unique key for this ZT address + IP combination
-				std::string combinedKey = ztAddrStr + "@" + ipAddr; // TODO - what is the purpose of this key ?
+				char ztAddrStr[32];
+				ztAddr.toString(ztAddrStr);
+				std::string ztAddrStr(ztAddrStr);
 
 				json peerStat = json::object();
 				peerStat["ztAddress"] = ztAddrStr;
-				peerStat["ipAddress"] = ipAddr;
+				peerStat["ipAddress"] = ipAddrString;
 
 				// Step 3: Compare IP vs ZT stats and use higher values with indicators
 				uint64_t ipRx = ipIncomingBytes[ipAddr];
@@ -2658,7 +2661,7 @@ public:
 				bool shouldInclude = ztAddr || hasAnyPortUsage;  // Include if ZT address is valid OR has any port usage
 
 				if (shouldInclude) {
-					peerStats[combinedKey] = peerStat;
+					peerStats.push_back(peerStat);
 				}
 			}
 			stats["peersByZtAddressAndIP"] = peerStats;
@@ -2703,95 +2706,6 @@ public:
 		_controlPlane.Get("/stats", statsGet);
 		_controlPlaneV6.Get("/stats", statsGet);
 
-		// Debug endpoint to validate ZT addresses and check peer status
-		auto debugPeerGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			if (!isAuthenticated(req, _authToken)) {
-				res.status = 403;
-				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
-				return;
-			}
-
-			std::string ztAddrStr = req.get_param_value("ztaddr");
-			if (ztAddrStr.empty()) {
-				res.status = 400;
-				setContent(req, res, "{\"error\":\"Missing ztaddr parameter\"}");
-				return;
-			}
-
-			try {
-				Address ztAddr((uint64_t)strtoull(ztAddrStr.c_str(), nullptr, 16));
-
-				json result = json::object();
-				result["ztAddress"] = ztAddrStr;
-				result["isValidAddress"] = true;
-
-				// Check if peer exists in topology (only if node is initialized)
-				SharedPtr<Peer> peer;
-				bool nodeReady = false;
-				if (_node) {
-					try {
-						const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
-						peer = RR->topology->getPeer(nullptr, ztAddr);
-						nodeReady = true;
-					} catch (...) {
-						// Node not ready yet
-					}
-				}
-
-				result["nodeReady"] = nodeReady;
-				result["existsInTopology"] = nodeReady ? (peer != nullptr) : false;
-
-				if (peer) {
-					result["isAlive"] = peer->isAlive(OSUtils::now());
-					result["hasDirectPath"] = !peer->paths(OSUtils::now()).empty();
-					result["remoteVersionKnown"] = peer->remoteVersionKnown();
-					if (peer->remoteVersionKnown()) {
-						result["remoteVersion"] = std::to_string(peer->remoteVersionMajor()) + "." +
-												std::to_string(peer->remoteVersionMinor()) + "." +
-												std::to_string(peer->remoteVersionRevision());
-					}
-				}
-
-				// Check if we have stats for this peer (now per IP address)
-				{
-					Mutex::Lock _l(_peerStats_m);
-					json statsEntries = json::array();
-					uint64_t totalIncoming = 0, totalOutgoing = 0;
-
-					for (const auto& entry : _peerStats) {
-						if (entry.first.first == ztAddr) {  // Match ZT address
-							const PeerStats& stats = entry.second;
-							json statsEntry = json::object();
-							statsEntry["ipAddress"] = stats.peerIP;
-							statsEntry["totalIncoming"] = stats.totalIncoming;
-							statsEntry["totalOutgoing"] = stats.totalOutgoing;
-							statsEntry["firstIncomingSeen"] = stats.firstIncomingSeen;
-							statsEntry["lastIncomingSeen"] = stats.lastIncomingSeen;
-							statsEntries.push_back(statsEntry);
-
-							totalIncoming += stats.totalIncoming;
-							totalOutgoing += stats.totalOutgoing;
-						}
-					}
-
-					result["hasStatsEntry"] = !statsEntries.empty();
-					result["totalIncoming"] = totalIncoming;
-					result["totalOutgoing"] = totalOutgoing;
-					result["ipAddressCount"] = statsEntries.size();
-					result["statsPerIP"] = statsEntries;
-				}
-
-				setContent(req, res, result.dump(2));
-			} catch (...) {
-				json result = json::object();
-				result["ztAddress"] = ztAddrStr;
-				result["isValidAddress"] = false;
-				result["error"] = "Invalid ZT address format";
-				setContent(req, res, result.dump(2));
-			}
-		};
-		_controlPlane.Get("/debug/peer", debugPeerGet);
-		_controlPlaneV6.Get("/debug/peer", debugPeerGet);
 
 		// Debug endpoint to lookup ZT addresses by IP or IP addresses by ZT address
 		auto debugLookupGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -2847,107 +2761,6 @@ public:
 		};
 		_controlPlane.Get("/debug/lookup", debugLookupGet);
 		_controlPlaneV6.Get("/debug/lookup", debugLookupGet);
-
-		// IP-centric stats endpoint - shows one primary ZT address per IP
-		auto ipStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			if (!isAuthenticated(req, _authToken)) {
-				res.status = 403;
-				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
-				return;
-			}
-
-			json stats = json::object();
-
-			// Get primary ZT address per IP (simplified for now)
-			std::map<std::string, Address> primaryZtPerIP;
-
-			// Build IP-centric view
-			json ipStats = json::object();
-			{
-				Mutex::Lock _l(_peerStats_m);
-
-				// Aggregate stats by IP address (sum all ZT addresses for that IP)
-				std::map<std::string, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
-				std::map<std::string, std::map<unsigned int, uint64_t> > ipIncomingPorts, ipOutgoingPorts;
-
-				for (const auto& entry : _peerStats) {
-					const Address& ztAddr = entry.first.first;
-					const std::string& ipAddr = entry.first.second;
-					const PeerStats& peerStats = entry.second;
-
-					// Skip infrastructure entries (both by IP address and ZT address)
-					if (_isInfrastructureIP(ipAddr) || _isInfrastructureNode(ztAddr)) {
-						continue;
-					}
-
-					// Aggregate by IP address
-					ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
-					ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
-					ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
-
-					// Aggregate port usage
-					for (const auto& portCount : peerStats.incomingPortCounts) {
-						ipIncomingPorts[ipAddr][portCount.first] += portCount.second;
-					}
-					for (const auto& portCount : peerStats.outgoingPortCounts) {
-						ipOutgoingPorts[ipAddr][portCount.first] += portCount.second;
-					}
-				}
-
-				// Create stats for each IP with its primary ZT address
-				for (const auto& ipEntry : primaryZtPerIP) {
-					const std::string& ipAddr = ipEntry.first;
-					const Address& primaryZt = ipEntry.second;
-
-					char ztAddrBuf[32];
-					primaryZt.toString(ztAddrBuf);
-
-					json ipStat = json::object();
-					ipStat["ipAddress"] = ipAddr;
-					ipStat["primaryZtAddress"] = std::string(ztAddrBuf);
-					ipStat["totalIncoming"] = ipIncomingBytes[ipAddr];
-					ipStat["totalOutgoing"] = ipOutgoingBytes[ipAddr];
-					ipStat["lastSeen"] = ipLastSeen[ipAddr];
-
-					// Port usage for this IP (aggregated from all ZT addresses)
-					json incomingPorts = json::object();
-					for (const auto& portCount : ipIncomingPorts[ipAddr]) {
-						incomingPorts[std::to_string(portCount.first)] = portCount.second;
-					}
-					ipStat["incomingPorts"] = incomingPorts;
-
-					json outgoingPorts = json::object();
-					for (const auto& portCount : ipOutgoingPorts[ipAddr]) {
-						outgoingPorts[std::to_string(portCount.first)] = portCount.second;
-					}
-					ipStat["outgoingPorts"] = outgoingPorts;
-
-					// Count how many ZT addresses are associated with this IP
-					std::vector<Address> allZtForIP = _getZtAddressesForIP(ipAddr);
-					ipStat["ztAddressCount"] = allZtForIP.size();
-
-					// List all ZT addresses for this IP (for reference)
-					json ztAddresses = json::array();
-					for (const Address& zt : allZtForIP) {
-						char ztBuf[32];
-						zt.toString(ztBuf);
-						ztAddresses.push_back(std::string(ztBuf));
-					}
-					ipStat["allZtAddresses"] = ztAddresses;
-
-					ipStats[ipAddr] = ipStat;
-				}
-			}
-
-			stats["peersByIP"] = ipStats;
-			stats["summary"] = json::object();
-			stats["summary"]["uniqueIPs"] = primaryZtPerIP.size();
-			stats["summary"]["description"] = "IP-centric view showing primary ZT address per IP";
-
-			setContent(req, res, stats.dump(2));
-		};
-		_controlPlane.Get("/stats/by-ip", ipStatsGet);
-		_controlPlaneV6.Get("/stats/by-ip", ipStatsGet);
 
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
@@ -4372,10 +4185,12 @@ public:
 			remoteAddress.toIpString(ipBuf);
 
 			if (len > 12) {
-				destAddr.setTo(packetData + 8, 5);
+				destAddr.setTo(packetData + 8, 5); // TODO - we're doing this later in this function again!!
 			} else {
 				destAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
 			}
+
+            // TODO - we might be port tracking twice! We're calling _trackWirePacket() and _trackOutgoingPacket()
 
 			// Track wire packet metrics for outgoing packets (always successful when we send)
 			// For outgoing packets, we need to determine the local port used
@@ -4383,7 +4198,7 @@ public:
 			_trackWirePacket(destAddr, remoteAddress, true, len, false, _primaryPort); // false = outgoing packet
 			// Log initial outgoing packet attempts (before peer file access) - first time only per peer+IP
 			if (len > 12) {
-				Mutex::Lock _l(_firstTimeEvents_m);
+				Mutex::Lock _l(_firstTimeEvents_m); // TODO - really necessary?!
 				auto attemptKey = std::make_pair(destAddr, std::string(ipBuf));
 				if (_seenPacketSendAttempts.find(attemptKey) == _seenPacketSendAttempts.end()) {
 					_seenPacketSendAttempts.insert(attemptKey);
@@ -4470,17 +4285,16 @@ public:
 			// Track outgoing packet port usage (safe version without getsockname)
 			if (r) {
 				const InetAddress remoteAddress(addr);
-				Address destAddr;
+				Address ztAddr;
 				if (len >= 13) {
-					destAddr.setTo(((const uint8_t*)data) + 8, 5);
+					ztAddr.setTo(((const uint8_t*)data) + 8, 5);
 				} else {
 					// For short packets, use zero address as placeholder
-					destAddr.zero();
+					ztAddr.zero();
 				}
+				unsigned int localPort = _binder.getLocalPort((PhySocket *)((uintptr_t)localSocket));
 
-				// For specific socket sends, use primary port as default
-				// TODO: Could be enhanced to detect secondary/tertiary ports if needed
-				_trackOutgoingPeerPortUsage(destAddr, remoteAddress, InetAddress(), _primaryPort, OSUtils::now(), len);
+				_trackOutgoingPacket(destAddr, remoteAddress, localPort, OSUtils::now(), len);
 			}
 
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
@@ -4500,9 +4314,10 @@ public:
 					// For short packets, use zero address as placeholder
 					destAddr.zero();
 				}
+				// TODO - do we need to check anything before getting the local port?
+				unsigned int localPort = _binder.getLocalPort((PhySocket *)((uintptr_t)localSocket));
 
-				// For broadcast sends, use primary port
-				_trackOutgoingPeerPortUsage(destAddr, remoteAddress, InetAddress(), _primaryPort, OSUtils::now(), len);
+				_trackOutgoingPacket(destAddr, remoteAddress, localPort, OSUtils::now(), len);
 			}
 
 			return (r ? 0 : -1);
@@ -4862,24 +4677,19 @@ public:
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		// Create key for this specific ZT address + IP address combination
-		char ipBuf[64];
-		peerAddress.toIpString(ipBuf);
-
-		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
-		std::string keyIP;
-		keyIP = std::string(ipBuf); // TODO - why not use peerAddress as the keyIP
+		// Use IP address with port set to 0 for consistent tracking
+		InetAddress keyIP = peerAddress.ipOnly();
 
 		Mutex::Lock _l(_peerStats_m); // TODO - is this absolutely necessary?
 
-		auto peerKey = std::make_pair(ztAddr, keyIP); // better to use KeyIP or peerAddress ?
+		auto peerKey = std::make_pair(ztAddr, keyIP);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstIncoming = (_seenIncomingPeerPorts.find(peerPortKey) == _seenIncomingPeerPorts.end());
 
 		if (isFirstIncoming) { // TODO - move this to trackIncomingPeer using peerKey instead
-			if (_isInfrastructureIP(ipBuf) || _isInfrastructureNode(ztAddr)) {
+			if (_isInfrastructureNode(ztAddr)) {
 				// Add this IP to our infrastructure lookup table for fast filtering
-				_addInfrastructureIP(std::string(ipBuf)); // TODO - use peerAddress instead of ipBuf ?
+				_addInfrastructureIP(keyIP);  // keyIP already has port stripped
 			}
 
 			_seenIncomingPeerPorts.insert(peerPortKey);
@@ -4937,6 +4747,8 @@ public:
 			}
 
 			// Only show source_peer if different from peer (indicating relaying)
+			char ipBuf[64];
+			peerAddress.toIpString(ipBuf);
 			if (ztAddr == sourcePeerAddr) {
 				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion, existsInTopology, isAlive, hasDirectPath);
@@ -4952,50 +4764,46 @@ public:
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
-		stats.peerIP = std::string(ipBuf);  // Always use real IP for logging, even for infrastructure
+		stats.peerIP = peerAddress;  // Store the full InetAddress
 
 		if (stats.firstIncomingSeen == 0) {
 			stats.firstIncomingSeen = now;
 		}
 	}
 
-	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& remoteAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
+	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
 	{ // TODO - is this function used by tier 1, tier 2, or both?
     // TODO - merge trackOutgoingPacket() into this function, then rename this function to _trackOutgoingPacket()
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		// Create key for this specific ZT address + IP address combination
-		char ipBuf[64];
-		remoteAddress.toIpString(ipBuf);
-
-		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
-		std::string keyIP;
-		keyIP = std::string(ipBuf); // TODO - why not use remoteAddress as the keyIP
+		// Use IP address with port set to 0 for consistent tracking
+		InetAddress ipAddr = remoteAddress.ipOnly();
 
 		Mutex::Lock _l(_peerStats_m);
 
-		auto peerKey = std::make_pair(ztAddr, keyIP);
+		auto peerKey = std::make_pair(ztAddr, ipAddr);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
-		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
 		// Always track outgoing stats (no "seen before" requirement since we're at Tier 2)
 		PeerStats& stats = _peerStats[peerKey];
+
+        if (stats.totalOutgoing == 0 && _isInfrastructureNode(ztAddr)) {
+			// Add this IP to our infrastructure lookup table for fast filtering
+			_addInfrastructureIP(ipAddr);  // ipAddr already has port stripped
+		}
+		
 		stats.outgoingPortCounts[localPort]++;
 		stats.totalOutgoing++;
 		stats.lastOutgoingSeen = now;
-		stats.peerIP = std::string(ipBuf); // Update IP for this stats entry
+		stats.ipAddr = ipAddr; // Store the full InetAddress
 
 		if (stats.firstOutgoingSeen == 0) {
 			stats.firstOutgoingSeen = now;
-		}
 
-		// First-time outgoing packet logging with detailed information
-		if (isFirstOutgoing) {
 			_seenOutgoingPeerPorts.insert(peerPortKey);
-			char ztBuf[64], localBuf[64];
+			char ztBuf[64];
 			ztAddr.toString(ztBuf);
-			localAddress.toIpString(localBuf);
 
 			// Enhanced logging for outgoing packets with full details
 			const char* peerRole = "";
@@ -5007,61 +4815,19 @@ public:
 			// Don't access topology from packet send path - causes deadlocks
 			// Just use minimal info available without locks
 
-			fprintf(stderr, "PACKET_TO1: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+			char ipBuf[64];
+			remoteAddress.toIpString(ipBuf);
+			fprintf(stderr, "PACKET_TO: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
 				existsInTopology, isAlive, hasDirectPath);
 		}
 	}
 
-	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& localAddress, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
-	{ // TODO - this used by tier 1, tier 2, or both?
-	// TODO - merge this function into trackOutgoingPeerPortUsage() then rename that function to _trackOutgoingPacket
-		// Skip tracking during early initialization to prevent crashes
-		if (!_node) return;
-
-		// Create key for this specific ZT address + IP address combination
-		char ipBuf[64];
-		remoteAddress.toIpString(ipBuf);
-
-		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
-		std::string keyIP;
-		keyIP = std::string(ipBuf); // TODO - why not use remoteAddress as the keyIP
-
-		Mutex::Lock _l(_peerStats_m); // TODO  -is this really necessary?
-
-		auto peerKey = std::make_pair(ztAddr, keyIP);
-		auto peerPortKey = std::make_pair(peerKey, localPort);
-		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
-
-		if (isFirstOutgoing) { // TODO - this seems to never run, perhaps because PeerPortUsage always runs first?
-			if (_isInfrastructureNode(ztAddr)) {
-				// Add this IP to our infrastructure lookup table for fast filtering
-				_addInfrastructureIP(std::string(ipBuf)); // TODO - use remoteAddress instead of ipBuf ?
-			}
-
-			_seenOutgoingPeerPorts.insert(peerPortKey);
-			char ztBuf[64], localBuf[64];
-			ztAddr.toString(ztBuf);
-			localAddress.toIpString(localBuf);
-
-			// Enhanced logging for outgoing packets with full details
-			// Avoid topology access from packet send path to prevent deadlocks
-			const char* peerRole = "";
-			const char* peerVersion = "";
-			const char* isAlive = "";
-			const char* hasDirectPath = "";
-			const char* existsInTopology = "";
-
-			fprintf(stderr, "PACKET_TO2: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
-				existsInTopology, isAlive, hasDirectPath);
-		}
-	}
 
 	void _trackOutgoingPacketSend(int64_t localSocket, const struct sockaddr_storage *addr, const void *data, unsigned int len)
 	{ // TODO - this is called by tier 1, tier 2, or both?
 		// Skip tracking during early initialization to prevent crashes
-		if (!_node || len < 16) return;
+		if (!_node) return;
 
 		try {
 			// Extract destination peer address from packet data
@@ -5069,16 +4835,16 @@ public:
 			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
 
 			// Extract destination address from packet (bytes 8-12 for 5-byte address)
-			Address peerZT;
+			Address ztAddr;
 			if (len >= 13) {
-				peerZT.setTo(packetData + 8, 5);
+				ztAddr.setTo(packetData + 8, 5);
 			} else {
-				peerZT.zero();
+				ztAddr.zero();
 			}
 
 			// Get local address from socket
 			InetAddress localAddress;
-			InetAddress peerIP(addr);
+			InetAddress ipAddr(addr);
 
 			if (localSocket != -1 && localSocket != 0) {
 				// Try to get local address from socket
@@ -5091,7 +4857,7 @@ public:
 
 			unsigned int localPort = localAddress.port();
 
-			_trackOutgoingPacket(peerZT, peerIP, localPort, OSUtils::now(), len);
+			_trackOutgoingPacket(ztAddr, ipAddr, localPort, OSUtils::now(), len);
 		} catch (...) {
 			// Ignore errors during packet parsing - not critical
 		}
@@ -5203,23 +4969,22 @@ public:
 	}
 
 	// Fast wire packet tracking using direct memory updates (replaces slow Prometheus metrics)
-	void _trackWirePacket(const Address& ztAddr, const InetAddress& peerIP,
+	void _trackWirePacket(const Address& ztAddr, const InetAddress& ipAddr,
 						  bool isSuccessful, unsigned int packetSize, bool incoming, unsigned int localPort) {
-		char peerIPStr[64];
-		peerIP.toIpString(peerIPStr);
+		// Use IP address with port set to 0 for consistent tracking
+		InetAddress keyIP = ipAddr.ipOnly();
 
-		// Handle null ZT addresses (TIER 1 wire-level tracking without ZT validation)
-		std::string keyIP;
-		keyIP = std::string(peerIPStr); // TODO - why not use peerIP as the keyIP ?
-
-		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, keyIP);
+		std::pair<Address, InetAddress> peerKey = std::make_pair(ztAddr, keyIP);
 
 		Mutex::Lock _l(_peerStats_m);
 		PeerStats& stats = _peerStats[peerKey];
 
 		// Ensure peerIP is set (for new entries)
-		if (stats.peerIP.empty()) {
-			stats.peerIP = std::string(peerIPStr);
+		if (!stats.ipAddr) {
+			stats.ipAddr = ipAddr;
+		}
+		if (ztAddr && !stats.ztAddr) {
+			stats.ztAddr = ztAddr;
 		}
 
 		// Update wire packet counters based on direction
@@ -5245,29 +5010,25 @@ public:
 		// TODO - is this now pointless given that ztAddr is now always zero?
 		uint64_t now = OSUtils::now();
 		if ((now - stats.lastDivergenceCheck) > 10000) {
-			_checkForAttackDivergence(ztAddr, peerIP, stats, now);
+			_checkForAttackDivergence(ztAddr, ipAddr, stats, now);
 			stats.lastDivergenceCheck = now;
 		}
 	}
 
 	// TIER 2: Track authenticated packets only (called from Peer.cpp level)
-	void _trackAuthenticatedPacket(const Address& ztAddr, const InetAddress& peerIP,
+	void _trackAuthenticatedPacket(const Address& ztAddr, const InetAddress& ipAddr,
 								   unsigned int packetSize, bool incoming, uint64_t now) {
-		char peerIPStr[64];
-		peerIP.toIpString(peerIPStr);
+		// Use IP address with port set to 0 for consistent tracking
+		InetAddress keyIP = ipAddr.ipOnly();
 
-		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
-		std::string keyIP;
-		keyIP = std::string(peerIPStr); // TODO - why not use peerIP as the keyIP ?
-
-		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, keyIP);
+		std::pair<Address, InetAddress> peerKey = std::make_pair(ztAddr, keyIP);
 
 		Mutex::Lock _l(_peerStats_m);
 		PeerStats& stats = _peerStats[peerKey];
 
 		// Ensure peerIP is set (for new entries)
-		if (stats.peerIP.empty()) {
-			stats.peerIP = std::string(peerIPStr);
+		if (!stats.ipAddr) {
+			stats.ipAddr = ipAddr;
 		}
 
 		// Update authenticated packet counters
@@ -5305,19 +5066,19 @@ public:
 	}
 
 	// Add an IP address to the infrastructure lookup table
-	void _addInfrastructureIP(const std::string& ipAddr) {
+	void _addInfrastructureIP(const InetAddress& ipAddr) {
 		Mutex::Lock _l(_infrastructureIPs_m);
 		_infrastructureIPs.insert(ipAddr);
 	}
 
 	// Check if an IP address is in the infrastructure lookup table
-	bool _isInfrastructureIP(const std::string& ipAddr) {
+	bool _isInfrastructureIP(const InetAddress& ipAddr) {
 		Mutex::Lock _l(_infrastructureIPs_m);
 		return _infrastructureIPs.find(ipAddr) != _infrastructureIPs.end();
 	}
 
 	// Get a copy of the infrastructure IPs (for stats endpoints)
-	std::set<std::string> _getInfrastructureIPs() { // TODO - when is this used and by which functions?
+	std::set<InetAddress> _getInfrastructureIPs() { // TODO - when is this used and by which functions?
 		Mutex::Lock _l(_infrastructureIPs_m);
 		return _infrastructureIPs;  // Return copy
 	}
@@ -5348,7 +5109,7 @@ public:
 		return ipAddresses; // TODO - which functions are using this?
 	}
 
-	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& peerIP,
+	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& ipAddr,
 								   PeerStats& stats, uint64_t now) {
 		if (!ztAddr) { // isZero() is equivalent to !ztAddr since Address has bool operator
 			return; // Skip attack detection for zero addresses until we understand the false positives
@@ -5394,15 +5155,15 @@ public:
 			stats.attackEventCount++;
 
 			// Log attack detection
-			char ztAddrStr[16], peerIPStr[64];
+			char ztAddrStr[16], ipAddrStr[64];
 			ztAddr.toString(ztAddrStr);
-			peerIP.toIpString(peerIPStr);
+			ipAddr.toIpString(ipAddrStr);
 
 			fprintf(stderr, "ATTACK_DETECTED: %s attack on peer %s from IP %s - "
 							"Wire/Auth byte ratio: %.1f:1 - "
 							"Wire: %llu bytes, Auth: %llu bytes, "
 							"Suspicious: %llu packets, Events: %llu" ZT_EOL_S,
-				attackSeverity, ztAddrStr, peerIPStr, incomingByteRatio,
+				attackSeverity, ztAddrStr, ipAddrStr, incomingByteRatio,
 				(unsigned long long)stats.WireBytesIncoming,
 				(unsigned long long)stats.AuthBytesIncoming,
 				(unsigned long long)stats.suspiciousPacketCount, (unsigned long long)stats.attackEventCount);
