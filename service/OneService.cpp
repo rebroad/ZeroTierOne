@@ -4333,7 +4333,11 @@ public:
 		try {
 			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
 			Address destAddr;
-			destAddr.setTo(packetData + 8, 5);
+			if (len > 12) {
+				destAddr.setTo(packetData + 8, 5);
+			} else {
+				destAddr.zero();
+			}
 			const InetAddress remoteAddress(addr);
 			char ipBuf[64];
 			remoteAddress.toIpString(ipBuf);
@@ -5325,6 +5329,10 @@ public:
 
 	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& peerIP,
 								   PeerStats& stats, uint64_t now) {
+		if (!ztAddr) { // isZero() is equivalent to !ztAddr since Address has bool operator
+			return; // Skip attack detection for zero addresses until we understand false positives
+		}
+
 		// Calculate divergence ratios (byte-based analysis only since we removed packet counts)
 		double incomingByteRatio = 0.0;
 
