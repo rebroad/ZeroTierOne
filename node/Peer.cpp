@@ -23,7 +23,7 @@
 #include "RingBuffer.hpp"
 #include "Utils.hpp"
 #include "Metrics.hpp"
-#include "../osdep/Phy.hpp"
+#include "../osdep/Phy.hpp" // For obtaining the local port number
 
 namespace ZeroTier {
 
@@ -183,6 +183,8 @@ void Peer::received(
 					}
 
 					// Notify service about new peer path (iptables integration)
+					// TODO - Is this function still needed now that we're passing localPort from tier 1 to tier 2
+					//    and returning ztaddr from tier 2 to tier 1 ?
 					if (RR->peerEventCallback) {
 						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true, 0, 0);
 					}
@@ -465,8 +467,7 @@ void Peer::sendHELLO(void *tPtr,const int64_t localSocket,const InetAddress &atA
 	if (atAddress) {
 		outp.armor(_key,false,nullptr); // false == don't encrypt full payload, but add MAC
 		RR->node->expectReplyTo(outp.packetId());
-		int64_t actualSocket = RR->node->lowBandwidthModeEnabled() ? localSocket : -1;
-		RR->node->putPacket(tPtr,actualSocket,atAddress,outp.data(),outp.size());
+		RR->node->putPacket(tPtr,RR->node->lowBandwidthModeEnabled() ? localSocket : -1,atAddress,outp.data(),outp.size());
 	} else {
 		RR->node->expectReplyTo(outp.packetId());
 		RR->sw->send(tPtr,outp,false); // false == don't encrypt full payload, but add MAC
@@ -711,7 +712,7 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path> &path, const uint64_t pack
 		PhySocket* sock = reinterpret_cast<PhySocket*>((uintptr_t)path->localSocket());
 		// Use the Phy template's static method to get the local port
 		unsigned int localPort = Phy<void*>::getLocalPort(sock);
-		if (localPort > 0) {
+		if (localPort) {
 			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
 								  path->address(), _id.address(), Address(), true, localPort, payloadLength);
 		}
