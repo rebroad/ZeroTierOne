@@ -229,6 +229,15 @@ bool bearerTokenValid(const std::string authHeader, const std::string &checkToke
 	return true;
 }
 
+// Helper function for consistent authentication - use standard x-zt1-auth method like all other endpoints
+bool isAuthenticated(const httplib::Request &req, const std::string &authToken) {
+	if (req.has_header("x-zt1-auth")) {
+		std::string token = req.get_header_value("x-zt1-auth");
+		return (token == authToken);
+	}
+	return false;
+}
+
 #if ZT_DEBUG==1
 std::string dump_headers(const httplib::Headers &headers) {
   std::string s;
@@ -949,9 +958,9 @@ public:
 					, suspiciousPacketCount(0), lastDivergenceCheck(0)
 					, lastAuthIncomingSeen(0), lastAuthOutgoingSeen(0) {}
 	};
-	std::map<std::pair<Address, std::string>, PeerStats> _peerStats; // Track by ZT address + IP string
-	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenIncomingPeerPorts; // For first-time incoming logging
-	std::set<std::pair<std::pair<Address, std::string>, unsigned int>> _seenOutgoingPeerPorts; // For first-time outgoing logging
+	std::map<std::pair<Address, InetAddress>, PeerStats> _peerStats; // Track by ZT address + IP address (port always 0)
+	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int>> _seenIncomingPeerPorts; // For first-time incoming logging
+	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int>> _seenOutgoingPeerPorts; // For first-time outgoing logging
 	Mutex _peerStats_m;
 
 	// Peer introduction tracking for misbehavior detection
@@ -970,8 +979,8 @@ public:
 	Mutex _peerIntroductions_m;
 
 	// Track first-time events for debugging
-	std::set<std::pair<Address, std::string> > _seenPeerFileAccess;		  // Track first peer file access per ZT address
-	std::set<std::pair<Address, std::string> > _seenPacketSendAttempts;	  // Track first packet send attempt per ZT address + IP
+	std::set<std::pair<Address, InetAddress> > _seenPeerFileAccess;		  // Track first peer file access per ZT address
+	std::set<std::pair<Address, InetAddress> > _seenPacketSendAttempts;	  // Track first packet send attempt per ZT address + IP
 	Mutex _firstTimeEvents_m;
 
 	// Fast lookup table for infrastructure node IP addresses (planets/moons)
@@ -2696,7 +2705,7 @@ public:
 
 		// Debug endpoint to validate ZT addresses and check peer status
 		auto debugPeerGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
+			if (!isAuthenticated(req, _authToken)) {
 				res.status = 403;
 				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
 				return;
@@ -2786,7 +2795,7 @@ public:
 
 		// Debug endpoint to lookup ZT addresses by IP or IP addresses by ZT address
 		auto debugLookupGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
+			if (!isAuthenticated(req, _authToken)) {
 				res.status = 403;
 				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
 				return;
@@ -2841,7 +2850,7 @@ public:
 
 		// IP-centric stats endpoint - shows one primary ZT address per IP
 		auto ipStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
+			if (!isAuthenticated(req, _authToken)) {
 				res.status = 403;
 				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
 				return;
@@ -4868,7 +4877,7 @@ public:
 		bool isFirstIncoming = (_seenIncomingPeerPorts.find(peerPortKey) == _seenIncomingPeerPorts.end());
 
 		if (isFirstIncoming) { // TODO - move this to trackIncomingPeer using peerKey instead
-			if (_isInfrastructureIP(peerAddress) || _isInfrastructureNode(ztAddr)) {
+			if (_isInfrastructureIP(ipBuf) || _isInfrastructureNode(ztAddr)) {
 				// Add this IP to our infrastructure lookup table for fast filtering
 				_addInfrastructureIP(std::string(ipBuf)); // TODO - use peerAddress instead of ipBuf ?
 			}
@@ -5050,7 +5059,7 @@ public:
 	}
 
 	void _trackOutgoingPacketSend(int64_t localSocket, const struct sockaddr_storage *addr, const void *data, unsigned int len)
-	{
+	{ // TODO - this is called by tier 1, tier 2, or both?
 		// Skip tracking during early initialization to prevent crashes
 		if (!_node || len < 16) return;
 
@@ -5060,16 +5069,16 @@ public:
 			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
 
 			// Extract destination address from packet (bytes 8-12 for 5-byte address)
-			Address destAddr;
+			Address peerZT;
 			if (len >= 13) {
-				destAddr.setTo(packetData + 8, 5);
+				peerZT.setTo(packetData + 8, 5);
 			} else {
-				destAddr.zeros();
+				peerZT.zero();
 			}
 
 			// Get local address from socket
 			InetAddress localAddress;
-			InetAddress remoteAddress(addr);
+			InetAddress peerIP(addr);
 
 			if (localSocket != -1 && localSocket != 0) {
 				// Try to get local address from socket
@@ -5080,18 +5089,9 @@ public:
 				}
 			}
 
-			// If we couldn't get local address from socket, use a placeholder
-			if (!localAddress) {
-				if (addr->ss_family == AF_INET) {
-					localAddress.fromString("0.0.0.0/0");
-				} else {
-					localAddress.fromString("::/0");
-				}
-			}
-
 			unsigned int localPort = localAddress.port();
 
-			_trackOutgoingPacket(destAddr, localAddress, remoteAddress, localPort, OSUtils::now(), len);
+			_trackOutgoingPacket(peerZT, peerIP, localPort, OSUtils::now(), len);
 		} catch (...) {
 			// Ignore errors during packet parsing - not critical
 		}
@@ -5323,12 +5323,12 @@ public:
 	}
 
 	// Helper function to look up all ZT addresses associated with an IP address
-	std::vector<Address> _getZtAddressesForIP(const std::string& ipAddr) {
+	std::vector<Address> _getZtAddressesForIP(const InetAddress& ipAddr) {
 		std::vector<Address> ztAddresses;
 		Mutex::Lock _l(_peerStats_m);
 
 		for (const auto& entry : _peerStats) {
-			if (entry.first.second == ipAddr) {  // Match IP address
+			if (entry.first.second.ipsEqual(ipAddr)) {  // Match IP address (ignoring port)
 				ztAddresses.push_back(entry.first.first);  // Add ZT address
 			}
 		}
@@ -5336,8 +5336,8 @@ public:
 	}
 
 	// Helper function to look up all IP addresses associated with a ZT address
-	std::vector<std::string> _getIPAddressesForZtAddr(const Address& ztAddr) {
-		std::vector<std::string> ipAddresses;
+	std::vector<InetAddress> _getIPAddressesForZtAddr(const Address& ztAddr) {
+		std::vector<InetAddress> ipAddresses;
 		Mutex::Lock _l(_peerStats_m);
 
 		for (const auto& entry : _peerStats) {
