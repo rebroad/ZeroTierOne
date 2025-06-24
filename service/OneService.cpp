@@ -2526,33 +2526,63 @@ public:
 				}
 			}
 
-			// Step 2: Sort by total bytes using higher of IP vs ZT stats (as per original requirement)
-			std::sort(sortedPeers.begin(), sortedPeers.end(),
-				[&](const auto& a, const auto& b) {
-					const Address& ztAddrA = a.first.first;
-					const InetAddress& ipAddrA = a.first.second;
-					const Address& ztAddrB = b.first.first;
-					const InetAddress& ipAddrB = b.first.second;
+			// Step 2: Pre-calculate display values and create sortable entries to eliminate duplicate logic
+			struct PeerDisplayData {
+				std::pair<Address, InetAddress> peerKey;
+				PeerStats stats;
+				uint64_t displayRx;
+				uint64_t displayTx;
+				bool isInfrastructure;
+				std::string rxSource;
+				std::string txSource;
+			};
 
-					// TODO - code below is wrong. We should have already decided elsewhere whether to use IP or ZT stats!
+			std::vector<PeerDisplayData> sortablePeers;
 
-					// Get higher RX value (IP vs ZT)
-					uint64_t rxA = std::max(ipIncomingBytes[ipAddrA], ztIncomingBytes[ztAddrA]);
-					uint64_t rxB = std::max(ipIncomingBytes[ipAddrB], ztIncomingBytes[ztAddrB]);
-
-					// Get higher TX value (IP vs ZT)
-					uint64_t txA = std::max(ipOutgoingBytes[ipAddrA], ztOutgoingBytes[ztAddrA]);
-					uint64_t txB = std::max(ipOutgoingBytes[ipAddrB], ztOutgoingBytes[ztAddrB]);
-
-					return (rxA + txA) > (rxB + txB);
-				});
-
-			json peerStats = json::array();
 			for (const auto& peerEntry : sortedPeers) {
 				const std::pair<Address, InetAddress>& peerKey = peerEntry.first;
 				const Address& ztAddr = peerKey.first;
 				const InetAddress& ipAddr = peerKey.second;
 				const PeerStats& stats = peerEntry.second;
+
+				uint64_t ipRx = ipIncomingBytes[ipAddr];
+				uint64_t ztRx = ztIncomingBytes[ztAddr];
+				uint64_t ipTx = ipOutgoingBytes[ipAddr];
+				uint64_t ztTx = ztOutgoingBytes[ztAddr];
+
+				bool isInfrastructure = _isInfrastructureIP(ipAddr);
+
+				// Calculate display values once (eliminates duplicate logic)
+				uint64_t displayRx, displayTx;
+				std::string rxSource, txSource;
+				if (isInfrastructure) {
+					displayRx = ztRx;
+					displayTx = ztTx;
+					rxSource = txSource = "z";
+				} else {
+					bool rxFromIP = ipRx >= ztRx;
+					bool txFromIP = ipTx >= ztTx;
+					displayRx = rxFromIP ? ipRx : ztRx;
+					displayTx = txFromIP ? ipTx : ztTx;
+					rxSource = rxFromIP ? "i" : "z";
+					txSource = txFromIP ? "i" : "z";
+				}
+
+				sortablePeers.push_back({peerKey, stats, displayRx, displayTx, isInfrastructure, rxSource, txSource});
+			}
+
+			// Sort by pre-calculated display values
+			std::sort(sortablePeers.begin(), sortablePeers.end(),
+				[](const PeerDisplayData& a, const PeerDisplayData& b) {
+					return (a.displayRx + a.displayTx) > (b.displayRx + b.displayTx);
+				});
+
+			json peerStats = json::array();
+			for (const auto& peerData : sortablePeers) {
+				const std::pair<Address, InetAddress>& peerKey = peerData.peerKey;
+				const Address& ztAddr = peerKey.first;
+				const InetAddress& ipAddr = peerKey.second;
+				const PeerStats& stats = peerData.stats;
 
 				// Convert InetAddress to string for JSON output
 				char ipAddrStr[64];
@@ -2561,46 +2591,18 @@ public:
 
 				char ztAddrStr[32];
 				ztAddr.toString(ztAddrStr);
-				std::string ztAddrStr(ztAddrStr);
+				std::string ztAddrString(ztAddrStr);
 
 				json peerStat = json::object();
-				peerStat["ztAddress"] = ztAddrStr;
+				peerStat["ztAddress"] = ztAddrString;
 				peerStat["ipAddress"] = ipAddrString;
 
-				// Step 3: Compare IP vs ZT stats and use higher values with indicators
-				uint64_t ipRx = ipIncomingBytes[ipAddr];
-				uint64_t ztRx = ztIncomingBytes[ztAddr];
-				uint64_t ipTx = ipOutgoingBytes[ipAddr];
-				uint64_t ztTx = ztOutgoingBytes[ztAddr];
-
-				// Check if this ZT address is infrastructure (PLANET/MOON)
-				bool isInfrastructure = _isInfrastructureIP(ipAddr) || _isInfrastructureNode(ztAddr);
-
-				// Use higher RX/TX value and mark source with "i" (IP) or "z" (ZT address)
-				// Note: IP stats will be 0 for infrastructure nodes due to filtering above
-				bool rxFromIP, txFromIP;
-				uint64_t displayRx, displayTx;
-				std::string rxSource, txSource;
-				if (isInfrastructure) {
-					rxFromIP = txFromIP = false;
-					displayRx = ztRx;
-					displayTx = ztTx;
-					rxSource = txSource = "z";
-				} else {
-					rxFromIP = ipRx >= ztRx;
-					txFromIP = ipTx >= ztTx;
-					displayRx = rxFromIP ? ipRx : ztRx;
-					displayTx = txFromIP ? ipTx : ztTx;
-					rxSource = rxFromIP ? "i" : "z";
-					txSource = txFromIP ? "i" : "z";
-				}
-
-				// Display values (these are what should be used for bandwidth enforcement decisions)
-				peerStat["displayBytesIncoming"] = displayRx; // TODO - should formatting be done in one.cpp?
-				peerStat["displayBytesOutgoing"] = displayTx; // TODO - formatting should be done in one.cpp!
-				peerStat["rxSource"] = rxSource;  // "i" = from IP stats, "z" = from ZT address stats
-				peerStat["txSource"] = txSource;  // "i" = from IP stats, "z" = from ZT address stats
-				peerStat["isInfrastructureNode"] = isInfrastructure;  // Indicates if IP stats were excluded
+				// Step 3: Use pre-calculated display values (no duplicate logic)
+				peerStat["displayBytesIncoming"] = peerData.displayRx; // TODO - should formatting be done in one.cpp?
+				peerStat["displayBytesOutgoing"] = peerData.displayTx; // TODO - formatting should be done in one.cpp!
+				peerStat["rxSource"] = peerData.rxSource;  // "i" = from IP stats, "z" = from ZT address stats
+				peerStat["txSource"] = peerData.txSource;  // "i" = from IP stats, "z" = from ZT address stats
+				peerStat["isInfrastructureNode"] = peerData.isInfrastructure;  // Indicates if IP stats were excluded
 				peerStat["totalIncoming"] = stats.totalIncoming; // TODO - what is this?
 				peerStat["totalOutgoing"] = stats.totalOutgoing; // TODO - what is this?
 				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen; // TODO - not needed
@@ -4192,9 +4194,9 @@ public:
 				destAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
 			}
 
-            // TODO - we might be port tracking three times! We're calling _trackWirePacket() and
+			// TODO - we might be port tracking three times! We're calling _trackWirePacket() and
 			// also _trackOutgoingPacket() (which is also called by _trackOutgoingPacketSend())
-            // and _trackWirePacket is also called from phyOnDatagram()!
+			// and _trackWirePacket is also called from phyOnDatagram()!
 
 			// Track wire packet metrics for outgoing packets (always successful when we send)
 			// For outgoing packets, we need to determine the local port used
@@ -4777,7 +4779,7 @@ public:
 
 	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
 	{ // TODO - is this function used by tier 1, tier 2, or both?
-    // TODO - merge trackOutgoingPacket() into this function, then rename this function to _trackOutgoingPacket()
+	// TODO - merge trackOutgoingPacket() into this function, then rename this function to _trackOutgoingPacket()
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
@@ -4792,11 +4794,11 @@ public:
 		// Always track outgoing stats (no "seen before" requirement since we're at Tier 2)
 		PeerStats& stats = _peerStats[peerKey];
 
-        if (stats.totalOutgoing == 0 && _isInfrastructureNode(ztAddr)) {
+		if (stats.totalOutgoing == 0 && _isInfrastructureNode(ztAddr)) {
 			// Add this IP to our infrastructure lookup table for fast filtering
 			_addInfrastructureIP(ipAddr);  // ipAddr already has port stripped
 		}
-		
+
 		stats.outgoingPortCounts[localPort]++;
 		stats.totalOutgoing++;
 		stats.lastOutgoingSeen = now;
