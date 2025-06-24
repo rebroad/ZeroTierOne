@@ -4368,14 +4368,16 @@ public:
 		try {
 			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
 			Address destAddr;
-			if (len > 12) {
-				destAddr.setTo(packetData + 8, 5);
-			} else {
-				destAddr.zero();
-			}
 			const InetAddress remoteAddress(addr);
 			char ipBuf[64];
 			remoteAddress.toIpString(ipBuf);
+
+			if (len > 12) {
+				destAddr.setTo(packetData + 8, 5);
+			} else {
+				fprintf(stderr, "WARNING: destAddr.zero() in nodeWirePacketSendFunction - len=%u, remoteAddr=%s\n", len, ipBuf);
+				destAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
+			}
 
 			// Track wire packet metrics for outgoing packets (always successful when we send)
 			// For outgoing packets, we need to determine the local port used
