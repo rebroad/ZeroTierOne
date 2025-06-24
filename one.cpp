@@ -69,7 +69,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
-#include <set>
+#include <set> // TODO - need by what?
 
 #include "version.h"
 #include "include/ZeroTierOne.h"
@@ -190,6 +190,7 @@ static int cli(int argc,char **argv)
 	for(int i=1;i<argc;++i) {
 		if (argv[i][0] == '-') {
 			switch(argv[i][1]) {
+
 				case 'q': // ignore -q used to invoke this personality
 					if (argv[i][2]) {
 						cliPrintHelp(argv[0],stdout);
@@ -833,7 +834,7 @@ static int cli(int argc,char **argv)
 								} else if (status == "OK") {
 									int64_t expiresIn = ((int64_t)authenticationExpiryTime - OSUtils::now()) / 1000LL;
 									if (expiresIn >= 0) {
-										printf("    AUTH OK, expires in: %ld seconds" ZT_EOL_S, (long)expiresIn);
+										printf("    AUTH OK, expires in: %lld seconds" ZT_EOL_S, expiresIn);
 									}
 								}
 							}
@@ -1588,6 +1589,7 @@ static int cli(int argc,char **argv)
 			dump << ZT_EOL_S;
 		}
 
+
 		FSRef fsref;
 		UInt8 path[PATH_MAX];
 		if (FSFindFolder(kUserDomain, kDesktopFolderType, kDontCreateFolder, &fsref) == noErr &&
@@ -1795,8 +1797,6 @@ static int cli(int argc,char **argv)
 				j["settings"]["iptablesWanInterface"] = arg1;
 			}
 
-			std::map<std::string, std::string> requestHeaders;
-			requestHeaders["Authorization"] = std::string("Bearer ") + authToken;
 			requestHeaders["Content-Type"] = "application/json";
 
 			std::string postData = j.dump();
