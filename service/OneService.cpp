@@ -2622,7 +2622,14 @@ public:
 				}
 				peerStat["outgoingPorts"] = outgoingPorts;
 
-				peerStats[combinedKey] = peerStat;
+				// Filter out entries with zero ZT address AND no port usage
+				// These are usually TIER 1 tracking entries with null ZT addresses that have no useful information
+				bool hasPortUsage = !stats.incomingPortCounts.empty() || !stats.outgoingPortCounts.empty();
+				bool shouldInclude = ztAddr || hasPortUsage;  // Include if ZT address is valid OR has port usage
+
+				if (shouldInclude) {
+					peerStats[combinedKey] = peerStat;
+				}
 			}
 			stats["peersByZtAddressAndIP"] = peerStats;
 
