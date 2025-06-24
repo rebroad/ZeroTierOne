@@ -24,10 +24,9 @@ namespace ZeroTier {
 
 SecurityMonitor::SecurityMonitor(const RuntimeEnvironment *renv) :
     RR(renv),
-    _eventBufferPos(0),
     _lastCleanup(0)
 {
-    _recentEvents.reserve(MAX_RECENT_EVENTS);
+    // Constructor simplified - no longer maintaining event buffer
 }
 
 SecurityMonitor::~SecurityMonitor() {}
@@ -77,25 +76,15 @@ void SecurityMonitor::recordSecurityEvent(void *tPtr, const InetAddress &sourceI
     bool threatLevelChanged = (newThreatLevel != ipStats.currentThreatLevel);
     ipStats.currentThreatLevel = newThreatLevel;
 
-    // Create security event record
+    // Create security event record and log it immediately
     SecurityEvent event(now, sourceIP, sourceZT, eventType, newThreatLevel,
                        description ? description : "");
     if (packetInfo) {
         event.packetInfo = packetInfo;
     }
 
-    // Add to circular buffer
-    if (_recentEvents.size() < MAX_RECENT_EVENTS) {
-        _recentEvents.push_back(event);
-    } else {
-        _recentEvents[_eventBufferPos] = event;
-        _eventBufferPos = (_eventBufferPos + 1) % MAX_RECENT_EVENTS;
-    }
-
-    // Log significant events
-    if (newThreatLevel >= THREAT_MEDIUM || threatLevelChanged) {
-        _logSecurityEvent(event);
-    }
+    // Log all security events immediately (no buffering for CLI queries)
+    _logSecurityEvent(event);
 
     // Periodic cleanup
     if ((now - _lastCleanup) > CLEANUP_INTERVAL) {
@@ -132,29 +121,7 @@ const SecurityMonitor::IPStats* SecurityMonitor::getIPStats(const InetAddress &s
     return nullptr;
 }
 
-std::vector<SecurityMonitor::SecurityEvent> SecurityMonitor::getRecentEvents(size_t maxEvents)
-{
-    Mutex::Lock _l(_lock);
-
-    std::vector<SecurityEvent> result;
-    result.reserve(std::min(maxEvents, _recentEvents.size()));
-
-    if (_recentEvents.size() <= MAX_RECENT_EVENTS) {
-        // Buffer not full yet, return from newest to oldest
-        size_t start = _recentEvents.size();
-        for (size_t i = 0; i < std::min(maxEvents, _recentEvents.size()); ++i) {
-            result.push_back(_recentEvents[start - 1 - i]);
-        }
-    } else {
-        // Buffer is full, return from current position backwards
-        for (size_t i = 0; i < std::min(maxEvents, _recentEvents.size()); ++i) {
-            size_t idx = (_eventBufferPos + MAX_RECENT_EVENTS - 1 - i) % MAX_RECENT_EVENTS;
-            result.push_back(_recentEvents[idx]);
-        }
-    }
-
-    return result;
-}
+// getRecentEvents method removed - security events are now logged immediately instead of buffered
 
 std::string SecurityMonitor::exportPrometheusMetrics()
 {
@@ -215,24 +182,9 @@ std::string SecurityMonitor::exportPrometheusMetrics()
                 << "\",type=\"protocol_violation\"} " << stats.protocolViolations << "\n";
     }
 
-    // Export recent event counts
-    std::map<SecurityEventType, uint64_t> recentEventCounts;
-    const uint64_t now = RR->node->now();
-    const uint64_t hourAgo = now - 3600000; // 1 hour ago
-
-    for (const SecurityEvent &event : _recentEvents) {
-        if (event.timestamp >= hourAgo) {
-            recentEventCounts[event.eventType]++;
-        }
-    }
-
-    metrics << "# HELP zt_security_events_recent Security events in last hour\n";
-    metrics << "# TYPE zt_security_events_recent counter\n";
-    for (const auto &pair : recentEventCounts) {
-        metrics << "zt_security_events_recent{type=\""
-                << _eventTypeToString(pair.first) << "\"} "
-                << pair.second << "\n";
-    }
+    // Note: Recent event counts removed since events are now logged immediately
+    // instead of being buffered. Consider using external log analysis tools
+    // for time-based security event metrics.
 
     return metrics.str();
 }

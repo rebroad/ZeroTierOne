@@ -108,11 +108,6 @@ private:
     // ZeroTier address-based tracking (for known peers)
     Hashtable<Address, IPStats> _ztAddrStats;
 
-    // Recent security events (circular buffer)
-    std::vector<SecurityEvent> _recentEvents;
-    size_t _eventBufferPos;
-    static const size_t MAX_RECENT_EVENTS = 1000;
-
     // Thresholds for threat detection
     static const uint64_t AUTH_FAILURE_THRESHOLD_LOW = 5;    // per hour
     static const uint64_t AUTH_FAILURE_THRESHOLD_HIGH = 20;  // per hour
@@ -162,14 +157,6 @@ public:
      * @return Pointer to stats or nullptr if not found
      */
     const IPStats* getIPStats(const InetAddress &sourceIP);
-
-    /**
-     * Get recent security events
-     *
-     * @param maxEvents Maximum number of events to return
-     * @return Vector of recent security events
-     */
-    std::vector<SecurityEvent> getRecentEvents(size_t maxEvents = 100);
 
     /**
      * Export security statistics in Prometheus format
