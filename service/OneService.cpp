@@ -2488,50 +2488,7 @@ public:
 
 			res.set_content(j.dump(), "application/json");
 		};
-		_controlPlane.Get("/security/events", securityEventsGet);
-		_controlPlaneV6.Get("/security/events", securityEventsGet);
 
-		// GET /security/metrics - security metrics in Prometheus format
-		auto securityMetricsGet = [this](const httplib::Request &req, httplib::Response &res) {
-			if (!_node) {
-				res.status = 500;
-				return;
-			}
-
-			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
-			if (!RR || !RR->sm) {
-				res.set_content("", "text/plain");
-				return;
-			}
-
-			std::string metrics = RR->sm->exportPrometheusMetrics();
-			res.set_content(metrics, "text/plain");
-		};
-		_controlPlane.Get("/security/metrics", securityMetricsGet);
-		_controlPlaneV6.Get("/security/metrics", securityMetricsGet);
-
-		// GET /security/threats - current threat level summary
-		auto securityThreatsGet = [this](const httplib::Request &req, httplib::Response &res) {
-			if (!_node) {
-				res.status = 500;
-				return;
-			}
-
-			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
-			if (!RR || !RR->sm) {
-				res.set_content("{}", "application/json");
-				return;
-			}
-
-			json j;
-			j["status"] = "ok";
-			j["message"] = "Security monitoring active";
-			j["documentation"] = "Use /security/events for recent events, /security/metrics for Prometheus metrics";
-
-			res.set_content(j.dump(), "application/json");
-		};
-		_controlPlane.Get("/security/threats", securityThreatsGet);
-		_controlPlaneV6.Get("/security/threats", securityThreatsGet);
 
 		// GET /stats - peer port usage statistics
 		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -2573,7 +2530,7 @@ public:
 
 					// Aggregate by IP address (use wire-level stats as they include all traffic)
 					// BUT exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
-					if (!_isInfrastructureIP(ipAddr) { // TODO - change ipAddr to a non-string ?
+					if (!_isInfrastructureIP(ipAddr)) { // TODO - change ipAddr to a non-string ?
 						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
 						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
@@ -5014,47 +4971,43 @@ public:
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
-		// Only track outgoing stats for peers we've already received packets from
-		// This prevents creating stats entries for peers that never respond
-		auto it = _peerStats.find(peerKey);
-		if (it != _peerStats.end()) { // TODO - remove the requirement that a peer has been seen before
-			PeerStats& stats = it->second;
-			stats.outgoingPortCounts[localPort]++;
-			stats.totalOutgoing++;
-			stats.lastOutgoingSeen = now;
+		// Always track outgoing stats (no "seen before" requirement since we're at Tier 2)
+		PeerStats& stats = _peerStats[peerKey];
+		stats.outgoingPortCounts[localPort]++;
+		stats.totalOutgoing++;
+		stats.lastOutgoingSeen = now;
+		stats.peerIP = std::string(ipBuf); // Update IP for this stats entry
 
-			if (stats.firstOutgoingSeen == 0) {
-				stats.firstOutgoingSeen = now;
-			}
-
-			// First-time outgoing packet logging with detailed information
-			if (isFirstOutgoing) {
-				_seenOutgoingPeerPorts.insert(peerPortKey);
-				char ztBuf[64], localBuf[64];
-				ztAddr.toString(ztBuf);
-				localAddress.toIpString(localBuf);
-
-				// Enhanced logging for outgoing packets with full details
-				const char* peerRole = "UNKNOWN";
-				const char* peerVersion = "unknown";
-				bool isAlive = false;
-				bool hasDirectPath = false;
-				bool existsInTopology = false;
-
-				// Don't access topology from packet send path - causes deadlocks
-				// Just use minimal info available without locks
-				peerRole = "UNKNOWN";
-				peerVersion = "unknown";
-				existsInTopology = false;
-				isAlive = false;
-				hasDirectPath = false;
-
-				fprintf(stderr, "PACKET_TO1: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
-					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
-			}
+		if (stats.firstOutgoingSeen == 0) {
+			stats.firstOutgoingSeen = now;
 		}
-		// If we haven't received any packets from this peer yet, don't create a stats entry
+
+		// First-time outgoing packet logging with detailed information
+		if (isFirstOutgoing) {
+			_seenOutgoingPeerPorts.insert(peerPortKey);
+			char ztBuf[64], localBuf[64];
+			ztAddr.toString(ztBuf);
+			localAddress.toIpString(localBuf);
+
+			// Enhanced logging for outgoing packets with full details
+			const char* peerRole = "UNKNOWN";
+			const char* peerVersion = "unknown";
+			bool isAlive = false;
+			bool hasDirectPath = false;
+			bool existsInTopology = false;
+
+			// Don't access topology from packet send path - causes deadlocks
+			// Just use minimal info available without locks
+			peerRole = "UNKNOWN";
+			peerVersion = "unknown";
+			existsInTopology = false;
+			isAlive = false;
+			hasDirectPath = false;
+
+			fprintf(stderr, "PACKET_TO1: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
+				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
+				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+		}
 	}
 
 	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& localAddress, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
