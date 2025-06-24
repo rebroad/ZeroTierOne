@@ -4481,7 +4481,7 @@ public:
 			if (r) {
 				const InetAddress remoteAddress(addr);
 				Address destAddr;
-				if (len > 12) {
+				if (len > 12) { // TODO - Use the correct #define variable here
 					destAddr.setTo(((const uint8_t*)data) + 8, 5);
 				} else {
 					// For short packets, use zero address as placeholder
@@ -4948,7 +4948,7 @@ public:
 
 	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& remoteAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
 	{ // TODO - is this function used by tier 1, tier 2, or both?
-    // TODO - merge trackOutgoingPacket() into this function
+    // TODO - merge trackOutgoingPacket() into this function, then rename this function to _trackOutgoingPacket()
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
