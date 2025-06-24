@@ -4481,7 +4481,7 @@ public:
 			if (r) {
 				const InetAddress remoteAddress(addr);
 				Address destAddr;
-				if (len >= 13) {
+				if (len > 12) {
 					destAddr.setTo(((const uint8_t*)data) + 8, 5);
 				} else {
 					// For short packets, use zero address as placeholder
@@ -4732,7 +4732,7 @@ public:
 	// Track peer introductions for misbehavior detection
 	void _trackPeerIntroduction(const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy, uint64_t now)
 	{
-		Mutex::Lock _l(_peerIntroductions_m);
+		Mutex::Lock _l(_peerIntroductions_m); // TODO - is this absolutely necessary?
 
 		// Remove port from IP address to avoid runaway entries due to changing ports
 		InetAddress ipWithoutPort = introducedIP;
@@ -4760,7 +4760,7 @@ public:
 		const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
 
 		ZT_PeerRole targetRole = RR->topology->role(targetPeerAddr);
-		switch (targetRole) {
+		switch (targetRole) { // TODO - move this into a helper
 			case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
 			case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
 			case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
@@ -4768,7 +4768,7 @@ public:
 		}
 
 		ZT_PeerRole introducerRole = RR->topology->role(introducedBy);
-		switch (introducerRole) {
+		switch (introducerRole) { // TODO - move this info a helper
 			case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
 			case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
 			case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
@@ -4787,7 +4787,7 @@ public:
 	// Track connection attempts and detect misbehavior
 	void _trackConnectionAttempt(const InetAddress& targetIP, bool successful, uint64_t now)
 	{
-		Mutex::Lock _l(_peerIntroductions_m);
+		Mutex::Lock _l(_peerIntroductions_m); // TODO - is this absolutely necessary?
 
 		// Remove port from IP address to match introduction tracking
 		InetAddress ipWithoutPort = targetIP;
@@ -4820,7 +4820,7 @@ public:
 					const char* introducerType = "UNKNOWN";
 
 					ZT_PeerRole targetRole = RR->topology->role(intro.targetPeerAddr);
-					switch (targetRole) {
+					switch (targetRole) { // TODO - move this info a helper
 						case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
 						case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
 						case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
@@ -4828,7 +4828,7 @@ public:
 					}
 
 					ZT_PeerRole introducerRole = RR->topology->role(intro.introducedBy);
-					switch (introducerRole) {
+					switch (introducerRole) { // TODO - move this info a helper
 						case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
 						case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
 						case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
@@ -4845,7 +4845,7 @@ public:
 	}
 
 	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned long packetSize, const Address& sourcePeerAddr)
-	{ // TODO - better to use peerAddress for detecting IsInfrastructure ?
+	{ // Is this function used by tier 1, tier 2 or both?
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
@@ -4857,14 +4857,14 @@ public:
 		std::string keyIP;
 		keyIP = std::string(ipBuf); // TODO - why not use peerAddress as the keyIP
 
-		Mutex::Lock _l(_peerStats_m);
+		Mutex::Lock _l(_peerStats_m); // TODO - is this absolutely necessary?
 
 		auto peerKey = std::make_pair(ztAddr, keyIP); // better to use KeyIP or peerAddress ?
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstIncoming = (_seenIncomingPeerPorts.find(peerPortKey) == _seenIncomingPeerPorts.end());
 
-		if (isFirstIncoming) {
-			if (_isInfrastructureNode(ztAddr)) {
+		if (isFirstIncoming) { // TODO - move this to trackIncomingPeer using peerKey instead
+			if (_isInfrastructureIP(peerAddress) || _isInfrastructureNode(ztAddr)) {
 				// Add this IP to our infrastructure lookup table for fast filtering
 				_addInfrastructureIP(std::string(ipBuf)); // TODO - use peerAddress instead of ipBuf ?
 			}
@@ -4876,11 +4876,11 @@ public:
 			sourcePeerAddr.toString(sourceBuf);
 
 			// Enhanced logging for incoming-only peers with full details
-			const char* peerRole = "UNKNOWN";
-			const char* peerVersion = "unknown";
-			bool isAlive = false;
-			bool hasDirectPath = false;
-			bool existsInTopology = false;
+			const char* peerRole = "";
+			const char* peerVersion = "";
+			const char* isAlive = "";
+			const char* hasDirectPath = "";
+			const char* existsInTopology = "";
 
 			// Only access node internals if node is fully initialized AND we have a valid runtime environment
 			if (_node) {
@@ -4891,20 +4891,20 @@ public:
 						const RuntimeEnvironment *RR = &(node->_RR);
 						if (RR && RR->topology) {  // Verify topology exists
 							SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
-							existsInTopology = (existingPeer.ptr() != nullptr);
+							existsInTopology = (existingPeer.ptr() != nullptr) ? "yes" : "no";
 
 							if (existingPeer) {
 								// Get peer role
 								ZT_PeerRole role = RR->topology->role(ztAddr);
-								switch (role) {
+								switch (role) { // TODO - create and the a helper for this
 									case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
 									case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
 									case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
 									default: peerRole = "UNKNOWN"; break;
 								}
 
-								isAlive = existingPeer->isAlive(now);
-								hasDirectPath = !existingPeer->paths(now).empty();
+								isAlive = existingPeer->isAlive(now) ? "yes" : "no";
+								hasDirectPath = !existingPeer->paths(now).empty() ? "yes" : "no";
 
 								// Get version if known
 								if (existingPeer->remoteVersionKnown()) {
@@ -4926,12 +4926,11 @@ public:
 			// Only show source_peer if different from peer (indicating relaying)
 			if (ztAddr == sourcePeerAddr) {
 				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
-					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion, existsInTopology, isAlive, hasDirectPath);
 			} else {
 				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s source_peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 					packetSize, ipBuf, ztBuf, sourceBuf, localPort, peerRole, peerVersion,
-					existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+					existsInTopology, isAlive, hasDirectPath);
 			}
 		}
 
@@ -4948,7 +4947,8 @@ public:
 	}
 
 	void _trackOutgoingPeerPortUsage(const Address& ztAddr, const InetAddress& remoteAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
-	{
+	{ // TODO - is this function used by tier 1, tier 2, or both?
+    // TODO - merge trackOutgoingPacket() into this function
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
@@ -4985,28 +4985,24 @@ public:
 			localAddress.toIpString(localBuf);
 
 			// Enhanced logging for outgoing packets with full details
-			const char* peerRole = "UNKNOWN";
-			const char* peerVersion = "unknown";
-			bool isAlive = false;
-			bool hasDirectPath = false;
-			bool existsInTopology = false;
+			const char* peerRole = "";
+			const char* peerVersion = "";
+			const char* isAlive = "";
+			const char* hasDirectPath = "";
+			const char* existsInTopology = "";
 
 			// Don't access topology from packet send path - causes deadlocks
 			// Just use minimal info available without locks
-			peerRole = "UNKNOWN";
-			peerVersion = "unknown";
-			existsInTopology = false;
-			isAlive = false;
-			hasDirectPath = false;
 
 			fprintf(stderr, "PACKET_TO1: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
-				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+				existsInTopology, isAlive, hasDirectPath);
 		}
 	}
 
 	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& localAddress, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
-	{
+	{ // TODO - this used by tier 1, tier 2, or both?
+	// TODO - merge this function into trackOutgoingPeerPortUsage() then rename that function to _trackOutgoingPacket
 		// Skip tracking during early initialization to prevent crashes
 		if (!_node) return;
 
@@ -5018,13 +5014,13 @@ public:
 		std::string keyIP;
 		keyIP = std::string(ipBuf); // TODO - why not use remoteAddress as the keyIP
 
-		Mutex::Lock _l(_peerStats_m);
+		Mutex::Lock _l(_peerStats_m); // TODO  -is this really necessary?
 
 		auto peerKey = std::make_pair(ztAddr, keyIP);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
-		if (isFirstOutgoing) {
+		if (isFirstOutgoing) { // TODO - this seems to never run, perhaps because PeerPortUsage always runs first?
 			if (_isInfrastructureNode(ztAddr)) {
 				// Add this IP to our infrastructure lookup table for fast filtering
 				_addInfrastructureIP(std::string(ipBuf)); // TODO - use remoteAddress instead of ipBuf ?
@@ -5037,15 +5033,15 @@ public:
 
 			// Enhanced logging for outgoing packets with full details
 			// Avoid topology access from packet send path to prevent deadlocks
-			const char* peerRole = "UNKNOWN";
-			const char* peerVersion = "unknown";
-			bool isAlive = false;
-			bool hasDirectPath = false;
-			bool existsInTopology = false;
+			const char* peerRole = "";
+			const char* peerVersion = "";
+			const char* isAlive = "";
+			const char* hasDirectPath = "";
+			const char* existsInTopology = "";
 
 			fprintf(stderr, "PACKET_TO2: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
-				existsInTopology ? "yes" : "no", isAlive ? "yes" : "no", hasDirectPath ? "yes" : "no");
+				existsInTopology, isAlive, hasDirectPath);
 		}
 	}
 
@@ -5059,15 +5055,12 @@ public:
 			// ZeroTier packets have the destination address in the first 5 bytes after the verb
 			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
 
-			// Basic ZeroTier packet structure validation
-			if (len < 16) return;
-
 			// Extract destination address from packet (bytes 8-12 for 5-byte address)
 			Address destAddr;
 			if (len >= 13) {
 				destAddr.setTo(packetData + 8, 5);
 			} else {
-				return; // Packet too short
+				destAddr.zeros();
 			}
 
 			// Get local address from socket
@@ -5093,10 +5086,6 @@ public:
 			}
 
 			unsigned int localPort = localAddress.port();
-			if (localPort == 0) {
-				// If we couldn't determine the local port, use the primary port as fallback
-				localPort = _primaryPort;
-			}
 
 			_trackOutgoingPacket(destAddr, localAddress, remoteAddress, localPort, OSUtils::now(), len);
 		} catch (...) {
@@ -5115,7 +5104,7 @@ public:
 	 * @return Vector of active UDP ports (empty during early initialization)
 	 */
 	std::vector<unsigned int> _collectUdpPorts() const
-	{
+	{ // TODO - document when this is run, and called by which functions
 		std::vector<unsigned int> udpPorts;
 
 		// Add all active ports
@@ -5180,7 +5169,7 @@ public:
 				fprintf(stderr, "INFO: Auto-detected WAN interface '%s' for iptables" ZT_EOL_S, wanInterface.c_str());
 			}
 #else
-			fprintf(stderr, "WARNING: iptables WAN interface auto-detection is only supported on Linux. Please set 'iptablesWanInterface' in local.conf." ZT_EOL_S);
+			fprintf(stderr, "WARNING: iptables WAN interface auto-detection is only supported on Linux." ZT_EOL_S);
 			_iptablesEnabled = false;
 			return false;
 #endif
@@ -5323,10 +5312,8 @@ public:
 		return _infrastructureIPs.find(ipAddr) != _infrastructureIPs.end();
 	}
 
-
-
 	// Get a copy of the infrastructure IPs (for stats endpoints)
-	std::set<std::string> _getInfrastructureIPs() {
+	std::set<std::string> _getInfrastructureIPs() { // TODO - when is this used and by which functions?
 		Mutex::Lock _l(_infrastructureIPs_m);
 		return _infrastructureIPs;  // Return copy
 	}
@@ -5341,7 +5328,7 @@ public:
 				ztAddresses.push_back(entry.first.first);  // Add ZT address
 			}
 		}
-		return ztAddresses;
+		return ztAddresses; // TODO - which functions are using this?
 	}
 
 	// Helper function to look up all IP addresses associated with a ZT address
@@ -5354,13 +5341,13 @@ public:
 				ipAddresses.push_back(entry.first.second);  // Add IP address
 			}
 		}
-		return ipAddresses;
+		return ipAddresses; // TODO - which functions are using this?
 	}
 
 	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& peerIP,
 								   PeerStats& stats, uint64_t now) {
 		if (!ztAddr) { // isZero() is equivalent to !ztAddr since Address has bool operator
-			return; // Skip attack detection for zero addresses until we understand false positives
+			return; // Skip attack detection for zero addresses until we understand the false positives
 		}
 
 		// Calculate divergence ratios (byte-based analysis only since we removed packet counts)
@@ -5368,7 +5355,7 @@ public:
 
 		if (stats.AuthBytesIncoming > 0) {
 			incomingByteRatio = (double)stats.WireBytesIncoming / (double)stats.AuthBytesIncoming;
-		} else if (stats.WireBytesIncoming > 10000) {
+		} else if (stats.WireBytesIncoming > 10000) { // TODO - why?!!
 			incomingByteRatio = 999.0; // High number to indicate suspicious activity
 		}
 
@@ -5378,9 +5365,9 @@ public:
 		}
 
 		// Define attack thresholds
-		const double MINOR_ATTACK_THRESHOLD = 5.0;    // 5:1 ratio indicates possible attack
-		const double MAJOR_ATTACK_THRESHOLD = 20.0;   // 20:1 ratio indicates definite attack
-		const uint64_t MIN_BYTES_FOR_ANALYSIS = 5000; // Need minimum sample size (5KB)
+		const double MINOR_ATTACK_THRESHOLD = 2.0;    // 2:1 ratio indicates possible attack
+		const double MAJOR_ATTACK_THRESHOLD = 5.0;   // 5:1 ratio indicates definite attack
+		const uint64_t MIN_BYTES_FOR_ANALYSIS = 1000; // Need minimum sample size (1KB)
 
 		// Only analyze if we have sufficient data
 		if (stats.WireBytesIncoming < MIN_BYTES_FOR_ANALYSIS) {
@@ -5445,10 +5432,10 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
 static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize)
-{
+{ // TODO - document what this function is, and whether it's needed
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
-	switch (eventType) {
+	switch (eventType) { // TODO - document each of these below and their use cases
 		case RuntimeEnvironment::PEER_EVENT_PATH_ADD:
 			service->_handlePeerPathUpdate(peerAddress, peerZtAddr, true);
 			break;
