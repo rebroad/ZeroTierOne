@@ -1336,52 +1336,85 @@ static int cli(int argc,char **argv)
 						tertiaryPort = portConfig.value("tertiaryPort", 0U);
 					}
 
-					// Get port data
-					auto incomingPorts = peerData.value("incomingPorts", nlohmann::json::object());
-					auto outgoingPorts = peerData.value("outgoingPorts", nlohmann::json::object());
+					// Get port data for both tiers
+					// TIER 1: Wire-level port usage (all packets at wire level)
+					auto wireIncomingPorts = peerData.value("wireIncomingPorts", nlohmann::json::object());
+					auto wireOutgoingPorts = peerData.value("wireOutgoingPorts", nlohmann::json::object());
+
+					// TIER 2: Authenticated port usage (cryptographically verified packets only)
+					auto authIncomingPorts = peerData.value("authIncomingPorts", nlohmann::json::object());
+					auto authOutgoingPorts = peerData.value("authOutgoingPorts", nlohmann::json::object());
+
+					// Fallback to legacy field names for backward compatibility
+					if (authIncomingPorts.empty()) {
+						authIncomingPorts = peerData.value("incomingPorts", nlohmann::json::object());
+					}
+					if (authOutgoingPorts.empty()) {
+						authOutgoingPorts = peerData.value("outgoingPorts", nlohmann::json::object());
+					}
 
 					// Order ports: primary, secondary, tertiary, then any others
 					std::vector<std::string> orderedPorts;
 					std::set<std::string> usedPorts;
 
-					// Add primary port first
+					// Add primary port first (check both tiers)
 					std::string primaryStr = std::to_string(primaryPort);
-					if (incomingPorts.contains(primaryStr) || outgoingPorts.contains(primaryStr)) {
+					if (wireIncomingPorts.contains(primaryStr) || wireOutgoingPorts.contains(primaryStr) ||
+						authIncomingPorts.contains(primaryStr) || authOutgoingPorts.contains(primaryStr)) {
 						orderedPorts.push_back(primaryStr);
 						usedPorts.insert(primaryStr);
 					}
 
-					// Add secondary port if enabled
+					// Add secondary port if enabled (check both tiers)
 					if (secondaryPort > 0) {
 						std::string secondaryStr = std::to_string(secondaryPort);
-						if (incomingPorts.contains(secondaryStr) || outgoingPorts.contains(secondaryStr)) {
+						if (wireIncomingPorts.contains(secondaryStr) || wireOutgoingPorts.contains(secondaryStr) ||
+							authIncomingPorts.contains(secondaryStr) || authOutgoingPorts.contains(secondaryStr)) {
 							orderedPorts.push_back(secondaryStr);
 							usedPorts.insert(secondaryStr);
 						}
 					}
 
-					// Add tertiary port
+					// Add tertiary port (check both tiers)
 					if (tertiaryPort > 0) {
 						std::string tertiaryStr = std::to_string(tertiaryPort);
-						if (incomingPorts.contains(tertiaryStr) || outgoingPorts.contains(tertiaryStr)) {
+						if (wireIncomingPorts.contains(tertiaryStr) || wireOutgoingPorts.contains(tertiaryStr) ||
+							authIncomingPorts.contains(tertiaryStr) || authOutgoingPorts.contains(tertiaryStr)) {
 							orderedPorts.push_back(tertiaryStr);
 							usedPorts.insert(tertiaryStr);
 						}
 					}
 
-					// Collect other ports (not primary/secondary/tertiary)
+					// Collect other ports (not primary/secondary/tertiary) from both tiers
 					std::set<std::string> otherPorts;
-					uint64_t otherIncoming = 0, otherOutgoing = 0;
-					for (auto& [port, count] : incomingPorts.items()) {
+					uint64_t otherWireIncoming = 0, otherWireOutgoing = 0;
+					uint64_t otherAuthIncoming = 0, otherAuthOutgoing = 0;
+
+					// Wire-level other ports
+					for (auto& [port, count] : wireIncomingPorts.items()) {
 						if (usedPorts.find(port) == usedPorts.end()) {
 							otherPorts.insert(port);
-							otherIncoming += count.get<uint64_t>();
+							otherWireIncoming += count.get<uint64_t>();
 						}
 					}
-					for (auto& [port, count] : outgoingPorts.items()) {
+					for (auto& [port, count] : wireOutgoingPorts.items()) {
 						if (usedPorts.find(port) == usedPorts.end()) {
 							otherPorts.insert(port);
-							otherOutgoing += outgoingPorts.value(port, 0ULL);
+							otherWireOutgoing += wireOutgoingPorts.value(port, 0ULL);
+						}
+					}
+
+					// Authenticated other ports
+					for (auto& [port, count] : authIncomingPorts.items()) {
+						if (usedPorts.find(port) == usedPorts.end()) {
+							otherPorts.insert(port);
+							otherAuthIncoming += count.get<uint64_t>();
+						}
+					}
+					for (auto& [port, count] : authOutgoingPorts.items()) {
+						if (usedPorts.find(port) == usedPorts.end()) {
+							otherPorts.insert(port);
+							otherAuthOutgoing += authOutgoingPorts.value(port, 0ULL);
 						}
 					}
 
@@ -1396,19 +1429,39 @@ static int cli(int argc,char **argv)
 						}
 					}
 
-					// Build the display string
+					// Build the display string with two-tier format: port:wire_in/wire_out(auth_in/auth_out)
 					bool first = true;
 					for (const auto& port : orderedPorts) {
 						if (!first) portUsage += ", ";
 
 						if (port == "other") {
 							// Special handling for summarized other ports
-							portUsage += "other:" + std::to_string(otherIncoming) + "/" + std::to_string(otherOutgoing);
+							uint64_t totalWireIn = otherWireIncoming;
+							uint64_t totalWireOut = otherWireOutgoing;
+							uint64_t totalAuthIn = otherAuthIncoming;
+							uint64_t totalAuthOut = otherAuthOutgoing;
+
+							if (totalAuthIn > 0 || totalAuthOut > 0) {
+								portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut) +
+										   "(" + std::to_string(totalAuthIn) + "/" + std::to_string(totalAuthOut) + ")";
+							} else {
+								portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut);
+							}
 						} else {
-							// Normal port display
-							uint64_t inCount = incomingPorts.value(port, 0ULL);
-							uint64_t outCount = outgoingPorts.value(port, 0ULL);
-							portUsage += port + ":" + std::to_string(inCount) + "/" + std::to_string(outCount);
+							// Normal port display with two-tier format
+							uint64_t wireInCount = wireIncomingPorts.value(port, 0ULL);
+							uint64_t wireOutCount = wireOutgoingPorts.value(port, 0ULL);
+							uint64_t authInCount = authIncomingPorts.value(port, 0ULL);
+							uint64_t authOutCount = authOutgoingPorts.value(port, 0ULL);
+
+							if (authInCount > 0 || authOutCount > 0) {
+								// Show both wire and auth counts: port:wire_in/wire_out(auth_in/auth_out)
+								portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount) +
+										   "(" + std::to_string(authInCount) + "/" + std::to_string(authOutCount) + ")";
+							} else {
+								// Show only wire counts when no auth traffic: port:wire_in/wire_out
+								portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount);
+							}
 						}
 
 						first = false;
