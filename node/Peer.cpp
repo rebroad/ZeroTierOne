@@ -23,7 +23,6 @@
 #include "RingBuffer.hpp"
 #include "Utils.hpp"
 #include "Metrics.hpp"
-#include "../osdep/Phy.hpp" // For obtaining the local port number
 
 namespace ZeroTier {
 
@@ -114,7 +113,7 @@ void Peer::received(
 	if (RR->peerEventCallback) {
 		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
 			path->address(), _id.address(), Address(), true, payloadLength);
-	}
+	} // TODO - document what this is and if it's needed
 
 	if (hops == 0) {
 		// If this is a direct packet (no hops), update existing paths or learn new ones
@@ -478,9 +477,9 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 {
 	// Proactively notify service about outbound contact attempt (iptables integration)
 	// This ensures ipset rules are in place BEFORE sending packets, allowing responses
-			if (RR->peerEventCallback) {
-			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0);
-		}
+	if (RR->peerEventCallback) {
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0);
+	} // TODO - document other ways we could do this that could be simpler
 
 	if ( (!sendFullHello) && (_vProto >= 5) && (!((_vMajor == 1)&&(_vMinor == 1)&&(_vRevision == 0))) ) {
 		Packet outp(_id.address(),RR->identity.address(),Packet::VERB_ECHO);
@@ -702,7 +701,7 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path> &path, const uint64_t pack
 #ifndef ZT_NO_PEER_METRICS
 	_outgoing_packet++;
 #endif
-	if (_localMultipathSupported && _bond) {
+	if (_localMultipathSupported && _bond) { // TODO - what is multipath support? when is it useful? Is it like onecast?
 		_bond->recordOutgoingPacket(path, packetId, payloadLength, verb, flowId, now);
 	}
 
@@ -710,7 +709,7 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path> &path, const uint64_t pack
 	if (RR->peerEventCallback && path) {
 		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
 							  path->address(), _id.address(), Address(), true, payloadLength);
-	}
+	} // TODO - document other ways we might do this (compare with how we track incoming packets)
 }
 
 void Peer::recordIncomingInvalidPacket(const SharedPtr<Path>& path)
