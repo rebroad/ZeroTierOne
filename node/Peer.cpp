@@ -110,8 +110,6 @@ void Peer::received(
 		path->trustedPacketReceived(now);
 	}
 
-	// Note: Authenticated peer address is now passed through function return values instead of caching
-
 	// Trigger callback for authenticated packet tracking (TIER 2)
 	if (RR->peerEventCallback) {
 		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
