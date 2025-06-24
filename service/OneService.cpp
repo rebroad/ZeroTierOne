@@ -165,44 +165,44 @@ namespace ZeroTier {
 std::string ssoResponseTemplate = R"""(
 <!doctype html>
 <html class="no-js" lang="">
-    <head>
-        <meta charset="utf-8">
-        <meta http-equiv="x-ua-compatible" content="ie=edge">
-        <title>Network SSO Login {{ networkId }}</title>
-        <meta name="description" content="">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style type="text/css">
-         html,body {
-             background: #eeeeee;
-             margin: 0;
-             padding: 0;
-             font-family: "System Sans Serif";
-             font-weight: normal;
-             font-size: 12pt;
-             height: 100%;
-             width: 100%;
-         }
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="x-ua-compatible" content="ie=edge">
+		<title>Network SSO Login {{ networkId }}</title>
+		<meta name="description" content="">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<style type="text/css">
+		 html,body {
+			 background: #eeeeee;
+			 margin: 0;
+			 padding: 0;
+			 font-family: "System Sans Serif";
+			 font-weight: normal;
+			 font-size: 12pt;
+			 height: 100%;
+			 width: 100%;
+		 }
 
-         .container {
-             position: absolute;
-             left: 50%;
-             top: 50%;
-             -webkit-transform: translate(-50%, -50%);
-             transform: translate(-50%, -50%);
-         }
-         .iconwrapper {
-             margin: 10px 10px 10px 10px;
-         }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="iconwrapper">
-                <svg id="Layer_1" width="225px" height="225px" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 225 225"><defs><style>.cls-1{fill:#fdb25d;}.cls-2{fill:none;stroke:#000;stroke-miterlimit:10;stroke-width:6.99px;}</style></defs><rect class="cls-1" width="225" height="225" rx="35.74"/><line class="cls-2" x1="25.65" y1="32.64" x2="199.35" y2="32.64"/><line class="cls-2" x1="112.5" y1="201.02" x2="112.5" y2="32.64"/><circle class="cls-2" cx="112.5" cy="115.22" r="56.54"/></svg>
-            </div>
-            <div class="text">{{ messageText }}</div>
-        </div>
-    </body>
+		 .container {
+			 position: absolute;
+			 left: 50%;
+			 top: 50%;
+			 -webkit-transform: translate(-50%, -50%);
+			 transform: translate(-50%, -50%);
+		 }
+		 .iconwrapper {
+			 margin: 10px 10px 10px 10px;
+		 }
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<div class="iconwrapper">
+				<svg id="Layer_1" width="225px" height="225px" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 225 225"><defs><style>.cls-1{fill:#fdb25d;}.cls-2{fill:none;stroke:#000;stroke-miterlimit:10;stroke-width:6.99px;}</style></defs><rect class="cls-1" width="225" height="225" rx="35.74"/><line class="cls-2" x1="25.65" y1="32.64" x2="199.35" y2="32.64"/><line class="cls-2" x1="112.5" y1="201.02" x2="112.5" y2="32.64"/><circle class="cls-2" cx="112.5" cy="115.22" r="56.54"/></svg>
+			</div>
+			<div class="text">{{ messageText }}</div>
+		</div>
+	</body>
 </html>
 )""";
 
@@ -232,9 +232,9 @@ std::string dump_headers(const httplib::Headers &headers) {
   char buf[BUFSIZ];
 
   for (auto it = headers.begin(); it != headers.end(); ++it) {
-    const auto &x = *it;
-    snprintf(buf, sizeof(buf), "%s: %s\n", x.first.c_str(), x.second.c_str());
-    s += buf;
+	const auto &x = *it;
+	snprintf(buf, sizeof(buf), "%s: %s\n", x.first.c_str(), x.second.c_str());
+	s += buf;
   }
 
   return s;
@@ -247,16 +247,16 @@ std::string http_log(const httplib::Request &req, const httplib::Response &res) 
   s += "================================\n";
 
   snprintf(buf, sizeof(buf), "%s %s %s", req.method.c_str(),
-           req.version.c_str(), req.path.c_str());
+		   req.version.c_str(), req.path.c_str());
   s += buf;
 
   std::string query;
   for (auto it = req.params.begin(); it != req.params.end(); ++it) {
-    const auto &x = *it;
-    snprintf(buf, sizeof(buf), "%c%s=%s",
-             (it == req.params.begin()) ? '?' : '&', x.first.c_str(),
-             x.second.c_str());
-    query += buf;
+	const auto &x = *it;
+	snprintf(buf, sizeof(buf), "%c%s=%s",
+			 (it == req.params.begin()) ? '?' : '&', x.first.c_str(),
+			 x.second.c_str());
+	query += buf;
   }
   snprintf(buf, sizeof(buf), "%s\n", query.c_str());
   s += buf;
@@ -1576,8 +1576,8 @@ public:
 		return true;
 	}
 
-    // Internal HTTP Control Plane
-    void startHTTPControlPlane() {
+	// Internal HTTP Control Plane
+	void startHTTPControlPlane() {
 		// control plane endpoints
 		std::string bondShowPath = "/bond/show/([0-9a-fA-F]{10})";
 		std::string bondRotatePath = "/bond/rotate/([0-9a-fA-F]{10})";
@@ -1594,7 +1594,7 @@ public:
 		std::string statusPath = "/status";
 		std::string metricsPath = "/metrics";
 
-        std::vector<std::string> noAuthEndpoints { "/sso", "/health" };
+		std::vector<std::string> noAuthEndpoints { "/sso", "/health" };
 
 
 		auto setContent = [=] (const httplib::Request &req, httplib::Response &res, std::string content) {
@@ -1785,7 +1785,7 @@ public:
 				res.status = 401;
 				return httplib::Server::HandlerResponse::Handled;
 			}
-        };
+		};
 
 
 		auto bondShow = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -2014,24 +2014,24 @@ public:
 		_controlPlane.Delete(moonPath, moonDelete);
 
 		auto networkListGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-            Mutex::Lock _l(_nets_m);
-            auto out = json::array();
+			Mutex::Lock _l(_nets_m);
+			auto out = json::array();
 
-            for (auto it = _nets.begin(); it != _nets.end(); ++it) {
-                NetworkState &ns = it->second;
-                json nj;
-                _networkToJson(nj, ns);
-                out.push_back(nj);
-            }
+			for (auto it = _nets.begin(); it != _nets.end(); ++it) {
+				NetworkState &ns = it->second;
+				json nj;
+				_networkToJson(nj, ns);
+				out.push_back(nj);
+			}
 			setContent(req, res, out.dump());
-        };
+		};
 		_controlPlane.Get(networkListPath, networkListGet);
 		_controlPlaneV6.Get(networkListPath, networkListGet);
 
 		auto networkGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			Mutex::Lock _l(_nets_m);
 
-            auto input = req.matches[1];
+			auto input = req.matches[1];
 			const uint64_t nwid = Utils::hexStrToU64(input.str().c_str());
 			if (_nets.find(nwid) != _nets.end()) {
 				auto out = json::object();
@@ -2042,8 +2042,8 @@ public:
 			}
 			setContent(req, res, "");
 			res.status = 404;
-        };
-        _controlPlane.Get(networkPath, networkGet);
+		};
+		_controlPlane.Get(networkPath, networkGet);
 		_controlPlaneV6.Get(networkPath, networkGet);
 
 		auto networkPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -2163,156 +2163,156 @@ public:
 		_controlPlaneV6.Get(peerPath, peerGet);
 
 		auto statusGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-            ZT_NodeStatus status;
-            _node->status(&status);
+			ZT_NodeStatus status;
+			_node->status(&status);
 
-            auto out = json::object();
-            char tmp[256] = {};
+			auto out = json::object();
+			char tmp[256] = {};
 
-            OSUtils::ztsnprintf(tmp,sizeof(tmp),"%.10llx",status.address);
-            out["address"] = tmp;
-            out["publicIdentity"] = status.publicIdentity;
-            out["online"] = (bool)(status.online != 0);
-            out["tcpFallbackActive"] = (_tcpFallbackTunnel != (TcpConnection *)0);
-            out["versionMajor"] = ZEROTIER_ONE_VERSION_MAJOR;
-            out["versionMinor"] = ZEROTIER_ONE_VERSION_MINOR;
-            out["versionRev"] = ZEROTIER_ONE_VERSION_REVISION;
-            out["versionBuild"] = ZEROTIER_ONE_VERSION_BUILD;
-            OSUtils::ztsnprintf(tmp,sizeof(tmp),"%d.%d.%d",ZEROTIER_ONE_VERSION_MAJOR,ZEROTIER_ONE_VERSION_MINOR,ZEROTIER_ONE_VERSION_REVISION);
-            out["version"] = tmp;
-            out["clock"] = OSUtils::now();
+			OSUtils::ztsnprintf(tmp,sizeof(tmp),"%.10llx",status.address);
+			out["address"] = tmp;
+			out["publicIdentity"] = status.publicIdentity;
+			out["online"] = (bool)(status.online != 0);
+			out["tcpFallbackActive"] = (_tcpFallbackTunnel != (TcpConnection *)0);
+			out["versionMajor"] = ZEROTIER_ONE_VERSION_MAJOR;
+			out["versionMinor"] = ZEROTIER_ONE_VERSION_MINOR;
+			out["versionRev"] = ZEROTIER_ONE_VERSION_REVISION;
+			out["versionBuild"] = ZEROTIER_ONE_VERSION_BUILD;
+			OSUtils::ztsnprintf(tmp,sizeof(tmp),"%d.%d.%d",ZEROTIER_ONE_VERSION_MAJOR,ZEROTIER_ONE_VERSION_MINOR,ZEROTIER_ONE_VERSION_REVISION);
+			out["version"] = tmp;
+			out["clock"] = OSUtils::now();
 
-            {
-                Mutex::Lock _l(_localConfig_m);
-                out["config"] = _localConfig;
-            }
-            json &settings = out["config"]["settings"];
-            settings["allowTcpFallbackRelay"] = OSUtils::jsonBool(settings["allowTcpFallbackRelay"],_allowTcpFallbackRelay);
-            settings["forceTcpRelay"] = OSUtils::jsonBool(settings["forceTcpRelay"],_forceTcpRelay);
-            settings["primaryPort"] = OSUtils::jsonInt(settings["primaryPort"],(uint64_t)_primaryPort) & 0xffff;
-            settings["secondaryPort"] = OSUtils::jsonInt(settings["secondaryPort"],(uint64_t)_ports[1]) & 0xffff;
-            settings["tertiaryPort"] = OSUtils::jsonInt(settings["tertiaryPort"],(uint64_t)_tertiaryPort) & 0xffff;
-            settings["homeDir"] = _homePath;
-            // Enumerate all local address/port pairs that this node is listening on
-            std::vector<InetAddress> boundAddrs(_binder.allBoundLocalInterfaceAddresses());
-            auto boundAddrArray = json::array();
-            for (int i = 0; i < boundAddrs.size(); i++) {
-                char ipBuf[64] = { 0 };
-                boundAddrs[i].toString(ipBuf);
-                boundAddrArray.push_back(ipBuf);
-            }
-            settings["listeningOn"] = boundAddrArray;
-            // Enumerate all external address/port pairs that are reported for this node
-            std::vector<InetAddress> surfaceAddrs = _node->SurfaceAddresses();
-            auto surfaceAddrArray = json::array();
-            for (int i = 0; i < surfaceAddrs.size(); i++) {
-                char ipBuf[64] = { 0 };
-                surfaceAddrs[i].toString(ipBuf);
-                surfaceAddrArray.push_back(ipBuf);
-            }
-            settings["surfaceAddresses"] = surfaceAddrArray;
+			{
+				Mutex::Lock _l(_localConfig_m);
+				out["config"] = _localConfig;
+			}
+			json &settings = out["config"]["settings"];
+			settings["allowTcpFallbackRelay"] = OSUtils::jsonBool(settings["allowTcpFallbackRelay"],_allowTcpFallbackRelay);
+			settings["forceTcpRelay"] = OSUtils::jsonBool(settings["forceTcpRelay"],_forceTcpRelay);
+			settings["primaryPort"] = OSUtils::jsonInt(settings["primaryPort"],(uint64_t)_primaryPort) & 0xffff;
+			settings["secondaryPort"] = OSUtils::jsonInt(settings["secondaryPort"],(uint64_t)_ports[1]) & 0xffff;
+			settings["tertiaryPort"] = OSUtils::jsonInt(settings["tertiaryPort"],(uint64_t)_tertiaryPort) & 0xffff;
+			settings["homeDir"] = _homePath;
+			// Enumerate all local address/port pairs that this node is listening on
+			std::vector<InetAddress> boundAddrs(_binder.allBoundLocalInterfaceAddresses());
+			auto boundAddrArray = json::array();
+			for (int i = 0; i < boundAddrs.size(); i++) {
+				char ipBuf[64] = { 0 };
+				boundAddrs[i].toString(ipBuf);
+				boundAddrArray.push_back(ipBuf);
+			}
+			settings["listeningOn"] = boundAddrArray;
+			// Enumerate all external address/port pairs that are reported for this node
+			std::vector<InetAddress> surfaceAddrs = _node->SurfaceAddresses();
+			auto surfaceAddrArray = json::array();
+			for (int i = 0; i < surfaceAddrs.size(); i++) {
+				char ipBuf[64] = { 0 };
+				surfaceAddrs[i].toString(ipBuf);
+				surfaceAddrArray.push_back(ipBuf);
+			}
+			settings["surfaceAddresses"] = surfaceAddrArray;
 
 #ifdef ZT_USE_MINIUPNPC
-            settings["portMappingEnabled"] = OSUtils::jsonBool(settings["portMappingEnabled"],true);
+			settings["portMappingEnabled"] = OSUtils::jsonBool(settings["portMappingEnabled"],true);
 #else
-            settings["portMappingEnabled"] = false; // not supported in build
+			settings["portMappingEnabled"] = false; // not supported in build
 #endif
 #ifndef ZT_SDK
-            settings["softwareUpdate"] = OSUtils::jsonString(settings["softwareUpdate"],ZT_SOFTWARE_UPDATE_DEFAULT);
-            settings["softwareUpdateChannel"] = OSUtils::jsonString(settings["softwareUpdateChannel"],ZT_SOFTWARE_UPDATE_DEFAULT_CHANNEL);
+			settings["softwareUpdate"] = OSUtils::jsonString(settings["softwareUpdate"],ZT_SOFTWARE_UPDATE_DEFAULT);
+			settings["softwareUpdateChannel"] = OSUtils::jsonString(settings["softwareUpdateChannel"],ZT_SOFTWARE_UPDATE_DEFAULT_CHANNEL);
 #endif
-            const World planet(_node->planet());
-            out["planetWorldId"] = planet.id();
-            out["planetWorldTimestamp"] = planet.timestamp();
+			const World planet(_node->planet());
+			out["planetWorldId"] = planet.id();
+			out["planetWorldTimestamp"] = planet.timestamp();
 
 			setContent(req, res, out.dump());
-        };
+		};
 		_controlPlane.Get(statusPath, statusGet);
 		_controlPlaneV6.Get(statusPath, statusGet);
 
 #if ZT_SSO_ENABLED
 		std::string ssoPath = "/sso";
 		auto ssoGet = [this](const httplib::Request &req, httplib::Response &res) {
-            std::string htmlTemplatePath = _homePath + ZT_PATH_SEPARATOR + "sso-auth.template.html";
-            std::string htmlTemplate;
-            if (!OSUtils::readFile(htmlTemplatePath.c_str(), htmlTemplate)) {
-                htmlTemplate = ssoResponseTemplate;
-            }
+			std::string htmlTemplatePath = _homePath + ZT_PATH_SEPARATOR + "sso-auth.template.html";
+			std::string htmlTemplate;
+			if (!OSUtils::readFile(htmlTemplatePath.c_str(), htmlTemplate)) {
+				htmlTemplate = ssoResponseTemplate;
+			}
 
-            std::string responseContentType = "text/html";
-            std::string responseBody = "";
-            json outData;
+			std::string responseContentType = "text/html";
+			std::string responseBody = "";
+			json outData;
 
 
-            if (req.has_param("error")) {
-                std::string error = req.get_param_value("error");
-                std::string desc = req.get_param_value("error_description");
+			if (req.has_param("error")) {
+				std::string error = req.get_param_value("error");
+				std::string desc = req.get_param_value("error_description");
 
-                json data;
-                outData["isError"] = true;
-                outData["messageText"] = (std::string("ERROR ") + error + std::string(": ") + desc);
-                responseBody = inja::render(htmlTemplate, outData);
+				json data;
+				outData["isError"] = true;
+				outData["messageText"] = (std::string("ERROR ") + error + std::string(": ") + desc);
+				responseBody = inja::render(htmlTemplate, outData);
 
-                res.set_content(responseBody, responseContentType);
-                res.status = 500;
-                return;
-            }
+				res.set_content(responseBody, responseContentType);
+				res.status = 500;
+				return;
+			}
 
-            // SSO redirect handling
-            std::string state = req.get_param_value("state");
-            char* nwid = zeroidc::zeroidc_network_id_from_state(state.c_str());
+			// SSO redirect handling
+			std::string state = req.get_param_value("state");
+			char* nwid = zeroidc::zeroidc_network_id_from_state(state.c_str());
 
-            outData["networkId"] = std::string(nwid);
+			outData["networkId"] = std::string(nwid);
 
-            const uint64_t id = Utils::hexStrToU64(nwid);
+			const uint64_t id = Utils::hexStrToU64(nwid);
 
-            zeroidc::free_cstr(nwid);
+			zeroidc::free_cstr(nwid);
 
-            Mutex::Lock l(_nets_m);
-            if (_nets.find(id) != _nets.end()) {
-                NetworkState& ns = _nets[id];
-                std::string code = req.get_param_value("code");
-                char *ret = ns.doTokenExchange(code.c_str());
-                json ssoResult = json::parse(ret);
-                if (ssoResult.is_object()) {
-                    if (ssoResult.contains("errorMessage")) {
-                        outData["isError"] = true;
-                        outData["messageText"] = ssoResult["errorMessage"];
-                        responseBody = inja::render(htmlTemplate, outData);
-                        res.set_content(responseBody, responseContentType);
-                        res.status = 500;
-                    } else {
-                        outData["isError"] = false;
-                        outData["messageText"] = "Authentication Successful. You may now access the network.";
-                        responseBody = inja::render(htmlTemplate, outData);
-                        res.set_content(responseBody, responseContentType);
-                    }
-                } else {
-                    // not an object? We got a problem
-                    outData["isError"] = true;
-                    outData["messageText"] = "ERROR: Unkown SSO response. Please contact your administrator.";
-                    responseBody = inja::render(htmlTemplate, outData);
-                    res.set_content(responseBody, responseContentType);
-                    res.status = 500;
-                }
+			Mutex::Lock l(_nets_m);
+			if (_nets.find(id) != _nets.end()) {
+				NetworkState& ns = _nets[id];
+				std::string code = req.get_param_value("code");
+				char *ret = ns.doTokenExchange(code.c_str());
+				json ssoResult = json::parse(ret);
+				if (ssoResult.is_object()) {
+					if (ssoResult.contains("errorMessage")) {
+						outData["isError"] = true;
+						outData["messageText"] = ssoResult["errorMessage"];
+						responseBody = inja::render(htmlTemplate, outData);
+						res.set_content(responseBody, responseContentType);
+						res.status = 500;
+					} else {
+						outData["isError"] = false;
+						outData["messageText"] = "Authentication Successful. You may now access the network.";
+						responseBody = inja::render(htmlTemplate, outData);
+						res.set_content(responseBody, responseContentType);
+					}
+				} else {
+					// not an object? We got a problem
+					outData["isError"] = true;
+					outData["messageText"] = "ERROR: Unkown SSO response. Please contact your administrator.";
+					responseBody = inja::render(htmlTemplate, outData);
+					res.set_content(responseBody, responseContentType);
+					res.status = 500;
+				}
 
-                zeroidc::free_cstr(ret);
-            }
-        };
-        _controlPlane.Get(ssoPath, ssoGet);
+				zeroidc::free_cstr(ret);
+			}
+		};
+		_controlPlane.Get(ssoPath, ssoGet);
 		_controlPlaneV6.Get(ssoPath, ssoGet);
 #endif
 		auto metricsGet = [this](const httplib::Request &req, httplib::Response &res) {
-            std::string statspath = _homePath + ZT_PATH_SEPARATOR + "metrics.prom";
-            std::string metrics;
-            if (OSUtils::readFile(statspath.c_str(), metrics)) {
-                res.set_content(metrics, "text/plain");
-            } else {
-                res.set_content("{}", "application/json");
-                res.status = 500;
-            }
-        };
-        _controlPlane.Get(metricsPath, metricsGet);
+			std::string statspath = _homePath + ZT_PATH_SEPARATOR + "metrics.prom";
+			std::string metrics;
+			if (OSUtils::readFile(statspath.c_str(), metrics)) {
+				res.set_content(metrics, "text/plain");
+			} else {
+				res.set_content("{}", "application/json");
+				res.status = 500;
+			}
+		};
+		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
 
 		auto exceptionHandler = [&, setContent](const httplib::Request &req, httplib::Response &res, std::exception_ptr ep) {
@@ -2391,7 +2391,7 @@ public:
 			fprintf(stderr, "ERROR: Could not bind control plane. Exiting...\n");
 			exit(-1);
 		}
-    }
+	}
 
 	// Must be called after _localConfig is read or modified
 	void applyLocalConfig()
@@ -3037,7 +3037,7 @@ public:
 	{
 		try {
 			if (!len) return; // sanity check, should never happen
-            Metrics::tcp_recv += len;
+			Metrics::tcp_recv += len;
 			TcpConnection *tc = reinterpret_cast<TcpConnection *>(*uptr);
 			tc->lastReceive = OSUtils::now();
 			switch(tc->type) {
@@ -3139,7 +3139,7 @@ public:
 			Mutex::Lock _l(tc->writeq_m);
 			if (tc->writeq.length() > 0) {
 				long sent = (long)_phy.streamSend(sock,tc->writeq.data(),(unsigned long)tc->writeq.length(),true);
-                Metrics::tcp_send += sent;
+				Metrics::tcp_send += sent;
 				if (sent > 0) {
 					if ((unsigned long)sent >= (unsigned long)tc->writeq.length()) {
 						tc->writeq.clear();
@@ -3681,12 +3681,12 @@ public:
 		// proxy fallback, which is slow.
 		if ((localSocket != -1)&&(localSocket != 0)&&(_binder.isUdpSocketValid((PhySocket *)((uintptr_t)localSocket)))) {
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
-                _phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),ttl);
-            }
+				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),ttl);
+			}
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
-                _phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
-            }
+				_phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
+			}
 			return ((r) ? 0 : -1);
 		} else {
 			return ((_binder.udpSendAll(_phy,addr,data,len,ttl)) ? 0 : -1);
