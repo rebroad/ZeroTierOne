@@ -968,6 +968,10 @@ public:
 	std::set<std::pair<Address, std::string> > _seenPacketSendAttempts;	  // Track first packet send attempt per ZT address + IP
 	Mutex _firstTimeEvents_m;
 
+	// Fast lookup table for infrastructure node IP addresses (planets/moons)
+	std::set<std::string> _infrastructureIPs;
+	Mutex _infrastructureIPs_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -2568,11 +2572,12 @@ public:
 					const PeerStats& peerStats = peerEntry.second;
 
 					// Aggregate by IP address (use wire-level stats as they include all traffic)
-					// BUT exclude IP stats for PLANET/MOON addresses since they're infrastructure
-					if (!_isInfrastructureNode(ztAddr)) {
+					// BUT exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
+					if (!_isInfrastructureIP(ipAddr) { // TODO - change ipAddr to a non-string ?
 						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
 						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
+						// TODO - above set a flag to indicate which was greater, IP or ZT - if ZT, stats CLI should show "(i)" or "(z)"
 					}
 
 					// Aggregate by ZT address (combine wire-level + authenticated stats for complete picture)
@@ -2615,17 +2620,12 @@ public:
 				const std::string& ipAddr = peerKey.second;
 				const PeerStats& stats = peerEntry.second;
 
-				// Skip old IP-based entries for infrastructure nodes (they should use INFRASTRUCTURE key)
-				if (_isInfrastructureNode(ztAddr) && ipAddr != "INFRASTRUCTURE") {
-					continue;  // Skip this entry - it's an old IP-based entry for a PLANET/MOON
-				}
-
 				char ztAddrBuf[32];
 				ztAddr.toString(ztAddrBuf);
 				std::string ztAddrStr(ztAddrBuf);
 
 				// Create unique key for this ZT address + IP combination
-				std::string combinedKey = ztAddrStr + "@" + ipAddr;
+				std::string combinedKey = ztAddrStr + "@" + ipAddr; // TODO - what is the purpose of this key ?
 
 				json peerStat = json::object();
 				peerStat["ztAddress"] = ztAddrStr;
@@ -2638,18 +2638,26 @@ public:
 				uint64_t ztTx = ztOutgoingBytes[ztAddr];
 
 				// Check if this ZT address is infrastructure (PLANET/MOON)
-				bool isInfrastructure = _isInfrastructureNode(ztAddr);
+				bool isInfrastructure = _isInfrastructureIP(ipAddr) || _isInfrastructureNode(ztAddr);
 
-				// Use higher RX value and mark source with "i" (IP) or "z" (ZT address)
+				// Use higher RX/TX value and mark source with "i" (IP) or "z" (ZT address)
 				// Note: IP stats will be 0 for infrastructure nodes due to filtering above
-				bool rxFromIP = ipRx >= ztRx;
-				uint64_t displayRx = rxFromIP ? ipRx : ztRx;
-				std::string rxSource = rxFromIP ? "i" : "z";
-
-				// Use higher TX value and mark source with "i" (IP) or "z" (ZT address)
-				bool txFromIP = ipTx >= ztTx;
-				uint64_t displayTx = txFromIP ? ipTx : ztTx;
-				std::string txSource = txFromIP ? "i" : "z";
+				bool rxFromIP, txFromIP;
+				uint64_t displayRx, displayTx;
+				std::string rxSource, txSource;
+				if (isInfrastructure) {
+					rxFromIP = txFromIP = false;
+					displayRx = ztRx;
+					displayTx = ztTx;
+					rxSource = txSource = "z";
+				} else {
+					rxFromIP = ipRx >= ztRx;
+					txFromIP = ipTx >= ztTx;
+					displayRx = rxFromIP ? ipRx : ztRx;
+					displayTx = txFromIP ? ipTx : ztTx;
+					rxSource = rxFromIP ? "i" : "z";
+					txSource = txFromIP ? "i" : "z";
+				}
 
 				// Display values (these are what should be used for bandwidth enforcement decisions)
 				peerStat["displayBytesIncoming"] = displayRx;
@@ -2906,15 +2914,15 @@ public:
 
 				// Aggregate stats by IP address (sum all ZT addresses for that IP)
 				std::map<std::string, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
-				std::map<std::string, std::map<unsigned int, uint64_t>> ipIncomingPorts, ipOutgoingPorts;
+				std::map<std::string, std::map<unsigned int, uint64_t> > ipIncomingPorts, ipOutgoingPorts;
 
 				for (const auto& entry : _peerStats) {
 					const Address& ztAddr = entry.first.first;
 					const std::string& ipAddr = entry.first.second;
 					const PeerStats& peerStats = entry.second;
 
-					// Skip infrastructure entries
-					if (ipAddr == "INFRASTRUCTURE" || _isInfrastructureNode(ztAddr)) {
+					// Skip infrastructure entries (both by IP address and ZT address)
+					if (_isInfrastructureIP(ipAddr) || _isInfrastructureNode(ztAddr)) {
 						continue;
 					}
 
@@ -4885,11 +4893,9 @@ public:
 	}
 
 	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned long packetSize, const Address& sourcePeerAddr)
-	{
+	{ // TODO - better to use peerAddress for detecting IsInfrastructure ?
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
-
-		Mutex::Lock _l(_peerStats_m);
 
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
@@ -4897,17 +4903,20 @@ public:
 
 		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
 		std::string keyIP;
-		if (_isInfrastructureNode(ztAddr)) {
-			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
-		} else {
-			keyIP = std::string(ipBuf);
-		}
+		keyIP = std::string(ipBuf); // TODO - why not use peerAddress as the keyIP
 
-		auto peerKey = std::make_pair(ztAddr, keyIP);
+		Mutex::Lock _l(_peerStats_m);
+
+		auto peerKey = std::make_pair(ztAddr, keyIP); // better to use KeyIP or peerAddress ?
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstIncoming = (_seenIncomingPeerPorts.find(peerPortKey) == _seenIncomingPeerPorts.end());
 
 		if (isFirstIncoming) {
+			if (_isInfrastructureNode(ztAddr)) {
+				// Add this IP to our infrastructure lookup table for fast filtering
+				_addInfrastructureIP(std::string(ipBuf)); // TODO - use peerAddress instead of ipBuf ?
+			}
+
 			_seenIncomingPeerPorts.insert(peerPortKey);
 			char ztBuf[64], localBuf[64], sourceBuf[64];
 			ztAddr.toString(ztBuf);
@@ -4991,19 +5000,15 @@ public:
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		Mutex::Lock _l(_peerStats_m);
-
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
 		remoteAddress.toIpString(ipBuf);
 
 		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
 		std::string keyIP;
-		if (_isInfrastructureNode(ztAddr)) {
-			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
-		} else {
-			keyIP = std::string(ipBuf);
-		}
+		keyIP = std::string(ipBuf); // TODO - why not use remoteAddress as the keyIP
+
+		Mutex::Lock _l(_peerStats_m);
 
 		auto peerKey = std::make_pair(ztAddr, keyIP);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
@@ -5012,7 +5017,7 @@ public:
 		// Only track outgoing stats for peers we've already received packets from
 		// This prevents creating stats entries for peers that never respond
 		auto it = _peerStats.find(peerKey);
-		if (it != _peerStats.end()) {
+		if (it != _peerStats.end()) { // TODO - remove the requirement that a peer has been seen before
 			PeerStats& stats = it->second;
 			stats.outgoingPortCounts[localPort]++;
 			stats.totalOutgoing++;
@@ -5057,25 +5062,26 @@ public:
 		// Skip tracking during early initialization to prevent crashes
 		if (!_node) return;
 
-		Mutex::Lock _l(_peerStats_m);
-
 		// Create key for this specific ZT address + IP address combination
 		char ipBuf[64];
 		remoteAddress.toIpString(ipBuf);
 
 		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
 		std::string keyIP;
-		if (_isInfrastructureNode(ztAddr)) {
-			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
-		} else {
-			keyIP = std::string(ipBuf);
-		}
+		keyIP = std::string(ipBuf); // TODO - why not use remoteAddress as the keyIP
+
+		Mutex::Lock _l(_peerStats_m);
 
 		auto peerKey = std::make_pair(ztAddr, keyIP);
 		auto peerPortKey = std::make_pair(peerKey, localPort);
 		bool isFirstOutgoing = (_seenOutgoingPeerPorts.find(peerPortKey) == _seenOutgoingPeerPorts.end());
 
 		if (isFirstOutgoing) {
+			if (_isInfrastructureNode(ztAddr)) {
+				// Add this IP to our infrastructure lookup table for fast filtering
+				_addInfrastructureIP(std::string(ipBuf)); // TODO - use remoteAddress instead of ipBuf ?
+			}
+
 			_seenOutgoingPeerPorts.insert(peerPortKey);
 			char ztBuf[64], localBuf[64];
 			ztAddr.toString(ztBuf);
@@ -5263,11 +5269,7 @@ public:
 
 		// Handle null ZT addresses (TIER 1 wire-level tracking without ZT validation)
 		std::string keyIP;
-		if (_isInfrastructureNode(ztAddr)) {
-			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
-		} else {
-			keyIP = std::string(peerIPStr);
-		}
+		keyIP = std::string(peerIPStr); // TODO - why not use peerIP as the keyIP ?
 
 		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, keyIP);
 
@@ -5311,11 +5313,7 @@ public:
 
 		// For infrastructure nodes (PLANET/MOON), use a special key to avoid IP-level tracking
 		std::string keyIP;
-		if (_isInfrastructureNode(ztAddr)) {
-			keyIP = "INFRASTRUCTURE";  // Special key that won't interfere with real IP addresses
-		} else {
-			keyIP = std::string(peerIPStr);
-		}
+		keyIP = std::string(peerIPStr); // TODO - why not use peerIP as the keyIP ?
 
 		std::pair<Address, std::string> peerKey = std::make_pair(ztAddr, keyIP);
 
@@ -5359,6 +5357,24 @@ public:
 			// Ignore errors during node initialization
 			return false;
 		}
+	}
+
+	// Add an IP address to the infrastructure lookup table
+	void _addInfrastructureIP(const std::string& ipAddr) {
+		Mutex::Lock _l(_infrastructureIPs_m);
+		_infrastructureIPs.insert(ipAddr);
+	}
+
+	// Check if an IP address is in the infrastructure lookup table
+	bool _isInfrastructureIP(const std::string& ipAddr) {
+		Mutex::Lock _l(_infrastructureIPs_m);
+		return _infrastructureIPs.find(ipAddr) != _infrastructureIPs.end();
+	}
+
+	// Get a copy of the infrastructure IPs (for stats endpoints)
+	std::set<std::string> _getInfrastructureIPs() {
+		Mutex::Lock _l(_infrastructureIPs_m);
+		return _infrastructureIPs;  // Return copy
 	}
 
 	// Helper function to look up all ZT addresses associated with an IP address
@@ -5449,136 +5465,6 @@ public:
 			}
 		}
 	}
-
-	// Helper function to get the "primary" ZT address for each IP address
-	// Uses HYBRID approach: topology for speed + lookup table for completeness
-	// TODO - is this function really that useful - when would it ever need to be used?
-	std::map<std::string, Address> _getPrimaryZtAddressPerIP() {
-		std::map<std::string, Address> primaryZtPerIP;
-
-		// STEP 1: Get all active peers from topology (FAST - O(7))
-		std::vector<std::pair<Address, SharedPtr<Peer>>> topologyPeers;
-		if (_node) {
-			try {
-				const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
-				if (RR && RR->topology) {
-					topologyPeers = RR->topology->allPeers();
-				}
-			} catch (...) {
-				// Topology not ready, fall back to lookup table only
-			}
-		}
-
-		// STEP 2: Build IP->ZT mapping from topology peers (with active path filtering)
-		std::map<std::string, std::vector<std::pair<Address, uint64_t>>> topologyIPToZt;
-		for (const auto& peerEntry : topologyPeers) {
-			const Address& ztAddr = peerEntry.first;
-			const SharedPtr<Peer>& peer = peerEntry.second;
-
-			// Skip infrastructure nodes
-			if (_isInfrastructureNode(ztAddr)) {
-				continue;
-			}
-
-			// Only include peers that are alive and have paths
-			if (peer && peer->isAlive(OSUtils::now())) {
-				std::vector<SharedPtr<Path>> paths = peer->paths(OSUtils::now());
-				for (const auto& path : paths) {
-					if (path) {
-						char ipBuf[64];
-						path->address().toIpString(ipBuf);
-						std::string ipAddr(ipBuf);
-
-						// Use last receive time as priority metric (lastSend() doesn't exist in Peer class)
-						uint64_t lastComm = peer->lastReceive();
-						topologyIPToZt[ipAddr].emplace_back(ztAddr, lastComm);
-					}
-				}
-			}
-		}
-
-		// STEP 3: Select primary ZT address per IP from topology data
-		for (const auto& ipEntry : topologyIPToZt) {
-			const std::string& ipAddr = ipEntry.first;
-			const auto& ztCandidates = ipEntry.second;
-
-			if (ztCandidates.empty()) continue;
-
-			// Find most recently active peer for this IP
-			Address primaryZt = ztCandidates[0].first;
-			uint64_t primaryLastComm = ztCandidates[0].second;
-
-			for (const auto& candidate : ztCandidates) {
-				if (candidate.second > primaryLastComm) {
-					primaryZt = candidate.first;
-					primaryLastComm = candidate.second;
-				}
-			}
-
-			primaryZtPerIP[ipAddr] = primaryZt;
-		}
-
-		// STEP 4: Fill gaps with lookup table data (for peers not in topology)
-		{
-			Mutex::Lock _l(_peerStats_m);
-
-			// Group lookup table entries by IP
-			std::map<std::string, std::vector<std::pair<Address, const PeerStats*>>> lookupIPToZt;
-			for (const auto& entry : _peerStats) {
-				const Address& ztAddr = entry.first.first;
-				const std::string& ipAddr = entry.first.second;
-				const PeerStats& stats = entry.second;
-
-				// Skip infrastructure entries and IPs already handled by topology
-				if (ipAddr == "INFRASTRUCTURE" || _isInfrastructureNode(ztAddr) ||
-					primaryZtPerIP.find(ipAddr) != primaryZtPerIP.end()) {
-					continue;
-				}
-
-				lookupIPToZt[ipAddr].emplace_back(ztAddr, &stats);
-			}
-
-			// Select primary ZT address for remaining IPs using lookup table logic
-			for (const auto& ipEntry : lookupIPToZt) {
-				const std::string& ipAddr = ipEntry.first;
-				const auto& ztCandidates = ipEntry.second;
-
-				if (ztCandidates.empty()) continue;
-
-				// Use same selection criteria as before
-				Address primaryZt = ztCandidates[0].first;
-				const PeerStats* primaryStats = ztCandidates[0].second;
-				uint64_t primaryLastAuth = std::max(primaryStats->lastAuthIncomingSeen, primaryStats->lastAuthOutgoingSeen);
-				uint64_t primaryAuthTraffic = primaryStats->AuthBytesIncoming + primaryStats->AuthBytesOutgoing;
-
-				for (const auto& candidate : ztCandidates) {
-					const Address& ztAddr = candidate.first;
-					const PeerStats* stats = candidate.second;
-					uint64_t lastAuth = std::max(stats->lastAuthIncomingSeen, stats->lastAuthOutgoingSeen);
-					uint64_t authTraffic = stats->AuthBytesIncoming + stats->AuthBytesOutgoing;
-
-					if (lastAuth > primaryLastAuth) {
-						primaryZt = ztAddr;
-						primaryStats = stats;
-						primaryLastAuth = lastAuth;
-						primaryAuthTraffic = authTraffic;
-					} else if (lastAuth == primaryLastAuth && authTraffic > primaryAuthTraffic) {
-						primaryZt = ztAddr;
-						primaryStats = stats;
-						primaryAuthTraffic = authTraffic;
-					} else if (lastAuth == 0 && primaryLastAuth == 0 && ztAddr < primaryZt) {
-						primaryZt = ztAddr;
-						primaryStats = stats;
-					}
-				}
-
-				primaryZtPerIP[ipAddr] = primaryZt;
-			}
-		}
-
-		return primaryZtPerIP;
-	}
-};
 
 static int SnodeVirtualNetworkConfigFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t nwid,void **nuptr,enum ZT_VirtualNetworkConfigOperation op,const ZT_VirtualNetworkConfig *nwc)
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodeVirtualNetworkConfigFunction(nwid,nuptr,op,nwc); }
