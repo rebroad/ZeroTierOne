@@ -113,7 +113,7 @@ void Peer::received(
 	// Trigger callback for authenticated packet tracking (TIER 2)
 	if (RR->peerEventCallback) {
 		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
-			path->address(), _id.address(), Address(), true, path->localPort(), payloadLength);
+			path->address(), _id.address(), Address(), true, payloadLength);
 	}
 
 	if (hops == 0) {
@@ -186,7 +186,7 @@ void Peer::received(
 					// TODO - Is this function still needed now that we're passing localPort from tier 1 to tier 2
 					//    and returning ztaddr from tier 2 to tier 1 ?
 					if (RR->peerEventCallback) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true, 0, 0);
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true, 0);
 					}
 				}
 			} else {
@@ -478,9 +478,9 @@ void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAdd
 {
 	// Proactively notify service about outbound contact attempt (iptables integration)
 	// This ensures ipset rules are in place BEFORE sending packets, allowing responses
-	if (RR->peerEventCallback) {
-		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0, 0);
-	}
+			if (RR->peerEventCallback) {
+			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0);
+		}
 
 	if ( (!sendFullHello) && (_vProto >= 5) && (!((_vMajor == 1)&&(_vMinor == 1)&&(_vRevision == 0))) ) {
 		Packet outp(_id.address(),RR->identity.address(),Packet::VERB_ECHO);
@@ -708,14 +708,8 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path> &path, const uint64_t pack
 
 	// Track outgoing packet for port usage statistics (only for established peers)
 	if (RR->peerEventCallback && path) {
-		// Get the local port from the path's socket using the static method
-		PhySocket* sock = reinterpret_cast<PhySocket*>((uintptr_t)path->localSocket());
-		// Use the Phy template's static method to get the local port
-		unsigned int localPort = Phy<void*>::getLocalPort(sock);
-		if (localPort) {
-			RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-								  path->address(), _id.address(), Address(), true, localPort, payloadLength);
-		}
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
+							  path->address(), _id.address(), Address(), true, payloadLength);
 	}
 }
 
