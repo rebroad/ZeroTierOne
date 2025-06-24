@@ -100,7 +100,7 @@ public:
 		PEER_EVENT_AUTHENTICATED_PACKET // Authenticated packet received from peer (for TIER 2 tracking)
 	};
 
-	typedef void (*PeerEventCallback)(void* userPtr, PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort, unsigned int packetSize);
+	typedef void (*PeerEventCallback)(void* userPtr, PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize);
 	PeerEventCallback peerEventCallback;
 	void* peerEventCallbackUserPtr;
 };

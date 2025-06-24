@@ -768,7 +768,7 @@ bool IncomingPacket::_doRENDEZVOUS(const RuntimeEnvironment *RR,void *tPtr,const
 				if (RR->node->shouldUsePathForZeroTierTraffic(tPtr,with,_path->localSocket(),atAddr)) {
 					// Track peer introduction for misbehavior detection
 					if (RR->peerEventCallback) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_INTRODUCTION, atAddr, with, peer->address(), false, 0, 0);
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_INTRODUCTION, atAddr, with, peer->address(), false, 0);
 					}
 
 					const uint64_t junk = RR->node->prng();
@@ -777,7 +777,7 @@ bool IncomingPacket::_doRENDEZVOUS(const RuntimeEnvironment *RR,void *tPtr,const
 
 					// Track connection attempt (assume failure initially, will be updated on success)
 					if (RR->peerEventCallback) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT, atAddr, with, peer->address(), false, 0, 0);
+						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT, atAddr, with, peer->address(), false, 0);
 					}
 				}
 			}
