@@ -901,9 +901,15 @@ public:
 
 	// Peer-port usage tracking (now per ZT address + IP address combination)
 	struct PeerStats {
-		std::map<unsigned int, uint64_t> incomingPortCounts;   // port -> incoming count
-		std::map<unsigned int, uint64_t> outgoingPortCounts;   // port -> outgoing count
-		std::string peerIP;									   // The specific IP address for this stats entry
+		// TIER 1: Wire-level port usage (UNTRUSTED - all packets at wire level)
+		std::map<unsigned int, uint64_t> wireIncomingPortCounts;   // port -> wire incoming count
+		std::map<unsigned int, uint64_t> wireOutgoingPortCounts;   // port -> wire outgoing count
+
+		// TIER 2: Authenticated port usage (TRUSTED - cryptographically verified packets only)
+		std::map<unsigned int, uint64_t> incomingPortCounts;       // port -> auth incoming count
+		std::map<unsigned int, uint64_t> outgoingPortCounts;       // port -> auth outgoing count
+
+		std::string peerIP;									       // The specific IP address for this stats entry
 
 		// Original packet tracking (successful ZT protocol exchanges)
 		uint64_t totalIncoming;
@@ -2609,23 +2615,43 @@ public:
 				peerStat["LastAuthIncomingSeen"] = stats.lastAuthIncomingSeen;
 				peerStat["LastAuthOutgoingSeen"] = stats.lastAuthOutgoingSeen;
 
-				// Port usage statistics
-				json incomingPorts = json::object();
+				// Port usage statistics - Two-Tier System
+				// TIER 1: Wire-level port usage (all packets at wire level)
+				json wireIncomingPorts = json::object();
+				for (const auto& portCount : stats.wireIncomingPortCounts) {
+					wireIncomingPorts[std::to_string(portCount.first)] = portCount.second;
+				}
+				peerStat["wireIncomingPorts"] = wireIncomingPorts;
+
+				json wireOutgoingPorts = json::object();
+				for (const auto& portCount : stats.wireOutgoingPortCounts) {
+					wireOutgoingPorts[std::to_string(portCount.first)] = portCount.second;
+				}
+				peerStat["wireOutgoingPorts"] = wireOutgoingPorts;
+
+				// TIER 2: Authenticated port usage (cryptographically verified packets only)
+				json authIncomingPorts = json::object();
 				for (const auto& portCount : stats.incomingPortCounts) {
-					incomingPorts[std::to_string(portCount.first)] = portCount.second;
+					authIncomingPorts[std::to_string(portCount.first)] = portCount.second;
 				}
-				peerStat["incomingPorts"] = incomingPorts;
+				peerStat["authIncomingPorts"] = authIncomingPorts;
 
-				json outgoingPorts = json::object();
+				json authOutgoingPorts = json::object();
 				for (const auto& portCount : stats.outgoingPortCounts) {
-					outgoingPorts[std::to_string(portCount.first)] = portCount.second;
+					authOutgoingPorts[std::to_string(portCount.first)] = portCount.second;
 				}
-				peerStat["outgoingPorts"] = outgoingPorts;
+				peerStat["authOutgoingPorts"] = authOutgoingPorts;
 
-				// Filter out entries with zero ZT address AND no port usage
+				// Maintain backward compatibility with existing field names (use authenticated for legacy)
+				peerStat["incomingPorts"] = authIncomingPorts;
+				peerStat["outgoingPorts"] = authOutgoingPorts;
+
+				// Filter out entries with zero ZT address AND no port usage in either tier
 				// These are usually TIER 1 tracking entries with null ZT addresses that have no useful information
-				bool hasPortUsage = !stats.incomingPortCounts.empty() || !stats.outgoingPortCounts.empty();
-				bool shouldInclude = ztAddr || hasPortUsage;  // Include if ZT address is valid OR has port usage
+				bool hasWirePortUsage = !stats.wireIncomingPortCounts.empty() || !stats.wireOutgoingPortCounts.empty();
+				bool hasAuthPortUsage = !stats.incomingPortCounts.empty() || !stats.outgoingPortCounts.empty();
+				bool hasAnyPortUsage = hasWirePortUsage || hasAuthPortUsage;
+				bool shouldInclude = ztAddr || hasAnyPortUsage;  // Include if ZT address is valid OR has any port usage
 
 				if (shouldInclude) {
 					peerStats[combinedKey] = peerStat;
@@ -3629,7 +3655,9 @@ public:
 			// TIER 1: Track basic wire-level metrics (IP-level only, no ZT addresses)
 			// Only track non-infrastructure traffic to avoid noise from root servers
 			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {
-				_trackWirePacket(Address(), fromAddress, isSuccessful, len, true); // true = incoming packet
+				const InetAddress localAddress(localAddr);
+				const unsigned int localPort = localAddress.port();
+				_trackWirePacket(Address(), fromAddress, isSuccessful, len, true, localPort); // true = incoming packet
 			}
 
 			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
@@ -4343,7 +4371,9 @@ public:
 			remoteAddress.toIpString(ipBuf);
 
 			// Track wire packet metrics for outgoing packets (always successful when we send)
-			_trackWirePacket(destAddr, remoteAddress, true, len, false); // false = outgoing packet
+			// For outgoing packets, we need to determine the local port used
+			// For now, use the primary port as a reasonable default
+			_trackWirePacket(destAddr, remoteAddress, true, len, false, _primaryPort); // false = outgoing packet
 			// Log initial outgoing packet attempts (before peer file access) - first time only per peer+IP
 			if (len > 12) {
 				Mutex::Lock _l(_firstTimeEvents_m);
@@ -5187,7 +5217,7 @@ public:
 
 	// Fast wire packet tracking using direct memory updates (replaces slow Prometheus metrics)
 	void _trackWirePacket(const Address& ztAddr, const InetAddress& peerIP,
-						  bool isSuccessful, unsigned int packetSize, bool incoming) {
+						  bool isSuccessful, unsigned int packetSize, bool incoming, unsigned int localPort) {
 		char peerIPStr[64];
 		peerIP.toIpString(peerIPStr);
 
@@ -5213,11 +5243,15 @@ public:
 			} else {
 				stats.suspiciousPacketCount++;  // Keep this for attack detection
 			}
+			// TIER 1: Track wire-level incoming port usage
+			stats.wireIncomingPortCounts[localPort]++;
 		} else {
 			stats.WireBytesOutgoing += packetSize;
 			if (isSuccessful) {
 				stats.WireBytesOutgoingOK += packetSize;
 			}
+			// TIER 1: Track wire-level outgoing port usage
+			stats.wireOutgoingPortCounts[localPort]++;
 		}
 
 		// Perform periodic attack detection (every 10 seconds per peer)
