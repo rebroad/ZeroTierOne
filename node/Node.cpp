@@ -227,21 +227,18 @@ ZT_ResultCode Node::processWirePacket(
 {
 	_now = now;
 
-	// Extract source address from packet for port tracking
-	Address sourceAddr;
-	bool hasSourceAddr = false;
+	// Process packet and get authenticated peer address if available
+	Address authenticatedPeerAddr;
+	RR->sw->onRemotePacket(tptr,localSocket,*(reinterpret_cast<const InetAddress *>(remoteAddress)),packetData,packetLength,localPort,&authenticatedPeerAddr);
 
-	if (packetLength >= ZT_PROTO_MIN_PACKET_LENGTH) {
-		// ZeroTier packet format: source address is at offset 13, length 5 bytes
-		sourceAddr.setTo(reinterpret_cast<const uint8_t *>(packetData) + 13, ZT_ADDRESS_LENGTH);
-		hasSourceAddr = true;
-	}
-
-	RR->sw->onRemotePacket(tptr,localSocket,*(reinterpret_cast<const InetAddress *>(remoteAddress)),packetData,packetLength,localPort);
-
-	// If caller wants the source peer address and we successfully extracted it, provide it
-	if (sourcePeerAddress && hasSourceAddr) {
-		*sourcePeerAddress = sourceAddr;
+	// Return the authenticated peer address if available, otherwise try to extract from packet
+	if (sourcePeerAddress) {
+		if (authenticatedPeerAddr) {
+			*sourcePeerAddress = authenticatedPeerAddr;
+		} else if (packetLength >= ZT_PROTO_MIN_PACKET_LENGTH) {
+			// Fallback: extract from packet header (less reliable)
+			sourcePeerAddress->setTo(reinterpret_cast<const uint8_t *>(packetData) + 13, ZT_ADDRESS_LENGTH);
+		}
 	}
 
 	return ZT_RESULT_OK;

@@ -74,7 +74,7 @@ static bool _ipv6GetPayload(const uint8_t *frameData,unsigned int frameLen,unsig
 	return false; // overflow == invalid
 }
 
-void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddress &fromAddr,const void *data,unsigned int len,unsigned int localPort)
+void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddress &fromAddr,const void *data,unsigned int len,unsigned int localPort, Address *authenticatedPeerAddr)
 {
 	int32_t flowId = ZT_QOS_NO_FLOW;
 	try {
@@ -173,6 +173,10 @@ void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddre
 								}
 
 								if (rq->frag0.tryDecode(RR,tPtr,flowId)) {
+									// Fragmented packet head was successfully decoded and authenticated
+									if (authenticatedPeerAddr) {
+										*authenticatedPeerAddr = rq->frag0.source();
+									}
 									rq->timestamp = 0; // packet decoded, free entry
 								} else {
 									rq->complete = true; // set complete flag but leave entry since it probably needs WHOIS or something
@@ -260,6 +264,10 @@ void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddre
 							}
 
 							if (rq->frag0.tryDecode(RR,tPtr,flowId)) {
+								// Fragmented packet was successfully decoded and authenticated
+								if (authenticatedPeerAddr) {
+									*authenticatedPeerAddr = rq->frag0.source();
+								}
 								rq->timestamp = 0; // packet decoded, free entry
 							} else {
 								rq->complete = true; // set complete flag but leave entry since it probably needs WHOIS or something
@@ -272,7 +280,12 @@ void Switch::onRemotePacket(void *tPtr,const int64_t localSocket,const InetAddre
 				} else {
 					// Packet is unfragmented, so just process it
 					IncomingPacket packet(data,len,path,now);
-					if (!packet.tryDecode(RR,tPtr,flowId)) {
+					if (packet.tryDecode(RR,tPtr,flowId)) {
+						// Packet was successfully decoded and authenticated
+						if (authenticatedPeerAddr) {
+							*authenticatedPeerAddr = packet.source();
+						}
+					} else {
 						RXQueueEntry *const rq = _nextRXQueueEntry();
 						Mutex::Lock rql(rq->lock);
 						rq->flowId = flowId;
