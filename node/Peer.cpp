@@ -114,6 +114,10 @@ void Peer::received(
 	if (RR->peerEventCallback) {
 		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
 			path->address(), _id.address(), Address(), true, path->localPort(), payloadLength);
+
+		// Also trigger callback to pass authenticated ZT address back to Tier 1
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_WIRE_PACKET_AUTHENTICATED,
+			path->address(), _id.address(), Address(), true, path->localPort(), payloadLength);
 	}
 
 	if (hops == 0) {
