@@ -978,10 +978,6 @@ public:
 	std::set<std::string> _infrastructureIPs;
 	Mutex _infrastructureIPs_m;
 
-	// Storage for authenticated ZT address from Tier 2 back to Tier 1
-	Address _authenticatedZtAddr;
-	Mutex _authenticatedZtAddr_m;
-
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char *hp,unsigned int port) :
@@ -3661,12 +3657,9 @@ public:
 			const bool isSuccessful = (rc == ZT_RESULT_OK);
 
 			// TIER 1: Track basic wire-level metrics using authenticated ZT address from Tier 2
-			// Get the authenticated ZT address set by the Tier 2 callback
-			Address authenticatedZtAddr = _getAndClearAuthenticatedZtAddr();
-
-			// Only track non-infrastructure traffic to avoid noise from root servers
-			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && !_isInfrastructureNode(authenticatedZtAddr)) {
-				_trackWirePacket(authenticatedZtAddr, fromAddress, isSuccessful, len, true, localPort); // true = incoming packet
+			// originPeerZTAddr now contains the authenticated ZT address from processWirePacket
+			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {
+				_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true, localPort); // true = incoming packet
 			}
 
 			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
@@ -4375,7 +4368,6 @@ public:
 			if (len > 12) {
 				destAddr.setTo(packetData + 8, 5);
 			} else {
-				fprintf(stderr, "WARNING: destAddr.zero() in nodeWirePacketSendFunction - len=%u, remoteAddr=%s\n", len, ipBuf);
 				destAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
 			}
 
@@ -5338,19 +5330,7 @@ public:
 		return _infrastructureIPs.find(ipAddr) != _infrastructureIPs.end();
 	}
 
-	// Set the authenticated ZT address from Tier 2 callback
-	void _setAuthenticatedZtAddr(const Address& ztAddr) {
-		Mutex::Lock _l(_authenticatedZtAddr_m);
-		_authenticatedZtAddr = ztAddr;
-	}
 
-	// Get and clear the authenticated ZT address for use in Tier 1
-	Address _getAndClearAuthenticatedZtAddr() {
-		Mutex::Lock _l(_authenticatedZtAddr_m);
-		Address result = _authenticatedZtAddr;
-		_authenticatedZtAddr.zero(); // Clear after use
-		return result;
-	}
 
 	// Get a copy of the infrastructure IPs (for stats endpoints)
 	std::set<std::string> _getInfrastructureIPs() {
@@ -5508,10 +5488,6 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 				localAddr.setPort(localPort);
 				service->_trackIncomingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), packetSize, peerZtAddr);
 			}
-			break;
-		case RuntimeEnvironment::PEER_EVENT_WIRE_PACKET_AUTHENTICATED:
-			// Store authenticated ZT address for Tier 1 wire packet tracking
-			service->_setAuthenticatedZtAddr(peerZtAddr);
 			break;
 	}
 }

@@ -97,8 +97,7 @@ public:
 		PEER_EVENT_INTRODUCTION,    // Peer introduced another peer's IP
 		PEER_EVENT_CONNECTION_ATTEMPT, // Connection attempt made to introduced IP
 		PEER_EVENT_OUTGOING_PACKET, // Outgoing packet sent to peer (for port tracking)
-		PEER_EVENT_AUTHENTICATED_PACKET, // Authenticated packet received from peer (for TIER 2 tracking)
-		PEER_EVENT_WIRE_PACKET_AUTHENTICATED // Wire packet authenticated with correct ZT address (for TIER 1)
+		PEER_EVENT_AUTHENTICATED_PACKET // Authenticated packet received from peer (for TIER 2 tracking)
 	};
 
 	typedef void (*PeerEventCallback)(void* userPtr, PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort, unsigned int packetSize);
