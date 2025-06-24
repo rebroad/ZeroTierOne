@@ -2534,6 +2534,8 @@ public:
 					const Address& ztAddrB = b.first.first;
 					const InetAddress& ipAddrB = b.first.second;
 
+					// TODO - code below is wrong. We should have already decided elsewhere whether to use IP or ZT stats!
+
 					// Get higher RX value (IP vs ZT)
 					uint64_t rxA = std::max(ipIncomingBytes[ipAddrA], ztIncomingBytes[ztAddrA]);
 					uint64_t rxB = std::max(ipIncomingBytes[ipAddrB], ztIncomingBytes[ztAddrB]);
@@ -4190,7 +4192,9 @@ public:
 				destAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
 			}
 
-            // TODO - we might be port tracking twice! We're calling _trackWirePacket() and _trackOutgoingPacket()
+            // TODO - we might be port tracking three times! We're calling _trackWirePacket() and
+			// also _trackOutgoingPacket() (which is also called by _trackOutgoingPacketSend())
+            // and _trackWirePacket is also called from phyOnDatagram()!
 
 			// Track wire packet metrics for outgoing packets (always successful when we send)
 			// For outgoing packets, we need to determine the local port used
@@ -5018,6 +5022,7 @@ public:
 	// TIER 2: Track authenticated packets only (called from Peer.cpp level)
 	void _trackAuthenticatedPacket(const Address& ztAddr, const InetAddress& ipAddr,
 								   unsigned int packetSize, bool incoming, uint64_t now) {
+		// TODO - this is currently called from SPeerEventCallback()
 		// Use IP address with port set to 0 for consistent tracking
 		InetAddress keyIP = ipAddr.ipOnly();
 
@@ -5033,7 +5038,7 @@ public:
 
 		// Update authenticated packet counters
 		if (incoming) {
-			stats.AuthBytesIncoming += packetSize;
+			stats.AuthBytesIncoming += packetSize; // TODO - and where is this used?!
 			stats.lastAuthIncomingSeen = now;
 		} else {
 			stats.AuthBytesOutgoing += packetSize;
@@ -5111,6 +5116,7 @@ public:
 
 	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& ipAddr,
 								   PeerStats& stats, uint64_t now) {
+		// TODO - this is called from _trackWirePacket()
 		if (!ztAddr) { // isZero() is equivalent to !ztAddr since Address has bool operator
 			return; // Skip attack detection for zero addresses until we understand the false positives
 		}
@@ -5219,6 +5225,7 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			break;
 		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
 			// TIER 2: Track authenticated packets with validated ZT addresses
+			// TODO - and from where do we call port tracking in Tier 2?
 			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, packetSize, true, OSUtils::now()); // true = incoming packet
 			// Note: Port tracking is now handled directly in OneService where we have access to real local port
 			break;

@@ -1214,25 +1214,9 @@ static int cli(int argc,char **argv)
 				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
 					"----------", "---------------", "---------", "---------", "--------", "----------", "----------");
 
-				// Process per-IP peer data from the /stats endpoint
-				// First collect all peer data into a vector for sorting
-				std::vector<std::pair<std::string, nlohmann::json> > peerEntries;
-				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_object()) {
-					for (auto& [combinedKey, peerData] : j["peersByZtAddressAndIP"].items()) {
-						peerEntries.emplace_back(combinedKey, peerData);
-					}
-
-					// Sort by total display bytes (higher of IP vs ZT stats) in descending order
-					// This matches the sorting logic implemented in OneService.cpp
-					std::sort(peerEntries.begin(), peerEntries.end(), [](const auto& a, const auto& b) {
-						uint64_t totalA = a.second.value("displayBytesIncoming", 0ULL) + a.second.value("displayBytesOutgoing", 0ULL);
-						uint64_t totalB = b.second.value("displayBytesIncoming", 0ULL) + b.second.value("displayBytesOutgoing", 0ULL);
-						return totalA > totalB;
-					});
-				}
-
-				// Now display the sorted peer data
-				for (auto& [combinedKey, peerData] : peerEntries) {
+				// Process per-IP peer data from the /stats endpoint (already sorted by server)
+				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_array()) {
+					for (auto& peerData : j["peersByZtAddressAndIP"]) {
 					std::string ztaddr = peerData.value("ztAddress", "unknown");
 					std::string ipAddress = peerData.value("ipAddress", "-");
 
