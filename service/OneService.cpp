@@ -2150,6 +2150,7 @@ public:
 			setContent(req, res, out.dump());
 		};
 		_controlPlane.Delete(moonPath, moonDelete);
+		_controlPlaneV6.Delete(moonPath, moonDelete);
 
 		auto networkListGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			Mutex::Lock _l(_nets_m);
@@ -2781,6 +2782,7 @@ public:
 			}
 		};
 		_controlPlane.Get("/debug/peer", debugPeerGet);
+		_controlPlaneV6.Get("/debug/peer", debugPeerGet);
 
 		// Debug endpoint to lookup ZT addresses by IP or IP addresses by ZT address
 		auto debugLookupGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -2835,6 +2837,7 @@ public:
 			setContent(req, res, result.dump(2));
 		};
 		_controlPlane.Get("/debug/lookup", debugLookupGet);
+		_controlPlaneV6.Get("/debug/lookup", debugLookupGet);
 
 		// IP-centric stats endpoint - shows one primary ZT address per IP
 		auto ipStatsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -2935,6 +2938,7 @@ public:
 			setContent(req, res, stats.dump(2));
 		};
 		_controlPlane.Get("/stats/by-ip", ipStatsGet);
+		_controlPlaneV6.Get("/stats/by-ip", ipStatsGet);
 
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
