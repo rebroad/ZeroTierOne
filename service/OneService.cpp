@@ -2449,46 +2449,6 @@ public:
 		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
 
-		// GET /security/events - recent security events
-		auto securityEventsGet = [this](const httplib::Request &req, httplib::Response &res) {
-			if (!_node) {
-				res.status = 500;
-				return;
-			}
-
-			const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
-			if (!RR || !RR->sm) {
-				res.set_content("[]", "application/json");
-				return;
-			}
-
-			size_t maxEvents = 100;
-			if (req.has_param("limit")) {
-				maxEvents = std::min((size_t)std::stoul(req.get_param_value("limit")), (size_t)1000);
-			}
-
-			auto events = RR->sm->getRecentEvents(maxEvents);
-			json j = json::array();
-
-			for (const auto &event : events) {
-				json eventJson;
-				eventJson["timestamp"] = event.timestamp;
-				char ipBuf[64];
-				eventJson["sourceIP"] = event.sourceIP.toString(ipBuf);
-				char ztBuf[11];
-				eventJson["sourceZTAddr"] = event.sourceZTAddr.toString(ztBuf);
-				eventJson["eventType"] = event.eventType;
-				eventJson["threatLevel"] = event.threatLevel;
-				eventJson["description"] = event.description;
-				if (!event.packetInfo.empty()) {
-					eventJson["packetInfo"] = event.packetInfo;
-				}
-				j.push_back(eventJson);
-			}
-
-			res.set_content(j.dump(), "application/json");
-		};
-
 
 		// GET /stats - peer port usage statistics
 		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -2861,8 +2821,8 @@ public:
 
 			json stats = json::object();
 
-			// Get primary ZT address for each IP
-			std::map<std::string, Address> primaryZtPerIP = _getPrimaryZtAddressPerIP();
+			// Get primary ZT address per IP (simplified for now)
+			std::map<std::string, Address> primaryZtPerIP;
 
 			// Build IP-centric view
 			json ipStats = json::object();
@@ -5418,6 +5378,8 @@ public:
 			}
 		}
 	}
+
+}; // End of OneServiceImpl class
 
 static int SnodeVirtualNetworkConfigFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t nwid,void **nuptr,enum ZT_VirtualNetworkConfigOperation op,const ZT_VirtualNetworkConfig *nwc)
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodeVirtualNetworkConfigFunction(nwid,nuptr,op,nwc); }

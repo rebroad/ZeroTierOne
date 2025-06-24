@@ -2057,19 +2057,33 @@ static int cli(int argc,char **argv)
 				printf("IP Address Statistics (aggregated by IP only):" ZT_EOL_S);
 				printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, "IP Address", "RX Bytes", "TX Bytes", "Last Seen");
 				printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, "---------------", "------------", "------------", "--------------------");
-				
+
 				for (auto it = result.begin(); it != result.end(); ++it) {
 					const std::string& ipAddr = it.key();
 					const nlohmann::json& stats = it.value();
-					
+
 					uint64_t rxBytes = OSUtils::jsonInt(stats["incomingBytes"], 0ULL);
 					uint64_t txBytes = OSUtils::jsonInt(stats["outgoingBytes"], 0ULL);
 					uint64_t lastSeen = OSUtils::jsonInt(stats["lastSeen"], 0ULL);
-					
+
 					char rxStr[32], txStr[32], lastSeenStr[32];
-					OSUtils::humanReadableDataSize(rxBytes, rxStr);
-					OSUtils::humanReadableDataSize(txBytes, txStr);
-					
+
+					// Format bytes in human-readable format
+					auto formatBytes = [](uint64_t bytes, char* str) {
+						if (bytes >= 1073741824ULL) {
+							snprintf(str, 32, "%.1f GB", (double)bytes / 1073741824.0);
+						} else if (bytes >= 1048576ULL) {
+							snprintf(str, 32, "%.1f MB", (double)bytes / 1048576.0);
+						} else if (bytes >= 1024ULL) {
+							snprintf(str, 32, "%.1f KB", (double)bytes / 1024.0);
+						} else {
+							snprintf(str, 32, "%llu B", (unsigned long long)bytes);
+						}
+					};
+
+					formatBytes(rxBytes, rxStr);
+					formatBytes(txBytes, txStr);
+
 					if (lastSeen > 0) {
 						time_t t = (time_t)(lastSeen / 1000ULL);
 						struct tm *tm = localtime(&t);
@@ -2077,7 +2091,7 @@ static int cli(int argc,char **argv)
 					} else {
 						strcpy(lastSeenStr, "never");
 					}
-					
+
 					printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, ipAddr.c_str(), rxStr, txStr, lastSeenStr);
 				}
 			}
@@ -2115,7 +2129,7 @@ static int cli(int argc,char **argv)
 			printf("usage: zerotier-cli debug-peer <zt_address>" ZT_EOL_S);
 			return 2;
 		}
-		
+
 		std::string url = "/debug/peer?ztaddr=" + arg1;
 		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,url.c_str(),requestHeaders,responseHeaders,responseBody);
 		if (scode == 200) {
@@ -2142,7 +2156,7 @@ static int cli(int argc,char **argv)
 			printf("usage: zerotier-cli debug-lookup <ip_address>" ZT_EOL_S);
 			return 2;
 		}
-		
+
 		std::string url = "/debug/lookup?ip=" + arg1;
 		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,url.c_str(),requestHeaders,responseHeaders,responseBody);
 		if (scode == 200) {
