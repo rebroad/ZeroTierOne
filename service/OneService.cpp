@@ -699,7 +699,7 @@ static void SnodeVirtualNetworkFrameFunction(ZT_Node *node,void *uptr,void *tptr
 static int SnodePathCheckFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int64_t localSocket,const struct sockaddr_storage *remoteAddr);
 static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t ztaddr,int family,struct sockaddr_storage *result);
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len);
-static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort, unsigned int packetSize);
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize);
 
 static int ShttpOnMessageBegin(http_parser *parser);
 static int ShttpOnUrl(http_parser *parser,const char *ptr,size_t length);
@@ -1075,8 +1075,6 @@ public:
 #endif
 		delete _controller;
 		delete _rc;
-
-		// IptablesManager cleanup is handled automatically by RAII in its destructor
 	}
 
 	void setUpMultithreading()
@@ -2456,7 +2454,7 @@ public:
 		_controlPlaneV6.Get(metricsPath, metricsGet);
 
 
-		// GET /stats - peer port usage statistics
+		// GET /stats - peer port and bandwidth usage statistics
 		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			json stats = json::object();
 
@@ -2486,7 +2484,7 @@ public:
 			std::vector<std::pair<std::pair<Address, std::string>, PeerStats>> sortedPeers;
 
 			{
-				Mutex::Lock _l(_peerStats_m);
+				Mutex::Lock _l(_peerStats_m); // TODO - is lock-free an option?
 				for (const auto& peerEntry : _peerStats) {
 					sortedPeers.push_back(peerEntry);
 
@@ -2583,37 +2581,37 @@ public:
 				}
 
 				// Display values (these are what should be used for bandwidth enforcement decisions)
-				peerStat["displayBytesIncoming"] = displayRx;
-				peerStat["displayBytesOutgoing"] = displayTx;
+				peerStat["displayBytesIncoming"] = displayRx; // TODO - should formatting be done in one.cpp?
+				peerStat["displayBytesOutgoing"] = displayTx; // TODO - formatting should be done in one.cpp!
 				peerStat["rxSource"] = rxSource;  // "i" = from IP stats, "z" = from ZT address stats
 				peerStat["txSource"] = txSource;  // "i" = from IP stats, "z" = from ZT address stats
 				peerStat["isInfrastructureNode"] = isInfrastructure;  // Indicates if IP stats were excluded
-				peerStat["totalIncoming"] = stats.totalIncoming;
-				peerStat["totalOutgoing"] = stats.totalOutgoing;
-				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen;
-				peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen;
-				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen;
-				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen;
+				peerStat["totalIncoming"] = stats.totalIncoming; // TODO - what is this?
+				peerStat["totalOutgoing"] = stats.totalOutgoing; // TODO - what is this?
+				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen; // TODO - not needed
+				peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen; // TODO - not needed
+				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen; // TODO - what tier is this?
+				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen; // TODO - what tier is this?
 
 				// TIER 1: Wire-level tracking (UNTRUSTED - for monitoring/attack detection only)
 				peerStat["WireBytesIncoming"] = stats.WireBytesIncoming;
 				peerStat["WireBytesOutgoing"] = stats.WireBytesOutgoing;
-				peerStat["WireBytesIncomingOK"] = stats.WireBytesIncomingOK;
-				peerStat["WireBytesOutgoingOK"] = stats.WireBytesOutgoingOK;
+				peerStat["WireBytesIncomingOK"] = stats.WireBytesIncomingOK; // TODO - show %ok in the zerotier-cli
+				peerStat["WireBytesOutgoingOK"] = stats.WireBytesOutgoingOK; // TODO - show %ok in the zerotier-cli
 
 				// TIER 2: Protocol-level tracking (TRUSTED - for bandwidth enforcement)
-				peerStat["AuthBytesIncoming"] = stats.AuthBytesIncoming;
-				peerStat["AuthBytesOutgoing"] = stats.AuthBytesOutgoing;
+				peerStat["AuthBytesIncoming"] = stats.AuthBytesIncoming; // TODO - show also in zerotier-cli
+				peerStat["AuthBytesOutgoing"] = stats.AuthBytesOutgoing; // TODO - show also in zerotier-cli
 
 				// Attack detection metrics
 				peerStat["SuspiciousPacketCount"] = stats.suspiciousPacketCount;
 				peerStat["AttackEventCount"] = stats.attackEventCount;
-				peerStat["MaxDivergenceRatio"] = stats.maxDivergenceRatio;
+				peerStat["MaxDivergenceRatio"] = stats.maxDivergenceRatio; // TODO - what is this?
 				peerStat["LastAttackDetected"] = stats.lastAttackDetected;
 
 				// Time tracking (use authenticated packets for accuracy)
-				peerStat["LastAuthIncomingSeen"] = stats.lastAuthIncomingSeen;
-				peerStat["LastAuthOutgoingSeen"] = stats.lastAuthOutgoingSeen;
+				peerStat["LastAuthIncomingSeen"] = stats.lastAuthIncomingSeen; // TODO - what tier is this?
+				peerStat["LastAuthOutgoingSeen"] = stats.lastAuthOutgoingSeen; // TODO - what tier is this?
 
 				// Port usage statistics - Two-Tier System
 				// TIER 1: Wire-level port usage (all packets at wire level)
@@ -2641,10 +2639,6 @@ public:
 					authOutgoingPorts[std::to_string(portCount.first)] = portCount.second;
 				}
 				peerStat["authOutgoingPorts"] = authOutgoingPorts;
-
-				// Maintain backward compatibility with existing field names (use authenticated for legacy)
-				peerStat["incomingPorts"] = authIncomingPorts;
-				peerStat["outgoingPorts"] = authOutgoingPorts;
 
 				// Filter out entries with zero ZT address AND no port usage in either tier
 				// These are usually TIER 1 tracking entries with null ZT addresses that have no useful information
@@ -2698,8 +2692,6 @@ public:
 		};
 		_controlPlane.Get("/stats", statsGet);
 		_controlPlaneV6.Get("/stats", statsGet);
-
-		// Remove /stats/wire-packets endpoint - wire packet stats are now included in main /stats endpoint
 
 		// Debug endpoint to validate ZT addresses and check peer status
 		auto debugPeerGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
@@ -3662,7 +3654,8 @@ public:
 				_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true, localPort); // true = incoming packet
 			}
 
-			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
+			// TIER 2: Authenticated packet tracking happens via callback, but port tracking is done here
+			// where we have access to the real local address and port information
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort ||
@@ -5451,7 +5444,7 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodePathLookupFunction(ztaddr,family,result); }
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
-static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort, unsigned int packetSize)
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize)
 {
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
@@ -5469,25 +5462,13 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
 		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
-			// For outgoing packet events from peer callback, we don't have local address or packet size
-			// Use placeholder values - the main tracking is done in nodeWirePacketSendFunction
-			{
-				InetAddress localAddr;
-				localAddr.fromString("0.0.0.0/0"); // Placeholder local address
-				service->_trackOutgoingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), packetSize);
-			}
+			// Port tracking for outgoing packets is now handled directly in OneService
+			// where we have access to the actual local address and port information
 			break;
 		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
 			// TIER 2: Track authenticated packets with validated ZT addresses
 			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, packetSize, true, OSUtils::now()); // true = incoming packet
-
-			// Also track port usage for authenticated packets
-			{
-				InetAddress localAddr; // TODO we can remove localAddr from _trackIncomingPeerPortUsage
-				localAddr.fromString("0.0.0.0"); // We'll set the port below
-				localAddr.setPort(localPort);
-				service->_trackIncomingPeerPortUsage(peerZtAddr, peerAddress, localAddr, localPort, OSUtils::now(), packetSize, peerZtAddr);
-			}
+			// Note: Port tracking is now handled directly in OneService where we have access to real local port
 			break;
 	}
 }
