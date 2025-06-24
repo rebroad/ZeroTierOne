@@ -1443,7 +1443,7 @@ static int cli(int argc,char **argv)
 
 							if (totalAuthIn > 0 || totalAuthOut > 0) {
 								portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut) +
-										   "(" + std::to_string(totalAuthIn) + "/" + std::to_string(totalAuthOut) + ")";
+										   "," + std::to_string(totalAuthIn) + "/" + std::to_string(totalAuthOut);
 							} else {
 								portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut);
 							}
@@ -1455,9 +1455,9 @@ static int cli(int argc,char **argv)
 							uint64_t authOutCount = authOutgoingPorts.value(port, 0ULL);
 
 							if (authInCount > 0 || authOutCount > 0) {
-								// Show both wire and auth counts: port:wire_in/wire_out(auth_in/auth_out)
+								// Show both wire and auth counts: port:wire_in/wire_out,auth_in/auth_out
 								portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount) +
-										   "(" + std::to_string(authInCount) + "/" + std::to_string(authOutCount) + ")";
+										   "," + std::to_string(authInCount) + "/" + std::to_string(authOutCount);
 							} else {
 								// Show only wire counts when no auth traffic: port:wire_in/wire_out
 								portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount);
