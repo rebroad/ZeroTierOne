@@ -162,6 +162,13 @@ bool IncomingPacket::tryDecode(const RuntimeEnvironment *RR,void *tPtr,int32_t f
 					r = _doPATH_NEGOTIATION_REQUEST(RR, tPtr, peer);
 					break;
 			}
+
+			// TODO - do a callback here to track incoming packet
+			if (RR->peerEventCallback) {
+				RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_INCOMING_PACKET,
+					_path->address(), sourceAddress, Address(), true, 0, payloadLength());
+			}
+
 			if (r) {
 				RR->node->statsLogVerb((unsigned int)v,(unsigned int)size());
 				return true;
