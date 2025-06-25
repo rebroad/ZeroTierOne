@@ -4232,9 +4232,9 @@ public:
 					// For short packets, use zero address as placeholder
 					ztAddr.zero();
 				}
-				unsigned int localPort = _binder.getLocalPort((PhySocket *)((uintptr_t)localSocket));
+				unsigned int localPort = Phy<OneServiceImpl *>::getLocalPort((PhySocket *)((uintptr_t)localSocket));
 
-				_trackOutgoingPacket(destAddr, remoteAddress, localPort, OSUtils::now(), len);
+				_trackOutgoingPacket(ztAddr, remoteAddress, localPort, OSUtils::now(), len);
 			}
 
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
@@ -4255,7 +4255,7 @@ public:
 					destAddr.zero();
 				}
 				// TODO - do we need to check anything before getting the local port?
-				unsigned int localPort = _binder.getLocalPort((PhySocket *)((uintptr_t)localSocket));
+				unsigned int localPort = Phy<OneServiceImpl *>::getLocalPort((PhySocket *)((uintptr_t)localSocket));
 
 				_trackOutgoingPacket(destAddr, remoteAddress, localPort, OSUtils::now(), len);
 			}
@@ -4704,7 +4704,7 @@ public:
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
 		stats.lastIncomingSeen = now;
-		stats.peerIP = peerAddress;  // Store the full InetAddress
+		stats.ipAddr = peerAddress;  // Store the full InetAddress
 
 		if (stats.firstIncomingSeen == 0) {
 			stats.firstIncomingSeen = now;
