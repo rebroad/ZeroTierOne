@@ -980,8 +980,9 @@ public:
 	Mutex _peerIntroductions_m;
 
 	// Track first-time events for debugging
-	std::set<std::pair<Address, InetAddress> > _seenPeerFileAccess;		  // Track first peer file access per ZT address
+	std::set<Address> _seenPeerFileAccess;		  // Track first peer file access per ZT address
 	std::set<std::pair<Address, InetAddress> > _seenPacketSendAttempts;	  // Track first packet send attempt per ZT address + IP
+	std::set<std::pair<Address, InetAddress> > _seenPacketReceiveAttempts;	  // Track first packet receive attempt per ZT address + IP
 	Mutex _firstTimeEvents_m;
 
 	// Fast lookup table for infrastructure node IP addresses (planets/moons)
@@ -3364,8 +3365,7 @@ public:
 				_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true, localPort); // true = incoming packet
 			}
 
-			// TIER 2: Authenticated packet tracking happens via callback, but port tracking is done here
-			// where we have access to the real local address and port information
+			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort ||
@@ -4026,10 +4026,9 @@ public:
 		if (type == ZT_STATE_OBJECT_PEER) {
 			Address peerAddr(id[0]);
 			{
-				Mutex::Lock _l(_firstTimeEvents_m);
-				auto peerKey = std::make_pair(peerAddr, std::string("file_access"));
-				if (_seenPeerFileAccess.find(peerKey) == _seenPeerFileAccess.end()) {
-					_seenPeerFileAccess.insert(peerKey);
+				Mutex::Lock _l(_firstTimeEvents_m); // TODO - really necessary?!
+				if (_seenPeerFileAccess.find(peerAddr) == _seenPeerFileAccess.end()) {
+					_seenPeerFileAccess.insert(peerAddr); // TODO - create housekeeping to remove old entries
 					char peerBuf[16];
 					peerAddr.toString(peerBuf);
 					fprintf(stderr, "PEER_FILE_ACCESS: %s (%.10llx.peer)" ZT_EOL_S, peerBuf, (unsigned long long)id[0]);
@@ -4085,7 +4084,7 @@ public:
 			// Log initial outgoing packet attempts (before peer file access) - first time only per peer+IP
 			if (len > 12) {
 				Mutex::Lock _l(_firstTimeEvents_m); // TODO - really necessary?!
-				auto attemptKey = std::make_pair(destAddr, std::string(ipBuf));
+				auto attemptKey = std::make_pair(destAddr, remoteAddress);
 				if (_seenPacketSendAttempts.find(attemptKey) == _seenPacketSendAttempts.end()) {
 					_seenPacketSendAttempts.insert(attemptKey);
 					char destBuf[16];
@@ -4558,7 +4557,7 @@ public:
 		}
 	}
 
-	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, const InetAddress& localAddress, unsigned int localPort, uint64_t now, unsigned long packetSize, const Address& sourcePeerAddr)
+	void _trackIncomingPeerPortUsage(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now, unsigned long packetSize, const Address& sourcePeerAddr)
 	{ // Is this function used by tier 1, tier 2 or both?
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
@@ -4569,20 +4568,25 @@ public:
 		Mutex::Lock _l(_peerStats_m); // TODO - is this absolutely necessary?
 
 		auto peerKey = std::make_pair(ztAddr, keyIP);
-		auto peerPortKey = std::make_pair(peerKey, localPort);
-		bool isFirstIncoming = (_seenIncomingPeerPorts.find(peerPortKey) == _seenIncomingPeerPorts.end());
 
-		if (isFirstIncoming) { // TODO - move this to trackIncomingPeer using peerKey instead
+		// Update statistics for this specific ZT address + IP combination
+		PeerStats& stats = _peerStats[peerKey];
+		stats.incomingPortCounts[localPort]++;
+		stats.totalIncoming++;
+		stats.lastIncomingSeen = now;
+		stats.ipAddr = peerAddress;  // Store the full InetAddress
+
+		if (stats.totalIncoming == 1) {
+			stats.firstIncomingSeen = now;
+
 			if (_isInfrastructureNode(ztAddr)) {
 				// Add this IP to our infrastructure lookup table for fast filtering
 				_addInfrastructureIP(keyIP);  // keyIP already has port stripped
 			}
 
-			_seenIncomingPeerPorts.insert(peerPortKey);
-			char ztBuf[64], localBuf[64], sourceBuf[64];
+			char ztBuf[64], sourceBuf[64];
 			ztAddr.toString(ztBuf);
-			localAddress.toIpString(localBuf);
-			sourcePeerAddr.toString(sourceBuf);
+			sourcePeerAddr.toString(sourceBuf); // TODO - what is this?
 
 			// Enhanced logging for incoming-only peers with full details
 			const char* peerRole = "";
@@ -4602,7 +4606,7 @@ public:
 							SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
 							existsInTopology = (existingPeer.ptr() != nullptr) ? "yes" : "no";
 
-							if (existingPeer) {
+							if (existingPeer) { // TODO - what is topology->getPeer ?
 								// Get peer role
 								ZT_PeerRole role = RR->topology->role(ztAddr);
 								switch (role) { // TODO - create and the a helper for this
@@ -4645,19 +4649,9 @@ public:
 			}
 		}
 
-		// Update statistics for this specific ZT address + IP combination
-		PeerStats& stats = _peerStats[peerKey];
-		stats.incomingPortCounts[localPort]++;
-		stats.totalIncoming++;
-		stats.lastIncomingSeen = now;
-		stats.ipAddr = peerAddress;  // Store the full InetAddress
-
-		if (stats.firstIncomingSeen == 0) {
-			stats.firstIncomingSeen = now;
-		}
 	}
 
-	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& remoteAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
+	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
 	{ // TODO - is this function used by tier 1, tier 2, or both?
 	// TODO - merge trackOutgoingPacket() into this function, then rename this function to _trackOutgoingPacket()
 		// Skip stats tracking during early initialization to prevent crashes
@@ -4669,25 +4663,22 @@ public:
 		Mutex::Lock _l(_peerStats_m);
 
 		auto peerKey = std::make_pair(ztAddr, ipAddr);
-		auto peerPortKey = std::make_pair(peerKey, localPort);
 
 		// Always track outgoing stats (no "seen before" requirement since we're at Tier 2)
 		PeerStats& stats = _peerStats[peerKey];
-
-		if (stats.totalOutgoing == 0 && _isInfrastructureNode(ztAddr)) {
-			// Add this IP to our infrastructure lookup table for fast filtering
-			_addInfrastructureIP(ipAddr);  // ipAddr already has port stripped
-		}
-
 		stats.outgoingPortCounts[localPort]++;
 		stats.totalOutgoing++;
 		stats.lastOutgoingSeen = now;
 		stats.ipAddr = ipAddr; // Store the full InetAddress
 
-		if (stats.firstOutgoingSeen == 0) {
+		if (stats.totalOutgoing == 1) {
 			stats.firstOutgoingSeen = now;
 
-			_seenOutgoingPeerPorts.insert(peerPortKey);
+			if (_isInfrastructureNode(ztAddr)) {
+				// Add this IP to our infrastructure lookup table for fast filtering
+				_addInfrastructureIP(ipAddr);  // ipAddr already has port stripped
+			}
+
 			char ztBuf[64];
 			ztAddr.toString(ztBuf);
 
@@ -5084,7 +5075,7 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 { return reinterpret_cast<OneServiceImpl *>(uptr)->nodePathLookupFunction(ztaddr,family,result); }
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
-static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize)
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int localPort, unsigned int packetSize)
 { // TODO - document what this function is, and whether it's needed
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
@@ -5101,15 +5092,30 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
 			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
 			break;
-		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
-			// Port tracking for outgoing packets is now handled directly in OneService
-			// where we have access to the actual local address and port information
+		case RuntimeEnvironment::PEER_EVENT_INCOMING_PACKET: {
+			char ztBuf[64], ipBuf[64];
+			peerZtAddr.toString(ztBuf);
+			peerAddress.toString(ipBuf);
+			fprintf(stderr, "PEER_EVENT_INCOMING_PACKET: ZT=%s IP=%s Port=%u Size=%u" ZT_EOL_S,
+				ztBuf, ipBuf, localPort, packetSize);
+			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, localPort, packetSize, true, OSUtils::now()); // true = incoming packet
 			break;
-		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
-			// TIER 2: Track authenticated packets with validated ZT addresses
-			// TODO - and from where do we call port tracking in Tier 2?
-			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, packetSize, true, OSUtils::now()); // true = incoming packet
-			// Note: Port tracking is now handled directly in OneService where we have access to real local port
+		}
+		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET: {
+			char ztBuf[64], ipBuf[64];
+			peerZtAddr.toString(ztBuf);
+			peerAddress.toString(ipBuf);
+			fprintf(stderr, "PEER_EVENT_OUTGOING_PACKET: ZT=%s IP=%s Port=%u Size=%u" ZT_EOL_S,
+				ztBuf, ipBuf, localPort, packetSize);
+			service->_trackAuthenticatedPacket(peerZtAddr, peerAddress, localPort, packetSize, false, OSUtils::now()); // false = outgoing packet
+			break;
+		}
+		default:
+			char ztBuf[64], ipBuf[64];
+			peerZtAddr.toString(ztBuf);
+			peerAddress.toString(ipBuf);
+			fprintf(stderr, "PEER_EVENT_UNKNOWN: ZT=%s IP=%s Port=%u Size=%u" ZT_EOL_S,
+				ztBuf, ipBuf, localPort, packetSize);
 			break;
 	}
 }

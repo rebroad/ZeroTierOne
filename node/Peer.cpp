@@ -111,8 +111,9 @@ void Peer::received(
 
 	// Trigger callback for authenticated packet tracking (TIER 2)
 	if (RR->peerEventCallback) {
-		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
-			path->address(), _id.address(), Address(), true, payloadLength);
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_INCOMING_PACKET,
+			// Args are: peerInetAddress, peerZtAddr, introZtAddr, success, localPort, packetSize
+			path->address(), _id.address(), Address(), true, localPort, payloadLength);
 	} // TODO - document what this is and if it's needed
 
 	if (hops == 0) {
@@ -708,7 +709,8 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path> &path, const uint64_t pack
 	// Track outgoing packet for port usage statistics (only for established peers)
 	if (RR->peerEventCallback && path) {
 		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-							  path->address(), _id.address(), Address(), true, payloadLength);
+		// Args are: peerInetAddress, peerZtAddr, introZtAddr, success, localPort, packetSize
+							  path->address(), _id.address(), Address(), true, localPort, payloadLength);
 	} // TODO - document other ways we might do this (compare with how we track incoming packets)
 }
 
@@ -719,6 +721,12 @@ void Peer::recordIncomingInvalidPacket(const SharedPtr<Path>& path)
 #endif
 	if (_localMultipathSupported && _bond) {
 		_bond->recordIncomingInvalidPacket(path);
+	}
+
+	if (RR->peerEventCallback && path) {
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_INCOMING_PACKET,
+		// Args are: peerInetAddress, peerZtAddr, introZtAddr, success, localPort, packetSize
+							  path->address(), _id.address(), Address(), false, localPort, 0);
 	}
 }
 
