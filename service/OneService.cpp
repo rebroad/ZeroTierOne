@@ -2526,24 +2526,13 @@ public:
 				}
 			}
 
-			// Step 2: Pre-calculate display values and create sortable entries to eliminate duplicate logic
-			struct PeerDisplayData {
-				std::pair<Address, InetAddress> peerKey;
-				PeerStats stats;
-				uint64_t displayRx;
-				uint64_t displayTx;
-				bool isInfrastructure;
-				std::string rxSource;
-				std::string txSource;
-			};
-
-			std::vector<PeerDisplayData> sortablePeers;
+			// Step 2: Pre-calculate display values once before sorting
+			std::map<std::pair<Address, InetAddress>, std::tuple<uint64_t, uint64_t, std::string, std::string>> displayValues;
 
 			for (const auto& peerEntry : sortedPeers) {
 				const std::pair<Address, InetAddress>& peerKey = peerEntry.first;
 				const Address& ztAddr = peerKey.first;
 				const InetAddress& ipAddr = peerKey.second;
-				const PeerStats& stats = peerEntry.second;
 
 				uint64_t ipRx = ipIncomingBytes[ipAddr];
 				uint64_t ztRx = ztIncomingBytes[ztAddr];
@@ -2568,103 +2557,48 @@ public:
 					txSource = txFromIP ? "i" : "z";
 				}
 
-				sortablePeers.push_back({peerKey, stats, displayRx, displayTx, isInfrastructure, rxSource, txSource});
+				displayValues[peerKey] = std::make_tuple(displayRx, displayTx, rxSource, txSource);
 			}
 
 			// Sort by pre-calculated display values
-			std::sort(sortablePeers.begin(), sortablePeers.end(),
-				[](const PeerDisplayData& a, const PeerDisplayData& b) {
-					return (a.displayRx + a.displayTx) > (b.displayRx + b.displayTx);
+			std::sort(sortedPeers.begin(), sortedPeers.end(),
+				[&displayValues](const auto& a, const auto& b) {
+					const auto& valA = displayValues[a.first];
+					const auto& valB = displayValues[b.first];
+					uint64_t totalA = std::get<0>(valA) + std::get<1>(valA); // displayRx + displayTx
+					uint64_t totalB = std::get<0>(valB) + std::get<1>(valB);
+					return totalA > totalB;
 				});
 
 			json peerStats = json::array();
-			for (const auto& peerData : sortablePeers) {
-				const std::pair<Address, InetAddress>& peerKey = peerData.peerKey;
+			for (const auto& peerEntry : sortedPeers) {
+				const std::pair<Address, InetAddress>& peerKey = peerEntry.first;
 				const Address& ztAddr = peerKey.first;
 				const InetAddress& ipAddr = peerKey.second;
-				const PeerStats& stats = peerData.stats;
 
-				// Convert InetAddress to string for JSON output
+				// Convert addresses to strings for JSON output
 				char ipAddrStr[64];
 				ipAddr.toIpString(ipAddrStr);
-				std::string ipAddrString(ipAddrStr);
-
 				char ztAddrStr[32];
 				ztAddr.toString(ztAddrStr);
-				std::string ztAddrString(ztAddrStr);
+
+				// Get pre-calculated display values
+				const auto& displayData = displayValues[peerKey];
+				uint64_t displayRx = std::get<0>(displayData);
+				uint64_t displayTx = std::get<1>(displayData);
+				const std::string& rxSource = std::get<2>(displayData);
+				const std::string& txSource = std::get<3>(displayData);
 
 				json peerStat = json::object();
-				peerStat["ztAddress"] = ztAddrString;
-				peerStat["ipAddress"] = ipAddrString;
+				peerStat["ztAddress"] = std::string(ztAddrStr);
+				peerStat["ipAddress"] = std::string(ipAddrStr);
+				peerStat["displayBytesIncoming"] = displayRx;
+				peerStat["displayBytesOutgoing"] = displayTx;
+				peerStat["rxSource"] = rxSource;  // "i" = from IP stats, "z" = from ZT address stats
+				peerStat["txSource"] = txSource;  // "i" = from IP stats, "z" = from ZT address stats
 
-				// Step 3: Use pre-calculated display values (no duplicate logic)
-				peerStat["displayBytesIncoming"] = peerData.displayRx; // TODO - should formatting be done in one.cpp?
-				peerStat["displayBytesOutgoing"] = peerData.displayTx; // TODO - formatting should be done in one.cpp!
-				peerStat["rxSource"] = peerData.rxSource;  // "i" = from IP stats, "z" = from ZT address stats
-				peerStat["txSource"] = peerData.txSource;  // "i" = from IP stats, "z" = from ZT address stats
-				peerStat["isInfrastructureNode"] = peerData.isInfrastructure;  // Indicates if IP stats were excluded
-				peerStat["totalIncoming"] = stats.totalIncoming; // TODO - what is this?
-				peerStat["totalOutgoing"] = stats.totalOutgoing; // TODO - what is this?
-				peerStat["firstIncomingSeen"] = stats.firstIncomingSeen; // TODO - not needed
-				peerStat["firstOutgoingSeen"] = stats.firstOutgoingSeen; // TODO - not needed
-				peerStat["lastIncomingSeen"] = stats.lastIncomingSeen; // TODO - what tier is this?
-				peerStat["lastOutgoingSeen"] = stats.lastOutgoingSeen; // TODO - what tier is this?
-
-				// TIER 1: Wire-level tracking (UNTRUSTED - for monitoring/attack detection only)
-				peerStat["WireBytesIncoming"] = stats.WireBytesIncoming;
-				peerStat["WireBytesOutgoing"] = stats.WireBytesOutgoing;
-				peerStat["WireBytesIncomingOK"] = stats.WireBytesIncomingOK; // TODO - show %ok in the zerotier-cli
-				peerStat["WireBytesOutgoingOK"] = stats.WireBytesOutgoingOK; // TODO - show %ok in the zerotier-cli
-
-				// TIER 2: Protocol-level tracking (TRUSTED - for bandwidth enforcement)
-				peerStat["AuthBytesIncoming"] = stats.AuthBytesIncoming; // TODO - show also in zerotier-cli
-				peerStat["AuthBytesOutgoing"] = stats.AuthBytesOutgoing; // TODO - show also in zerotier-cli
-
-				// Attack detection metrics
-				peerStat["SuspiciousPacketCount"] = stats.suspiciousPacketCount;
-				peerStat["AttackEventCount"] = stats.attackEventCount;
-				peerStat["MaxDivergenceRatio"] = stats.maxDivergenceRatio; // TODO - what is this?
-				peerStat["LastAttackDetected"] = stats.lastAttackDetected;
-
-				// Time tracking (use authenticated packets for accuracy)
-				peerStat["LastAuthIncomingSeen"] = stats.lastAuthIncomingSeen; // TODO - what tier is this?
-				peerStat["LastAuthOutgoingSeen"] = stats.lastAuthOutgoingSeen; // TODO - what tier is this?
-
-				// Port usage statistics - Two-Tier System
-				// TIER 1: Wire-level port usage (all packets at wire level)
-				json wireIncomingPorts = json::object();
-				for (const auto& portCount : stats.wireIncomingPortCounts) {
-					wireIncomingPorts[std::to_string(portCount.first)] = portCount.second;
-				}
-				peerStat["wireIncomingPorts"] = wireIncomingPorts;
-
-				json wireOutgoingPorts = json::object();
-				for (const auto& portCount : stats.wireOutgoingPortCounts) {
-					wireOutgoingPorts[std::to_string(portCount.first)] = portCount.second;
-				}
-				peerStat["wireOutgoingPorts"] = wireOutgoingPorts;
-
-				// TIER 2: Authenticated port usage (cryptographically verified packets only)
-				json authIncomingPorts = json::object();
-				for (const auto& portCount : stats.incomingPortCounts) {
-					authIncomingPorts[std::to_string(portCount.first)] = portCount.second;
-				}
-				peerStat["authIncomingPorts"] = authIncomingPorts;
-
-				json authOutgoingPorts = json::object();
-				for (const auto& portCount : stats.outgoingPortCounts) {
-					authOutgoingPorts[std::to_string(portCount.first)] = portCount.second;
-				}
-				peerStat["authOutgoingPorts"] = authOutgoingPorts;
-
-				// Filter out entries with zero ZT address AND no port usage in either tier
-				// These are usually TIER 1 tracking entries with null ZT addresses that have no useful information
-				bool hasWirePortUsage = !stats.wireIncomingPortCounts.empty() || !stats.wireOutgoingPortCounts.empty();
-				bool hasAuthPortUsage = !stats.incomingPortCounts.empty() || !stats.outgoingPortCounts.empty();
-				bool hasAnyPortUsage = hasWirePortUsage || hasAuthPortUsage;
-				bool shouldInclude = ztAddr || hasAnyPortUsage;  // Include if ZT address is valid OR has any port usage
-
-				if (shouldInclude) {
+				// Only include entries with valid ZT address (filter out null ZT addresses)
+				if (ztAddr) {
 					peerStats.push_back(peerStat);
 				}
 			}
