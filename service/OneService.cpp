@@ -2613,10 +2613,10 @@ public:
 				stats["diagnostics"]["seenOutgoingPeerPortsSize"] = _seenOutgoingPeerPorts.size();
 
 				// Count unique IP addresses and ZT addresses in the lookup table
-				std::set<std::string> uniqueIPs;
+				std::set<InetAddress> uniqueIPs;
 				std::set<Address> uniqueZTAddresses;
 				for (const auto& entry : _peerStats) {
-					uniqueIPs.insert(entry.first.second);       // IP address
+					uniqueIPs.insert(entry.first.second);        // IP address (InetAddress)
 					uniqueZTAddresses.insert(entry.first.first); // ZT address
 				}
 				stats["diagnostics"]["uniqueIPAddresses"] = uniqueIPs.size();
@@ -2645,60 +2645,6 @@ public:
 		_controlPlaneV6.Get("/stats", statsGet);
 
 
-		// Debug endpoint to lookup ZT addresses by IP or IP addresses by ZT address
-		auto debugLookupGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			if (!isAuthenticated(req, _authToken)) {
-				res.status = 403;
-				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
-				return;
-			}
-
-			std::string ipAddr = req.get_param_value("ip");
-			std::string ztAddrStr = req.get_param_value("ztaddr");
-
-			json result = json::object();
-
-			if (!ipAddr.empty()) {
-				// Look up ZT addresses for this IP
-				std::vector<Address> ztAddresses = _getZtAddressesForIP(ipAddr);
-				json ztAddrArray = json::array();
-
-				for (const Address& addr : ztAddresses) {
-					char addrBuf[32];
-					addr.toString(addrBuf);
-					json addrInfo = json::object();
-					addrInfo["ztAddress"] = std::string(addrBuf);
-					addrInfo["isInfrastructure"] = _isInfrastructureNode(addr);
-					ztAddrArray.push_back(addrInfo);
-				}
-
-				result["ipAddress"] = ipAddr;
-				result["ztAddresses"] = ztAddrArray;
-			}
-
-			if (!ztAddrStr.empty()) {
-				try {
-					Address ztAddr((uint64_t)strtoull(ztAddrStr.c_str(), nullptr, 16));
-
-					// Look up IP addresses for this ZT address
-					std::vector<std::string> ipAddresses = _getIPAddressesForZtAddr(ztAddr);
-
-					result["ztAddress"] = ztAddrStr;
-					result["ipAddresses"] = ipAddresses;
-					result["isInfrastructure"] = _isInfrastructureNode(ztAddr);
-				} catch (...) {
-					result["error"] = "Invalid ZT address format";
-				}
-			}
-
-			if (ipAddr.empty() && ztAddrStr.empty()) {
-				result["error"] = "Must provide either 'ip' or 'ztaddr' parameter";
-			}
-
-			setContent(req, res, result.dump(2));
-		};
-		_controlPlane.Get("/debug/lookup", debugLookupGet);
-		_controlPlaneV6.Get("/debug/lookup", debugLookupGet);
 
 		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
 			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
