@@ -1457,7 +1457,7 @@ static int cli(int argc,char **argv)
 
 						printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
 							ztaddr.c_str(), ipAddress.c_str(), rxBytesStr, txBytesStr, securityStr, lastSeenStr, portUsage.c_str());
-					} loop through peersByZtAddressAndIP
+					} // loop through peersByZtAddressAndIP
 				} // if j.contains("peersByZtAddressAndIP
 			} // else if json
 			return 0;
