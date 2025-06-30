@@ -1,3 +1,4 @@
+= Log why PEER_FILE_ACCESS happening (e.g. happens when a node is removed from ZT Central)
 = Allow local subnet iptables
 = Add iptable rule (after allow rule) to log dropped packets to our ZT ports
 = Port Usage - show "1st", "2nd", "3rd" instead
