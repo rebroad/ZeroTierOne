@@ -1,3 +1,4 @@
+= Allow local subnet iptables
 = Port Usage - show "1st", "2nd", "3rd" instead
 = When we remove a peer we should remove it from the stats too
 =We need to gracefully deal with ipset not being found - do we really need to depend on it?
