@@ -1154,10 +1154,7 @@ public:
 				_node = new Node(this,(void *)0,&cb,OSUtils::now());
 			}
 
-			_node->setPeerPathCallback(SpeerPathCallback, this);
-			_node->setPeerIntroductionCallback(SpeerIntroductionCallback, this);
-			_node->setPeerConnectionAttemptCallback(SpeerConnectionAttemptCallback, this);
-			_node->setPeerPacketCallback(SpeerPacketCallback, this);
+			_node->setPeerEventCallback(SpeerEventCallback, this);
 
 			// local.conf
 			readLocalSettings();
@@ -4409,13 +4406,128 @@ public:
 		}
 	}
 
+	// Track peer introductions for misbehavior detection
+	void _trackPeerIntroduction(const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy, uint64_t now)
+	{
+		Mutex::Lock _l(_peerIntroductions_m);
+
+		// Remove port from IP address to avoid runaway entries due to changing ports
+		InetAddress ipWithoutPort = introducedIP;
+		ipWithoutPort.setPort(0);
+
+		auto& intro = _peerIntroductions[ipWithoutPort];
+
+		if (intro.firstIntroduced == 0) {
+			intro.firstIntroduced = now;
+			intro.targetPeerAddr = targetPeerAddr;
+			intro.introducedBy = introducedBy;
+		}
+		intro.lastIntroduced = now;
+		intro.introductionCount++;
+
+		// Log new introductions with peer type information
+		char ipBuf[64], addrBuf[16], targetBuf[16];
+		introducedIP.toString(ipBuf);
+		introducedBy.toString(addrBuf);
+		targetPeerAddr.toString(targetBuf);
+
+		// Determine peer type for more informative logging (for the target peer, not the introducer)
+		const char* targetPeerType = "UNKNOWN";
+		const char* introducerType = "UNKNOWN";
+		const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+
+		ZT_PeerRole targetRole = RR->topology->role(targetPeerAddr);
+		switch (targetRole) {
+			case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
+			case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
+			case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
+			default: targetPeerType = "UNKNOWN"; break;
+		}
+
+		ZT_PeerRole introducerRole = RR->topology->role(introducedBy);
+		switch (introducerRole) {
+			case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
+			case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
+			case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
+			default: introducerType = "UNKNOWN"; break;
+		}
+
+		if (intro.introductionCount == 1) {
+			fprintf(stderr, "PEER_INTRO: %s (%s %s) introduced by %s %s" ZT_EOL_S,
+				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf);
+		} else if (intro.introductionCount%100 == 2) {
+			fprintf(stderr, "PEER_INTRO: %s (%s %s) re-introduced by %s %s (count: %u)" ZT_EOL_S,
+				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf, intro.introductionCount);
+		}
+	}
+
+	// Track connection attempts and detect misbehavior
+	void _trackConnectionAttempt(const InetAddress& targetIP, bool successful, uint64_t now)
+	{
+		Mutex::Lock _l(_peerIntroductions_m);
+
+		// Remove port from IP address to match introduction tracking
+		InetAddress ipWithoutPort = targetIP;
+		ipWithoutPort.setPort(0);
+
+		auto it = _peerIntroductions.find(ipWithoutPort);
+		if (it != _peerIntroductions.end()) {
+			auto& intro = it->second;
+			intro.lastConnectionAttempt = now;
+
+			if (successful) {
+				intro.hasEverConnected = true;
+			} else {
+				intro.failedAttempts++;
+
+				// Enhanced failure detection with context awareness
+				if (intro.failedAttempts >= 5 && !intro.hasEverConnected) {
+					char ipBuf[64], introducerBuf[16], targetBuf[16];
+					targetIP.toString(ipBuf);
+					intro.introducedBy.toString(introducerBuf);
+					intro.targetPeerAddr.toString(targetBuf);
+
+					// Check if target peer is already connected via different path
+					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+					SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, intro.targetPeerAddr);
+					bool targetConnectedElsewhere = (existingPeer && existingPeer->isAlive(now));
+
+					// Determine peer types for logging
+					const char* targetPeerType = "UNKNOWN";
+					const char* introducerType = "UNKNOWN";
+
+					ZT_PeerRole targetRole = RR->topology->role(intro.targetPeerAddr);
+					switch (targetRole) {
+						case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
+						case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
+						case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
+						default: targetPeerType = "UNKNOWN"; break;
+					}
+
+					ZT_PeerRole introducerRole = RR->topology->role(intro.introducedBy);
+					switch (introducerRole) {
+						case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
+						case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
+						case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
+						default: introducerType = "UNKNOWN"; break;
+					}
+
+					if (!targetConnectedElsewhere) {
+						fprintf(stderr, "PEER_INTRO_FAILING: IP %s (%s %s) introduced by %s %s failed %u connection attempts without success" ZT_EOL_S,
+							ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
+					}
+				}
+			}
+		}
+	}
+
 	void _trackPacket(unsigned int tier, const Address& ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful)
 	{
 		// Skip stats tracking during early initialization to prevent crashes
 		if (!_node) return;
 
 		// Use IP address with port set to 0 for consistent tracking
-		InetAddress keyIP = peerAddress.ipOnly();
+		InetAddress keyIP = ipAddr.ipOnly();
 
 		auto peerKey = std::make_pair(ztAddr, keyIP);
 
@@ -4423,11 +4535,11 @@ public:
 		PeerStats& stats = _peerStats[peerKey];
 		stats.incomingPortCounts[localPort]++;
 		stats.totalIncoming++;
-		stats.lastIncomingSeen = now;
-		stats.ipAddr = peerAddress;  // Store the full InetAddress
+		stats.lastIncomingSeen = OSUtils::now();
+		stats.ipAddr = ipAddr;  // Store the full InetAddress
 
 		if (stats.totalIncoming == 1) {
-			stats.firstIncomingSeen = now;
+			stats.firstIncomingSeen = OSUtils::now();
 
 			if (_isInfrastructureNode(ztAddr)) {
 				// Add this IP to our infrastructure lookup table for fast filtering
@@ -4436,7 +4548,7 @@ public:
 
 			char ztBuf[64], sourceBuf[64];
 			ztAddr.toString(ztBuf);
-			sourcePeerAddr.toString(sourceBuf); // TODO - what is this?
+			ztAddr.toString(sourceBuf); // TODO - what is this?
 
 			// Enhanced logging for incoming-only peers with full details
 			const char* peerRole = "";
@@ -4466,8 +4578,8 @@ public:
 									default: peerRole = "UNKNOWN"; break;
 								}
 
-								isAlive = existingPeer->isAlive(now) ? "yes" : "no";
-								hasDirectPath = !existingPeer->paths(now).empty() ? "yes" : "no";
+								isAlive = existingPeer->isAlive(OSUtils::now()) ? "yes" : "no";
+								hasDirectPath = !existingPeer->paths(OSUtils::now()).empty() ? "yes" : "no";
 
 								// Get version if known
 								if (existingPeer->remoteVersionKnown()) {
@@ -4488,8 +4600,8 @@ public:
 
 			// Only show source_peer if different from peer (indicating relaying)
 			char ipBuf[64];
-			peerAddress.toIpString(ipBuf);
-			if (ztAddr == sourcePeerAddr) {
+			ipAddr.toIpString(ipBuf);
+			if (ztAddr == ztAddr) {
 				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion, existsInTopology, isAlive, hasDirectPath);
 			} else {
@@ -4508,25 +4620,25 @@ public:
 		if (!_node) return;
 
 		// Use IP address with port set to 0 for consistent tracking
-		InetAddress ipAddr = remoteAddress.ipOnly();
+		InetAddress keyIP = peerAddress.ipOnly();
 
 		Mutex::Lock _l(_peerStats_m);
 
-		auto peerKey = std::make_pair(ztAddr, ipAddr);
+		auto peerKey = std::make_pair(ztAddr, keyIP);
 
 		// Always track outgoing stats (no "seen before" requirement since we're at Tier 2)
 		PeerStats& stats = _peerStats[peerKey];
 		stats.outgoingPortCounts[localPort]++;
 		stats.totalOutgoing++;
 		stats.lastOutgoingSeen = now;
-		stats.ipAddr = ipAddr; // Store the full InetAddress
+		stats.ipAddr = peerAddress; // Store the full InetAddress
 
 		if (stats.totalOutgoing == 1) {
 			stats.firstOutgoingSeen = now;
 
 			if (_isInfrastructureNode(ztAddr)) {
 				// Add this IP to our infrastructure lookup table for fast filtering
-				_addInfrastructureIP(ipAddr);  // ipAddr already has port stripped
+				_addInfrastructureIP(keyIP);  // keyIP already has port stripped
 			}
 
 			char ztBuf[64];
@@ -4543,7 +4655,7 @@ public:
 			// Just use minimal info available without locks
 
 			char ipBuf[64];
-			remoteAddress.toIpString(ipBuf);
+			peerAddress.toIpString(ipBuf);
 			fprintf(stderr, "PACKET_TO: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
 				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
 				existsInTopology, isAlive, hasDirectPath);
@@ -4926,19 +5038,27 @@ static int SnodePathLookupFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t 
 static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from,const MAC &to,unsigned int etherType,unsigned int vlanId,const void *data,unsigned int len)
 { reinterpret_cast<OneServiceImpl *>(uptr)->tapFrameHandler(nwid,from,to,etherType,vlanId,data,len); }
 
-static void SpeerPathCallback(void* userPtr, const Address& ztAddr, const InetAddress& ipAddr, bool _isAdd) {
+static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize) {
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
-	service->_handlePeerPathUpdate(ztAddr, ipAddr, _isAdd);
-}
-static void SpeerPacketCallback(void* userPtr, const Address& ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned int packetSize, bool incoming, bool successful) {
-	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
-
-	char ztBuf[64], ipBuf[64];
-	ztAddr.toString(ztBuf);
-	ipAddr.toString(ipBuf);
-	fprintf(stderr, "%s: ZT=%s IP=%s Port=%u Size=%u In=%d Succ=%d" ZT_EOL_S, __func__,
-				ztBuf, ipBuf, localPort, packetSize, incoming, successful);
-	service->_trackPacket(2, ztAddr, ipAddr, localPort, packetSize, incoming, successful);
+	
+	switch (eventType) {
+		case RuntimeEnvironment::PEER_EVENT_PATH_ADD:
+		case RuntimeEnvironment::PEER_EVENT_PATH_REMOVE:
+			service->_handlePeerPathUpdate(peerAddress, peerZtAddr, (eventType == RuntimeEnvironment::PEER_EVENT_PATH_ADD));
+			break;
+		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
+		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
+			service->_trackPacket(2, peerZtAddr, peerAddress, 0, packetSize, (eventType == RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET), successful);
+			break;
+		case RuntimeEnvironment::PEER_EVENT_INTRODUCTION:
+			// Track peer introductions for misbehavior detection
+			service->_trackPeerIntroduction(peerAddress, peerZtAddr, introducerZtAddr, OSUtils::now());
+			break;
+		case RuntimeEnvironment::PEER_EVENT_CONNECTION_ATTEMPT:
+			// Track connection attempts and detect misbehavior
+			service->_trackConnectionAttempt(peerAddress, successful, OSUtils::now());
+			break;
+	}
 }
 
 static int ShttpOnMessageBegin(http_parser *parser)
