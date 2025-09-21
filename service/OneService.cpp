@@ -981,8 +981,8 @@ public:
 
 	// Track first-time events for debugging
 	std::set<Address> _seenPeerFileAccess;		  // Track first peer file access per ZT address
-	std::set<std::pair<Address, InetAddress> > _seenPacketSendAttempts;	  // Track first packet send attempt per ZT address + IP
-	std::set<std::pair<Address, InetAddress> > _seenPacketReceiveAttempts;	  // Track first packet receive attempt per ZT address + IP
+	std::set<std::pair<Address, InetAddress> > _seenPacketSent;	  // Track first packet sent per ZT address + IP
+	std::set<std::pair<Address, InetAddress> > _seenPacketReceived;	  // Track first packet received per ZT address + IP
 	Mutex _firstTimeEvents_m;
 
 	// Fast lookup table for infrastructure node IP addresses (planets/moons)
@@ -3360,9 +3360,9 @@ public:
 
 			// TIER 1: Track basic wire-level metrics using authenticated ZT address from Tier 2
 			// originPeerZTAddr now contains the authenticated ZT address from processWirePacket
-			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {
-				_trackWirePacket(originPeerZTAddr, fromAddress, isSuccessful, len, true, localPort); // true = incoming packet
-			}
+			/*if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {
+				_handlePacketAtLayer7(originPeerZTAddr, fromAddress, localPort, len, true, isSuccessful); // true = incoming packet
+			}*/
 
 			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
 
@@ -4060,34 +4060,27 @@ public:
 	{
 		// Log initial outgoing packet attempts and track wire packet metrics
 		try {
+			// Check for null pointer to prevent crashes
+			if (!addr) {
+				return -1;
+			}
+
 			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
 			Address ztAddr;
 			const InetAddress ipAddr(addr);
 			char ipBuf[64];
 			ipAddr.toIpString(ipBuf);
 
+			// Extract peer address from packet data
 			if (len > 12) {
 				ztAddr.setTo(packetData + 8, 5); // TODO - we're doing this later in this function again!!
 			} else {
 				ztAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
 			}
 
-			// TODO - we might be port tracking three times! We're calling _trackWirePacket() and
-			// also _trackOutgoingPacket() (which is also called by _trackOutgoingPacketSend())
-			// and _trackWirePacket is also called from phyOnDatagram()!
-
-			// Track wire packet metrics for outgoing packets (always successful when we send)
-			// For outgoing packets, we need to determine the local port used
-			unsigned int localPort = Phy<OneServiceImpl *>::getLocalPort((PhySocket *)((uintptr_t)localSocket));
-			_trackPacket(1, ztAddr, ipAddr, localPort, len, false, true); // false = outgoing packet
-			// Log initial outgoing packet attempts (before peer file access) - first time only per peer+IP
-			auto attemptKey = std::make_pair(ztAddr, ipAddr);
-			if (_seenPacketSendAttempts.find(attemptKey) == _seenPacketSendAttempts.end()) {
-				_seenPacketSendAttempts.insert(attemptKey);
-				char ztBuf[16];
-				ztAddr.toString(ztBuf);
-				fprintf(stderr, "PACKET_SEND_ATTEMPT: size=%u remote=%s peer=%s" ZT_EOL_S, len, ipBuf, ztBuf);
-			}
+			// Unified Layer 7 processing: Statistics + Logging + iptables
+			unsigned int localPort = _getLocalPortSafely(localSocket);
+			_handlePacketAtLayer7(ztAddr, ipAddr, localPort, len, false, true); // false = outgoing packet
 		} catch (...) {
 			// Ignore errors in logging
 		}
@@ -4521,186 +4514,6 @@ public:
 		}
 	}
 
-	void _trackPacket(unsigned int tier, const Address& ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful)
-	{
-		// Skip stats tracking during early initialization to prevent crashes
-		if (!_node) return;
-
-		// Use IP address with port set to 0 for consistent tracking
-		InetAddress keyIP = ipAddr.ipOnly();
-
-		auto peerKey = std::make_pair(ztAddr, keyIP);
-
-		// Update statistics for this specific ZT address + IP combination
-		PeerStats& stats = _peerStats[peerKey];
-		stats.incomingPortCounts[localPort]++;
-		stats.totalIncoming++;
-		stats.lastIncomingSeen = OSUtils::now();
-		stats.ipAddr = ipAddr;  // Store the full InetAddress
-
-		if (stats.totalIncoming == 1) {
-			stats.firstIncomingSeen = OSUtils::now();
-
-			if (_isInfrastructureNode(ztAddr)) {
-				// Add this IP to our infrastructure lookup table for fast filtering
-				_addInfrastructureIP(keyIP);  // keyIP already has port stripped
-			}
-
-			char ztBuf[64], sourceBuf[64];
-			ztAddr.toString(ztBuf);
-			ztAddr.toString(sourceBuf); // TODO - what is this?
-
-			// Enhanced logging for incoming-only peers with full details
-			const char* peerRole = "";
-			const char* peerVersion = "";
-			const char* isAlive = "";
-			const char* hasDirectPath = "";
-			const char* existsInTopology = "";
-
-			// Only access node internals if node is fully initialized AND we have a valid runtime environment
-			if (_node) {
-				try {
-					// Check if the node is in a safe state for topology access
-					const Node* node = reinterpret_cast<const Node*>(_node);
-					if (node && node->online()) {  // Only access if node is online
-						const RuntimeEnvironment *RR = &(node->_RR);
-						if (RR && RR->topology) {  // Verify topology exists
-							SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, ztAddr);
-							existsInTopology = (existingPeer.ptr() != nullptr) ? "yes" : "no";
-
-							if (existingPeer) { // TODO - what is topology->getPeer ?
-								// Get peer role
-								ZT_PeerRole role = RR->topology->role(ztAddr);
-								switch (role) { // TODO - create and the a helper for this
-									case ZT_PEER_ROLE_PLANET: peerRole = "PLANET"; break;
-									case ZT_PEER_ROLE_MOON: peerRole = "MOON"; break;
-									case ZT_PEER_ROLE_LEAF: peerRole = "LEAF"; break;
-									default: peerRole = "UNKNOWN"; break;
-								}
-
-								isAlive = existingPeer->isAlive(OSUtils::now()) ? "yes" : "no";
-								hasDirectPath = !existingPeer->paths(OSUtils::now()).empty() ? "yes" : "no";
-
-								// Get version if known
-								if (existingPeer->remoteVersionKnown()) {
-									static char versionBuf[64];
-									snprintf(versionBuf, sizeof(versionBuf), "%d.%d.%d",
-										existingPeer->remoteVersionMajor(),
-										existingPeer->remoteVersionMinor(),
-										existingPeer->remoteVersionRevision());
-									peerVersion = versionBuf;
-								}
-							}
-						}
-					}
-				} catch (...) {
-					// Ignore errors during node initialization - topology not ready yet
-				}
-			}
-
-			// Only show source_peer if different from peer (indicating relaying)
-			char ipBuf[64];
-			ipAddr.toIpString(ipBuf);
-			if (ztAddr == ztAddr) {
-				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-					packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion, existsInTopology, isAlive, hasDirectPath);
-			} else {
-				fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s source_peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-					packetSize, ipBuf, ztBuf, sourceBuf, localPort, peerRole, peerVersion,
-					existsInTopology, isAlive, hasDirectPath);
-			}
-		}
-
-	}
-
-	void _trackOutgoingPacket(const Address& ztAddr, const InetAddress& peerAddress, unsigned int localPort, uint64_t now, unsigned int packetSize)
-	{ // TODO - is this function used by tier 1, tier 2, or both?
-	// TODO - merge trackOutgoingPacket() into this function, then rename this function to _trackOutgoingPacket()
-		// Skip stats tracking during early initialization to prevent crashes
-		if (!_node) return;
-
-		// Use IP address with port set to 0 for consistent tracking
-		InetAddress keyIP = peerAddress.ipOnly();
-
-		Mutex::Lock _l(_peerStats_m);
-
-		auto peerKey = std::make_pair(ztAddr, keyIP);
-
-		// Always track outgoing stats (no "seen before" requirement since we're at Tier 2)
-		PeerStats& stats = _peerStats[peerKey];
-		stats.outgoingPortCounts[localPort]++;
-		stats.totalOutgoing++;
-		stats.lastOutgoingSeen = now;
-		stats.ipAddr = peerAddress; // Store the full InetAddress
-
-		if (stats.totalOutgoing == 1) {
-			stats.firstOutgoingSeen = now;
-
-			if (_isInfrastructureNode(ztAddr)) {
-				// Add this IP to our infrastructure lookup table for fast filtering
-				_addInfrastructureIP(keyIP);  // keyIP already has port stripped
-			}
-
-			char ztBuf[64];
-			ztAddr.toString(ztBuf);
-
-			// Enhanced logging for outgoing packets with full details
-			const char* peerRole = "";
-			const char* peerVersion = "";
-			const char* isAlive = "";
-			const char* hasDirectPath = "";
-			const char* existsInTopology = "";
-
-			// Don't access topology from packet send path - causes deadlocks
-			// Just use minimal info available without locks
-
-			char ipBuf[64];
-			peerAddress.toIpString(ipBuf);
-			fprintf(stderr, "PACKET_TO: size=%u remote=%s peer=%s port=%u role=%s version=%s topology=%s alive=%s direct_path=%s" ZT_EOL_S,
-				packetSize, ipBuf, ztBuf, localPort, peerRole, peerVersion,
-				existsInTopology, isAlive, hasDirectPath);
-		}
-	}
-
-
-	void _trackOutgoingPacketSend(int64_t localSocket, const struct sockaddr_storage *addr, const void *data, unsigned int len)
-	{ // TODO - this is called by tier 1, tier 2, or both?
-		// Skip tracking during early initialization to prevent crashes
-		if (!_node) return;
-
-		try {
-			// Extract destination peer address from packet data
-			// ZeroTier packets have the destination address in the first 5 bytes after the verb
-			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
-
-			// Extract destination address from packet (bytes 8-12 for 5-byte address)
-			Address ztAddr;
-			if (len >= 13) {
-				ztAddr.setTo(packetData + 8, 5);
-			} else {
-				ztAddr.zero();
-			}
-
-			// Get local address from socket
-			InetAddress localAddress;
-			InetAddress ipAddr(addr);
-
-			if (localSocket != -1 && localSocket != 0) {
-				// Try to get local address from socket
-				struct sockaddr_storage localSockAddr;
-				socklen_t addrLen = sizeof(localSockAddr);
-				if (getsockname((int)((uintptr_t)localSocket), (struct sockaddr*)&localSockAddr, &addrLen) == 0) {
-					localAddress = InetAddress(&localSockAddr);
-				}
-			}
-
-			unsigned int localPort = localAddress.port();
-
-			_trackOutgoingPacket(ztAddr, ipAddr, localPort, OSUtils::now(), len);
-		} catch (...) {
-			// Ignore errors during packet parsing - not critical
-		}
-	}
 
 	/**
 	 * Collect all active UDP ports for iptables rules
@@ -4807,79 +4620,6 @@ public:
 		}
 	}
 
-	// Fast wire packet tracking using direct memory updates (replaces slow Prometheus metrics)
-	void _trackWirePacket(const Address& ztAddr, const InetAddress& ipAddr,
-						  bool isSuccessful, unsigned int packetSize, bool incoming, unsigned int localPort) {
-		// Use IP address with port set to 0 for consistent tracking
-		InetAddress keyIP = ipAddr.ipOnly();
-
-		std::pair<Address, InetAddress> peerKey = std::make_pair(ztAddr, keyIP);
-
-		Mutex::Lock _l(_peerStats_m);
-		PeerStats& stats = _peerStats[peerKey];
-
-		// Ensure peerIP is set (for new entries)
-		if (!stats.ipAddr) {
-			stats.ipAddr = ipAddr;
-		}
-		if (ztAddr && !stats.ztAddr) {
-			stats.ztAddr = ztAddr;
-		}
-
-		// Update wire packet counters based on direction
-		if (incoming) {
-			stats.WireBytesIncoming += packetSize;
-			if (isSuccessful) {
-				stats.WireBytesIncomingOK += packetSize;
-			} else {
-				stats.suspiciousPacketCount++;  // Keep this for attack detection
-			}
-			// TIER 1: Track wire-level incoming port usage
-			stats.wireIncomingPortCounts[localPort]++;
-		} else {
-			stats.WireBytesOutgoing += packetSize;
-			if (isSuccessful) {
-				stats.WireBytesOutgoingOK += packetSize;
-			}
-			// TIER 1: Track wire-level outgoing port usage
-			stats.wireOutgoingPortCounts[localPort]++;
-		}
-
-		// Perform periodic attack detection (every 10 seconds per peer)
-		// TODO - is this now pointless given that ztAddr is now always zero?
-		uint64_t now = OSUtils::now();
-		if ((now - stats.lastDivergenceCheck) > 10000) {
-			_checkForAttackDivergence(ztAddr, ipAddr, stats, now);
-			stats.lastDivergenceCheck = now;
-		}
-	}
-
-	// TIER 2: Track authenticated packets only (called from Peer.cpp level)
-	void _trackAuthenticatedPacket(const Address& ztAddr, const InetAddress& ipAddr,
-								   unsigned int packetSize, bool incoming, uint64_t now) {
-		// TODO - this is currently called from SPeerEventCallback()
-		// Use IP address with port set to 0 for consistent tracking
-		InetAddress keyIP = ipAddr.ipOnly();
-
-		std::pair<Address, InetAddress> peerKey = std::make_pair(ztAddr, keyIP);
-
-		Mutex::Lock _l(_peerStats_m);
-		PeerStats& stats = _peerStats[peerKey];
-
-		// Ensure peerIP is set (for new entries)
-		if (!stats.ipAddr) {
-			stats.ipAddr = ipAddr;
-		}
-
-		// Update authenticated packet counters
-		if (incoming) {
-			stats.AuthBytesIncoming += packetSize; // TODO - and where is this used?!
-			stats.lastAuthIncomingSeen = now;
-		} else {
-			stats.AuthBytesOutgoing += packetSize;
-			stats.lastAuthOutgoingSeen = now;
-		}
-	}
 
 	// Attack detection through divergence analysis
 	// Helper function to check if a ZT address is a PLANET or MOON (infrastructure node)
@@ -4915,6 +4655,104 @@ public:
 	bool _isInfrastructureIP(const InetAddress& ipAddr) {
 		Mutex::Lock _l(_infrastructureIPs_m);
 		return _infrastructureIPs.find(ipAddr) != _infrastructureIPs.end();
+	}
+
+	// Safe port lookup that won't crash if socket info isn't available
+	unsigned int _getLocalPortSafely(int64_t localSocket) {
+		if (localSocket == -1) return 0;
+
+		try {
+			return Phy<OneServiceImpl *>::getLocalPort((PhySocket *)((uintptr_t)localSocket));
+		} catch (...) {
+			// Gracefully handle any errors in port lookup
+			return 0;
+		}
+	}
+
+	// Unified Layer 7 function: Statistics + Logging + iptables
+	void _handlePacketAtLayer7(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort,
+							  unsigned long packetSize, bool incoming, bool successful) {
+		// Skip processing during early initialization
+		if (!_node) return;
+
+		try {
+			// Use IP address with port set to 0 for consistent tracking
+			InetAddress keyIP = ipAddr.ipOnly();
+			auto peerKey = std::make_pair(ztAddr, keyIP);
+
+			// 1. STATISTICS COLLECTION (for CLI commands)
+			{
+				Mutex::Lock _l(_peerStats_m);
+				PeerStats& stats = _peerStats[peerKey];
+
+				// Update port usage statistics
+				stats.incomingPortCounts[localPort]++;
+				if (incoming) {
+					stats.totalIncoming++;
+					stats.lastIncomingSeen = OSUtils::now();
+				} else {
+					stats.totalOutgoing++;
+					stats.lastOutgoingSeen = OSUtils::now();
+				}
+				stats.ipAddr = ipAddr;  // Store the full InetAddress
+
+				// Track first packet for infrastructure detection
+				if (stats.totalIncoming == 1) {
+					stats.firstIncomingSeen = OSUtils::now();
+					if (_isInfrastructureNode(ztAddr)) {
+						_addInfrastructureIP(keyIP);
+					}
+				}
+			}
+
+			// 2. LOGGING (first packet only to avoid spam)
+			auto packetKey = std::make_pair(ztAddr, ipAddr);
+			bool shouldLog = false;
+
+			if (incoming) {
+				if (_seenPacketReceived.find(packetKey) == _seenPacketReceived.end()) {
+					_seenPacketReceived.insert(packetKey);
+					shouldLog = true;
+				}
+			} else {
+				if (_seenPacketSent.find(packetKey) == _seenPacketSent.end()) {
+					_seenPacketSent.insert(packetKey);
+					shouldLog = true;
+				}
+			}
+
+			if (shouldLog) {
+				char ztBuf[16], ipBuf[64];
+				ztAddr.toString(ztBuf);
+				ipAddr.toIpString(ipBuf);
+
+				if (incoming) {
+					fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S,
+						packetSize, ipBuf, ztBuf, localPort);
+				} else {
+					fprintf(stderr, "PACKET_TO: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S,
+						packetSize, ipBuf, ztBuf, localPort);
+				}
+			}
+
+			// 3. IPTABLES UPDATES (add new peers to firewall rules)
+			if (incoming && _iptablesEnabled && _iptablesManager) {
+				// Only add globally routable addresses to iptables
+				if (ipAddr.ipScope() == InetAddress::IP_SCOPE_GLOBAL) {
+					char ipStr[64];
+					ipAddr.toIpString(ipStr);
+
+					// Check if this is a new peer+IP combination
+					if (_seenPacketReceived.find(packetKey) == _seenPacketReceived.end()) {
+						// Add to iptables (this will be called after the logging above)
+						_iptablesManager->updatePeer(ipStr, true);
+					}
+				}
+			}
+
+		} catch (...) {
+			// Ignore errors in packet processing - not critical
+		}
 	}
 
 	// Get a copy of the infrastructure IPs (for stats endpoints)
@@ -5040,7 +4878,7 @@ static void StapFrameHandler(void *uptr,void *tptr,uint64_t nwid,const MAC &from
 
 static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize) {
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
-	
+
 	switch (eventType) {
 		case RuntimeEnvironment::PEER_EVENT_PATH_ADD:
 		case RuntimeEnvironment::PEER_EVENT_PATH_REMOVE:
@@ -5048,7 +4886,7 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 			break;
 		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
 		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
-			service->_trackPacket(2, peerZtAddr, peerAddress, 0, packetSize, (eventType == RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET), successful);
+			service->_handlePacketAtLayer7(peerZtAddr, peerAddress, 0, packetSize, (eventType == RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET), successful);
 			break;
 		case RuntimeEnvironment::PEER_EVENT_INTRODUCTION:
 			// Track peer introductions for misbehavior detection
