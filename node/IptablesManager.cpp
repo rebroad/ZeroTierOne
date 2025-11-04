@@ -416,7 +416,7 @@ void IptablesManager::createIndividualPortRules()
                 << " -m set --match-set zt_peers src"
                 << " -m conntrack --ctstate NEW"
                 << " -m limit --limit 10/min --limit-burst 5"
-                << " -j LOG --log-prefix \"ZT-ALLOW: \"";
+                << " -j LOG --log-prefix \"ZT-PEER: \"";
 
         // Create ACCEPT rule for this port
         acceptRule << "iptables -A zt_rules -i " << _wanInterface
@@ -443,7 +443,7 @@ void IptablesManager::buildMultiportRules(const std::string& portList, std::stri
             << " -m set --match-set zt_peers src"
             << " -m conntrack --ctstate NEW"
             << " -m limit --limit 10/min --limit-burst 5"
-            << " -j LOG --log-prefix \"ZT-ALLOW: \"";
+            << " -j LOG --log-prefix \"ZT-PEER: \"";
 
     // Build ACCEPT rule
     acceptRule << "iptables " << (useAppend ? "-A" : "-R") << " zt_rules";
@@ -478,7 +478,7 @@ void IptablesManager::createNftablesRules()
         logRule << "nft add rule inet zerotier input iifname " << _wanInterface
                 << " udp dport { " << portList << " } ip saddr @zt_peers"
                 << " ct state new limit rate 10/minute burst 5 packets"
-                << " log prefix '\"ZT-ALLOW: \"'";
+                << " log prefix '\"ZT-PEER: \"'";
 
         // Create ACCEPT rule
         std::stringstream acceptRule;
@@ -494,7 +494,7 @@ void IptablesManager::createNftablesRules()
                 logRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
                              << " udp dport " << port << " ip saddr @zt_peers"
                              << " ct state new limit rate 10/minute burst 5 packets"
-                             << " log prefix '\"ZT-ALLOW: \"'";
+                             << " log prefix '\"ZT-PEER: \"'";
                 acceptRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
                                 << " udp dport " << port << " ip saddr @zt_peers"
                                 << " ct state new accept";
