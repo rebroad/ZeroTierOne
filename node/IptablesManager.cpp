@@ -27,6 +27,7 @@ IptablesManager::IptablesManager(const std::string& wanInterface, const std::vec
     : _wanInterface(wanInterface)
     , _udpPorts(udpPorts)
     , _initialized(false)
+    , _firewallType(detectFirewallType())
 {
     // Validate WAN interface name to prevent command injection
     if (_wanInterface.empty() || _wanInterface.find_first_of(";|&`$()<>") != std::string::npos) {
@@ -44,7 +45,11 @@ IptablesManager::IptablesManager(const std::string& wanInterface, const std::vec
     std::sort(_udpPorts.begin(), _udpPorts.end());
     _udpPorts.erase(std::unique(_udpPorts.begin(), _udpPorts.end()), _udpPorts.end());
 
-    // Initialize the ipset and iptables rules
+    // Log detected firewall type
+    const char* firewallName = (_firewallType == FirewallType::NFTABLES) ? "nftables" : "iptables";
+    fprintf(stderr, "INFO: Detected firewall system: %s" ZT_EOL_S, firewallName);
+
+    // Initialize the firewall rules (ipset/iptables or nftables)
     // Use a lock to prevent race conditions during initialization
     {
         Mutex::Lock _l(_peers_mutex);
@@ -61,6 +66,7 @@ IptablesManager::IptablesManager(IptablesManager&& other) noexcept
     : _wanInterface(std::move(other._wanInterface))
     , _udpPorts(std::move(other._udpPorts))
     , _initialized(other._initialized)
+    , _firewallType(other._firewallType)
     , _activePeers(std::move(other._activePeers))
 {
     // Clear the other object's data to prevent double cleanup
@@ -79,6 +85,7 @@ IptablesManager& IptablesManager::operator=(IptablesManager&& other) noexcept
         _wanInterface = std::move(other._wanInterface);
         _udpPorts = std::move(other._udpPorts);
         _initialized = other._initialized;
+        _firewallType = other._firewallType;
         _activePeers = std::move(other._activePeers);
 
         // Clear the other object's data
@@ -112,12 +119,21 @@ bool IptablesManager::updateUdpPorts(const std::vector<unsigned int>& udpPorts)
     // This is much faster than the old "nuclear" approach
     if (_initialized && !_udpPorts.empty() && !newPorts.empty()) {
         // Replace the multiport rule efficiently
-        return replaceMultiportRule(newPorts);
+        if (_firewallType == FirewallType::NFTABLES) {
+            // For nftables, we need to rebuild (nft replace doesn't work the same way)
+            // But we can update the set reference in the rules
+            removeNftablesRules();
+            _udpPorts = newPorts;
+            createNftablesRules();
+            return true;
+        } else {
+            return replaceMultiportRule(newPorts);
+        }
     } else {
         // Fallback to full rebuild (first time setup or edge cases)
-        removeIptablesRules();
+        removeFirewallRules();
         _udpPorts = newPorts;
-        createIptablesRules();
+        createFirewallRules();
         return true;
     }
 }
@@ -134,16 +150,53 @@ bool IptablesManager::updateWanInterface(const std::string& wanInterface)
         return true; // No change needed
     }
 
-    // Remove old iptables rules (but keep the ipset - only startup/shutdown should destroy/flush ipset)
-    removeIptablesRules();
+    // Remove old firewall rules (but keep the set - only startup/shutdown should destroy/flush set)
+    removeFirewallRules();
 
     // Update WAN interface
     _wanInterface = wanInterface;
 
-    // Create new iptables rules with the new interface
-    createIptablesRules();
+    // Create new firewall rules with the new interface
+    createFirewallRules();
 
     return true;
+}
+
+FirewallType IptablesManager::detectFirewallType()
+{
+    // Check if nftables is in use by checking if nft list tables succeeds
+    // and if there are any tables (indicates nftables is active)
+    FILE* pipe = popen("nft list tables 2>/dev/null", "r");
+    if (pipe) {
+        char buffer[256];
+        bool hasTables = false;
+        while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+            // If we get any output, nftables is available
+            if (strlen(buffer) > 0) {
+                hasTables = true;
+                break;
+            }
+        }
+        pclose(pipe);
+
+        if (hasTables) {
+            // Check if ipset is available (iptables might still be used with nftables)
+            // If ipset is NOT available, definitely use nftables
+            FILE* ipsetPipe = popen("which ipset >/dev/null 2>&1", "r");
+            if (ipsetPipe) {
+                pclose(ipsetPipe);
+                // ipset exists, but we have nftables tables - prefer nftables
+                // (system has switched to nftables)
+                return FirewallType::NFTABLES;
+            } else {
+                // No ipset, definitely use nftables
+                return FirewallType::NFTABLES;
+            }
+        }
+    }
+
+    // Default to iptables if nftables detection fails or no tables found
+    return FirewallType::IPTABLES;
 }
 
 bool IptablesManager::checkAndRestoreRules()
@@ -152,25 +205,41 @@ bool IptablesManager::checkAndRestoreRules()
         return false;
     }
 
-    // Check if our custom chain exists by trying to list it
-    std::string checkChainCmd = "iptables -L zt_rules -n >/dev/null 2>&1";
-    if (executeCommand(checkChainCmd)) {
+    if (_firewallType == FirewallType::NFTABLES) {
+        // Check if our nftables table/chain exists
+        std::string checkCmd = "nft list table inet zerotier >/dev/null 2>&1";
+        if (executeCommand(checkCmd)) {
+            return true;
+        }
+
+        // Table/chain doesn't exist - restore everything
+        fprintf(stderr, "INFO: zerotier table missing, restoring nftables integration" ZT_EOL_S);
+        createNftablesRules();
+        fprintf(stderr, "INFO: Successfully restored nftables integration" ZT_EOL_S);
+        return true;
+    } else {
+        // Check if our custom chain exists by trying to list it
+        std::string checkChainCmd = "iptables -L zt_rules -n >/dev/null 2>&1";
+        if (executeCommand(checkChainCmd)) {
+            return true;
+        }
+
+        // Chain doesn't exist - restore everything
+        fprintf(stderr, "INFO: zt_rules chain missing, restoring iptables integration" ZT_EOL_S);
+
+        // Recreate iptables rules
+        createIptablesRules();
+        fprintf(stderr, "INFO: Successfully restored iptables integration" ZT_EOL_S);
         return true;
     }
-
-    // Chain doesn't exist - restore everything
-    fprintf(stderr, "INFO: zt_rules chain missing, restoring iptables integration" ZT_EOL_S);
-
-    // Recreate iptables rules
-    createIptablesRules();
-    fprintf(stderr, "INFO: Successfully restored iptables integration" ZT_EOL_S);
-    return true;
 }
 
 bool IptablesManager::executeCommand(const std::string& command) const
 {
     // Additional security check - ensure command starts with expected commands
-    if (command.find("ipset") != 0 && command.find("iptables") != 0) {
+    if (command.find("ipset") != 0 &&
+        command.find("iptables") != 0 &&
+        command.find("nft") != 0) {
         return false;
     }
 
@@ -213,28 +282,61 @@ bool IptablesManager::executeCommand(const std::string& command) const
 
 void IptablesManager::initializeRules()
 {
-    // Clean up any existing iptables rules from previous runs (in case of unclean shutdown)
-    // This only affects iptables rules, not the ipset
-    removeIptablesRules();
+    // Clean up any existing firewall rules from previous runs (in case of unclean shutdown)
+    removeFirewallRules();
 
-    // Initialize ipset for ZeroTier peers
-    // First try to flush existing set (if it exists)
-    if (executeCommand("ipset flush zt_peers 2>/dev/null")) {
-        // Flush succeeded, ipset already exists and is now empty
-        fprintf(stderr, "INFO: Reusing existing ipset 'zt_peers'" ZT_EOL_S);
-    } else {
-        // Flush failed, ipset doesn't exist - create it
-        std::string createIpsetCmd = "ipset create zt_peers hash:ip family inet hashsize 1024 maxelem 65536";
-        if (!executeCommand(createIpsetCmd)) {
-            throw std::runtime_error("Failed to create ipset 'zt_peers'");
+    if (_firewallType == FirewallType::NFTABLES) {
+        // Initialize nftables set for ZeroTier peers
+        // First try to flush existing set (if it exists)
+        if (executeCommand("nft flush set inet zerotier zt_peers 2>/dev/null")) {
+            // Flush succeeded, set already exists and is now empty
+            fprintf(stderr, "INFO: Reusing existing nftables set 'zt_peers'" ZT_EOL_S);
+        } else {
+            // Set doesn't exist - create table and set
+            // Create table first
+            if (!executeCommand("nft create table inet zerotier 2>/dev/null")) {
+                // Table might already exist, try to create set anyway
+            }
+
+            // Create set
+            std::string createSetCmd = "nft create set inet zerotier zt_peers { type ipv4_addr; size 65536; }";
+            if (!executeCommand(createSetCmd)) {
+                throw std::runtime_error("Failed to create nftables set 'zt_peers'");
+            }
+            fprintf(stderr, "INFO: Created new nftables set 'zt_peers'" ZT_EOL_S);
         }
-        fprintf(stderr, "INFO: Created new ipset 'zt_peers'" ZT_EOL_S);
+
+        // Create nftables rules for each UDP port
+        createNftablesRules();
+    } else {
+        // Initialize ipset for ZeroTier peers
+        // First try to flush existing set (if it exists)
+        if (executeCommand("ipset flush zt_peers 2>/dev/null")) {
+            // Flush succeeded, ipset already exists and is now empty
+            fprintf(stderr, "INFO: Reusing existing ipset 'zt_peers'" ZT_EOL_S);
+        } else {
+            // Flush failed, ipset doesn't exist - create it
+            std::string createIpsetCmd = "ipset create zt_peers hash:ip family inet hashsize 1024 maxelem 65536";
+            if (!executeCommand(createIpsetCmd)) {
+                throw std::runtime_error("Failed to create ipset 'zt_peers'");
+            }
+            fprintf(stderr, "INFO: Created new ipset 'zt_peers'" ZT_EOL_S);
+        }
+
+        // Create iptables rules for each UDP port
+        createIptablesRules();
     }
 
-    // Create iptables rules for each UDP port
-    createIptablesRules();
-
     _initialized = true;
+}
+
+void IptablesManager::createFirewallRules()
+{
+    if (_firewallType == FirewallType::NFTABLES) {
+        createNftablesRules();
+    } else {
+        createIptablesRules();
+    }
 }
 
 void IptablesManager::createIptablesRules()
@@ -352,6 +454,68 @@ void IptablesManager::buildMultiportRules(const std::string& portList, std::stri
                << " -m conntrack --ctstate NEW -j ACCEPT";
 }
 
+void IptablesManager::createNftablesRules()
+{
+    // Create table (if it doesn't exist)
+    executeCommand("nft create table inet zerotier 2>/dev/null");
+
+    // Create chain in the input hook
+    executeCommand("nft create chain inet zerotier input { type filter hook input priority 0; } 2>/dev/null");
+
+    // Create rules for each UDP port
+    if (!_udpPorts.empty()) {
+        // Build port list for multiport match
+        std::string portList;
+        for (size_t i = 0; i < _udpPorts.size(); ++i) {
+            if (i > 0) portList += ",";
+            portList += std::to_string(_udpPorts[i]);
+        }
+
+        // Create LOG rule (rate-limited)
+        std::stringstream logRule;
+        logRule << "nft add rule inet zerotier input iifname " << _wanInterface
+                << " udp dport { " << portList << " } ip saddr @zt_peers"
+                << " ct state new limit rate 10/minute burst 5 packets"
+                << " log prefix \"ZT-ALLOW: \"";
+
+        // Create ACCEPT rule
+        std::stringstream acceptRule;
+        acceptRule << "nft add rule inet zerotier input iifname " << _wanInterface
+                   << " udp dport { " << portList << " } ip saddr @zt_peers"
+                   << " ct state new accept";
+
+        if (!executeCommand(logRule.str()) || !executeCommand(acceptRule.str())) {
+            fprintf(stderr, "WARNING: Failed to create nftables rules, trying individual port rules" ZT_EOL_S);
+            // Fallback to individual rules
+            for (unsigned int port : _udpPorts) {
+                std::stringstream logRuleSingle, acceptRuleSingle;
+                logRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
+                             << " udp dport " << port << " ip saddr @zt_peers"
+                             << " ct state new limit rate 10/minute burst 5 packets"
+                             << " log prefix \"ZT-ALLOW: \"";
+                acceptRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
+                                << " udp dport " << port << " ip saddr @zt_peers"
+                                << " ct state new accept";
+
+                if (!executeCommand(logRuleSingle.str()) || !executeCommand(acceptRuleSingle.str())) {
+                    fprintf(stderr, "WARNING: Failed to create nftables rules for port %u" ZT_EOL_S, port);
+                }
+            }
+        } else {
+            fprintf(stderr, "INFO: Created nftables LOG+ACCEPT rules for %zu UDP ports" ZT_EOL_S, _udpPorts.size());
+        }
+    }
+}
+
+void IptablesManager::removeFirewallRules()
+{
+    if (_firewallType == FirewallType::NFTABLES) {
+        removeNftablesRules();
+    } else {
+        removeIptablesRules();
+    }
+}
+
 void IptablesManager::removeIptablesRules()
 {
     // Remove the jump rule from the INPUT chain (ignore errors if it doesn't exist)
@@ -364,27 +528,45 @@ void IptablesManager::removeIptablesRules()
     executeCommand("iptables -X zt_rules 2>/dev/null");
 }
 
+void IptablesManager::removeNftablesRules()
+{
+    // Flush all rules from our chain (ignore errors if it doesn't exist)
+    executeCommand("nft flush chain inet zerotier input 2>/dev/null");
+
+    // Delete the chain (ignore errors if it doesn't exist)
+    executeCommand("nft delete chain inet zerotier input 2>/dev/null");
+
+    // Note: We don't delete the table here as it might contain the set
+    // The set is managed separately in cleanup()
+}
+
 bool IptablesManager::updatePeer(const std::string& ipString, bool add)
 {
     if (!_initialized) {
         return false;
     }
 
-    // Check if operation is needed to avoid unnecessary ipset commands
+    // Check if operation is needed to avoid unnecessary set commands
     {
         Mutex::Lock _l(_peers_mutex);
         bool peerExists = (_activePeers.find(ipString) != _activePeers.end());
 
         if (add && peerExists) {
-            return false; // Already exists, skip expensive ipset command
+            return false; // Already exists, skip expensive set command
         }
         if (!add && !peerExists) {
-            return false; // Doesn't exist, skip expensive ipset command
+            return false; // Doesn't exist, skip expensive set command
         }
     }
 
-    // Build ipset command
-    std::string cmd = "ipset " + std::string(add ? "add" : "del") + " zt_peers " + ipString;
+    // Build command based on firewall type
+    std::string cmd;
+    if (_firewallType == FirewallType::NFTABLES) {
+        cmd = "nft " + std::string(add ? "add" : "delete") + " element inet zerotier zt_peers { " + ipString + " }";
+    } else {
+        cmd = "ipset " + std::string(add ? "add" : "del") + " zt_peers " + ipString;
+    }
+
     bool success = executeCommand(cmd);
 
     if (success) {
@@ -396,8 +578,9 @@ bool IptablesManager::updatePeer(const std::string& ipString, bool add)
         }
     } else {
         const char* operation = add ? "add" : "remove";
-        fprintf(stderr, "WARNING: Failed to %s peer %s %s iptables ipset" ZT_EOL_S,
-                operation, ipString.c_str(), add ? "to" : "from");
+        const char* firewallName = (_firewallType == FirewallType::NFTABLES) ? "nftables" : "iptables/ipset";
+        fprintf(stderr, "WARNING: Failed to %s peer %s %s %s" ZT_EOL_S,
+                operation, ipString.c_str(), add ? "to" : "from", firewallName);
     }
 
     return success;
@@ -422,14 +605,22 @@ void IptablesManager::performCleanup()
     // and shutdown (destructor). It should NOT be called during normal operation
     // when only rules need to be updated (use updateUdpPorts/updateWanInterface instead).
 
-    // Remove iptables rules
-    removeIptablesRules();
+    // Remove firewall rules
+    removeFirewallRules();
 
-    // Flush the ipset (remove all entries but keep the set)
-    // Only destroy if flush fails (set doesn't exist)
-    if (!executeCommand("ipset flush zt_peers 2>/dev/null")) {
-        // If flush fails, try to destroy (ignore errors if it doesn't exist)
-        executeCommand("ipset destroy zt_peers 2>/dev/null");
+    if (_firewallType == FirewallType::NFTABLES) {
+        // Flush the nftables set (remove all entries but keep the set)
+        if (!executeCommand("nft flush set inet zerotier zt_peers 2>/dev/null")) {
+            // If flush fails, set might not exist - try to delete table (which will delete set too)
+            executeCommand("nft delete table inet zerotier 2>/dev/null");
+        }
+    } else {
+        // Flush the ipset (remove all entries but keep the set)
+        // Only destroy if flush fails (set doesn't exist)
+        if (!executeCommand("ipset flush zt_peers 2>/dev/null")) {
+            // If flush fails, try to destroy (ignore errors if it doesn't exist)
+            executeCommand("ipset destroy zt_peers 2>/dev/null");
+        }
     }
 
     // Clear internal state
@@ -438,3 +629,4 @@ void IptablesManager::performCleanup()
 }
 
 } // namespace ZeroTier
+

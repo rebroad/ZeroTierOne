@@ -18,15 +18,26 @@
 #include <set>
 #include <vector>
 #include <memory>
+#include <sstream>
 #include "../node/InetAddress.hpp"
 #include "../node/Mutex.hpp"
 
 namespace ZeroTier {
 
 /**
- * Manages iptables rules for ZeroTier peer communication
+ * Firewall type enumeration
+ */
+enum class FirewallType {
+    IPTABLES,  // iptables + ipset
+    NFTABLES   // nftables with built-in sets
+};
+
+/**
+ * Manages firewall rules for ZeroTier peer communication
  *
- * Uses ipsets for efficient peer management instead of individual rules per peer.
+ * Supports both iptables (with ipsets) and nftables (with built-in sets).
+ * Automatically detects which firewall system is in use.
+ * Uses sets for efficient peer management instead of individual rules per peer.
  * Supports multiple UDP ports (primary, secondary, tertiary).
  */
 class IptablesManager
@@ -95,14 +106,28 @@ public:
     inline const std::vector<unsigned int>& getUdpPorts() const noexcept { return _udpPorts; }
 
     /**
-     * Check if iptables rules exist and restore them if they were deleted
-     * This is useful for recovery after iptables-restore or similar commands
+     * Get the firewall type (iptables or nftables)
+     *
+     * @return FirewallType enum value
+     */
+    inline FirewallType getFirewallType() const noexcept { return _firewallType; }
+
+    /**
+     * Check if firewall rules exist and restore them if they were deleted
+     * This is useful for recovery after firewall reset or similar commands
      *
      * @return True if rules exist or were successfully restored
      */
     bool checkAndRestoreRules();
 
 private:
+    /**
+     * Detect which firewall system is in use (iptables or nftables)
+     *
+     * @return FirewallType enum value
+     */
+    static FirewallType detectFirewallType();
+
     /**
      * Execute a shell command
      *
@@ -112,32 +137,42 @@ private:
     bool executeCommand(const std::string& command) const;
 
     /**
-     * Initialize the ipset and iptables rules
+     * Initialize the firewall rules (ipset/iptables or nftables set/rules)
      */
     void initializeRules();
 
     /**
-     * Clean up all iptables rules and ipsets
+     * Clean up all firewall rules and sets
      * Called on service shutdown
      */
     void cleanup();
 
     /**
-     * Clean up any existing iptables rules and ipsets from previous runs
+     * Clean up any existing firewall rules and sets from previous runs
      * Called during initialization to handle unclean shutdowns
      */
     void cleanupExistingRules();
 
     /**
-     * Perform the actual cleanup of iptables rules and ipsets
+     * Perform the actual cleanup of firewall rules and sets
      * Shared implementation used by both cleanup() and cleanupExistingRules()
      */
     void performCleanup();
 
     /**
+     * Create firewall rules for the current UDP ports (iptables or nftables)
+     */
+    void createFirewallRules();
+
+    /**
      * Create iptables rules for the current UDP ports
      */
     void createIptablesRules();
+
+    /**
+     * Create nftables rules for the current UDP ports
+     */
+    void createNftablesRules();
 
     /**
      * Efficiently replace the multiport rule with new ports (1 command)
@@ -150,9 +185,19 @@ private:
     void createIndividualPortRules();
 
     /**
+     * Remove firewall rules for the current UDP ports (iptables or nftables)
+     */
+    void removeFirewallRules();
+
+    /**
      * Remove iptables rules for the current UDP ports
      */
     void removeIptablesRules();
+
+    /**
+     * Remove nftables rules for the current UDP ports
+     */
+    void removeNftablesRules();
 
     /**
      * Build multiport rule strings for LOG and ACCEPT
@@ -170,8 +215,9 @@ private:
     std::string _wanInterface;
     std::vector<unsigned int> _udpPorts;
     bool _initialized;
+    FirewallType _firewallType;
 
-    // Peer tracking to avoid redundant ipset commands
+    // Peer tracking to avoid redundant set commands
     std::set<std::string> _activePeers;
     mutable Mutex _peers_mutex;
 
