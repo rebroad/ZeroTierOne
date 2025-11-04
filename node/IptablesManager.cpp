@@ -298,8 +298,8 @@ void IptablesManager::initializeRules()
                 // Table might already exist, try to create set anyway
             }
 
-            // Create set
-            std::string createSetCmd = "nft create set inet zerotier zt_peers { type ipv4_addr; size 65536; }";
+            // Create set (quote braces to prevent shell interpretation)
+            std::string createSetCmd = "nft create set inet zerotier zt_peers '{ type ipv4_addr; size 65536; }'";
             if (!executeCommand(createSetCmd)) {
                 throw std::runtime_error("Failed to create nftables set 'zt_peers'");
             }
@@ -459,8 +459,8 @@ void IptablesManager::createNftablesRules()
     // Create table (if it doesn't exist)
     executeCommand("nft create table inet zerotier 2>/dev/null");
 
-    // Create chain in the input hook
-    executeCommand("nft create chain inet zerotier input { type filter hook input priority 0; } 2>/dev/null");
+    // Create chain in the input hook (quote braces to prevent shell interpretation)
+    executeCommand("nft create chain inet zerotier input '{ type filter hook input priority 0; }' 2>/dev/null");
 
     // Create rules for each UDP port
     if (!_udpPorts.empty()) {
@@ -472,11 +472,12 @@ void IptablesManager::createNftablesRules()
         }
 
         // Create LOG rule (rate-limited)
+        // Use single quotes for log prefix to avoid shell interpretation of colon
         std::stringstream logRule;
         logRule << "nft add rule inet zerotier input iifname " << _wanInterface
                 << " udp dport { " << portList << " } ip saddr @zt_peers"
                 << " ct state new limit rate 10/minute burst 5 packets"
-                << " log prefix \"ZT-ALLOW: \"";
+                << " log prefix 'ZT-ALLOW: '";
 
         // Create ACCEPT rule
         std::stringstream acceptRule;
@@ -492,7 +493,7 @@ void IptablesManager::createNftablesRules()
                 logRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
                              << " udp dport " << port << " ip saddr @zt_peers"
                              << " ct state new limit rate 10/minute burst 5 packets"
-                             << " log prefix \"ZT-ALLOW: \"";
+                             << " log prefix 'ZT-ALLOW: '";
                 acceptRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
                                 << " udp dport " << port << " ip saddr @zt_peers"
                                 << " ct state new accept";
@@ -562,7 +563,8 @@ bool IptablesManager::updatePeer(const std::string& ipString, bool add)
     // Build command based on firewall type
     std::string cmd;
     if (_firewallType == FirewallType::NFTABLES) {
-        cmd = "nft " + std::string(add ? "add" : "delete") + " element inet zerotier zt_peers { " + ipString + " }";
+        // Quote braces to prevent shell interpretation
+        cmd = "nft " + std::string(add ? "add" : "delete") + " element inet zerotier zt_peers '{ " + ipString + " }'";
     } else {
         cmd = "ipset " + std::string(add ? "add" : "del") + " zt_peers " + ipString;
     }
