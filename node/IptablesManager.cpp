@@ -472,12 +472,13 @@ void IptablesManager::createNftablesRules()
         }
 
         // Create LOG rule (rate-limited)
-        // Use single quotes for log prefix to avoid shell interpretation of colon
+        // nftables requires double-quoted prefix for special characters like colon
+        // Use nested quotes: outer single quotes for shell, inner double quotes for nftables
         std::stringstream logRule;
         logRule << "nft add rule inet zerotier input iifname " << _wanInterface
                 << " udp dport { " << portList << " } ip saddr @zt_peers"
                 << " ct state new limit rate 10/minute burst 5 packets"
-                << " log prefix 'ZT-ALLOW: '";
+                << " log prefix '\"ZT-ALLOW: \"'";
 
         // Create ACCEPT rule
         std::stringstream acceptRule;
@@ -493,7 +494,7 @@ void IptablesManager::createNftablesRules()
                 logRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
                              << " udp dport " << port << " ip saddr @zt_peers"
                              << " ct state new limit rate 10/minute burst 5 packets"
-                             << " log prefix 'ZT-ALLOW: '";
+                             << " log prefix '\"ZT-ALLOW: \"'";
                 acceptRuleSingle << "nft add rule inet zerotier input iifname " << _wanInterface
                                 << " udp dport " << port << " ip saddr @zt_peers"
                                 << " ct state new accept";
