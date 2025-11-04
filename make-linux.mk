@@ -487,27 +487,22 @@ install:	FORCE
 	cat doc/zerotier-idtool.1 | gzip -9 >$(DESTDIR)/usr/share/man/man1/zerotier-idtool.1.gz
 	cp ext/installfiles/linux/zerotier-one.te $(DESTDIR)/var/lib/zerotier-one/zerotier-one.te
 	@echo "Installing systemd service..."
-	@if [ -d "$(DESTDIR)/etc/systemd/system" ] || [ -z "$(DESTDIR)" ]; then \
-		mkdir -p $(DESTDIR)/etc/systemd/system; \
-		cp debian/zerotier-one.service $(DESTDIR)/etc/systemd/system/; \
-		echo "Systemd service file installed to $(DESTDIR)/etc/systemd/system/zerotier-one.service"; \
-		if [ -z "$(DESTDIR)" ] && command -v systemctl >/dev/null 2>&1; then \
-			echo "Reloading systemd daemon..."; \
-			systemctl daemon-reload; \
-			echo "Enabling zerotier-one service..."; \
-			systemctl enable zerotier-one; \
-			echo "Starting zerotier-one service..."; \
-			systemctl start zerotier-one; \
-			echo "ZeroTier One service is now running!"; \
-		else \
-			echo "To complete setup, run:"; \
-			echo "  sudo systemctl daemon-reload"; \
-			echo "  sudo systemctl enable zerotier-one"; \
-			echo "  sudo systemctl start zerotier-one"; \
-		fi; \
+	@mkdir -p $(DESTDIR)/etc/systemd/system; \
+	cp debian/zerotier-one.service $(DESTDIR)/etc/systemd/system/; \
+	echo "Systemd service file installed to $(DESTDIR)/etc/systemd/system/zerotier-one.service"; \
+	if [ -z "$(DESTDIR)" ] && command -v systemctl >/dev/null 2>&1; then \
+		echo "Reloading systemd daemon..."; \
+		systemctl daemon-reload; \
+		echo "Enabling zerotier-one service..."; \
+		systemctl enable zerotier-one; \
+		echo "Starting zerotier-one service..."; \
+		systemctl start zerotier-one; \
+		echo "ZeroTier One service is now running!"; \
 	else \
-		echo "Systemd not available or DESTDIR specified - skipping service setup"; \
-		echo "To manually install service, copy debian/zerotier-one.service to /etc/systemd/system/"; \
+		echo "To complete setup, run:"; \
+		echo "  sudo systemctl daemon-reload"; \
+		echo "  sudo systemctl enable zerotier-one"; \
+		echo "  sudo systemctl start zerotier-one"; \
 	fi
 
 # Uninstall preserves identity.public and identity.secret since the user might
