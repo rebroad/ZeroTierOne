@@ -239,7 +239,7 @@ ZT_ResultCode Node::processWirePacket(
 			// Fallback: extract from packet header (less reliable)
 			sourcePeerAddress->setTo(reinterpret_cast<const uint8_t *>(packetData) + 13, ZT_ADDRESS_LENGTH);
 		}
-	}
+	} // TODO inform calling process whether it was authenticated or not.
 
 	return ZT_RESULT_OK;
 }

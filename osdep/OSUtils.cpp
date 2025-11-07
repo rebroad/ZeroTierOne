@@ -398,27 +398,27 @@ std::string OSUtils::platformDefaultHomePath()
 {
 #ifdef __QNAP__
 	char *cmd = "/sbin/getcfg zerotier Install_Path -f /etc/config/qpkg.conf";
-    char buf[128];
-    FILE *fp;
-    if ((fp = popen(cmd, "r")) == NULL) {
-        printf("Error opening pipe!\n");
-        return NULL;
-    }
-    while (fgets(buf, 128, fp) != NULL) { }
-    if(pclose(fp))  {
-        printf("Command not found or exited with error status\n");
-        return NULL;
-    }
-    std::string homeDir = std::string(buf);
-    homeDir.erase(std::remove(homeDir.begin(), homeDir.end(), '\n'), homeDir.end());
-    return homeDir;
+	char buf[128];
+	FILE *fp;
+	if ((fp = popen(cmd, "r")) == NULL) {
+		printf("Error opening pipe!\n");
+		return NULL;
+	}
+	while (fgets(buf, 128, fp) != NULL) { }
+	if(pclose(fp))  {
+		printf("Command not found or exited with error status\n");
+		return NULL;
+	}
+	std::string homeDir = std::string(buf);
+	homeDir.erase(std::remove(homeDir.begin(), homeDir.end(), '\n'), homeDir.end());
+	return homeDir;
 #endif
 #ifdef __UBIQUITI__
 	// Only persistent location after firmware upgrades
 	return std::string("/config/zerotier-one");
 #endif
 
-    // Check for user-defined environment variable before using defaults
+	// Check for user-defined environment variable before using defaults
 #ifdef __WINDOWS__
 	DWORD bufferSize = 65535;
 	std::string userDefinedPath;
@@ -585,9 +585,7 @@ std::string OSUtils::getPrimaryNetworkInterface()
 {
 	std::string result = "";
 	FILE* pipe = popen("ip route get 8.8.8.8", "r");
-	if (!pipe) {
-		return "";
-	}
+	if (!pipe) return "";
 
 	char buffer[256];
 	while (fgets(buffer, sizeof(buffer), pipe) != NULL) {

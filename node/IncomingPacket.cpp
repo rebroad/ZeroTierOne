@@ -162,8 +162,6 @@ bool IncomingPacket::tryDecode(const RuntimeEnvironment *RR,void *tPtr,int32_t f
 					r = _doPATH_NEGOTIATION_REQUEST(RR, tPtr, peer);
 					break;
 			}
-
-
 			if (r) {
 				RR->node->statsLogVerb((unsigned int)v,(unsigned int)size());
 				return true;

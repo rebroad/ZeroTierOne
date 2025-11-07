@@ -448,7 +448,7 @@ zeroidc:
 endif
 
 ifeq ($(ZT_CONTROLLER), 1)
-# smeeclient depends on its Rust source files - let Cargo handle incremental builds  
+# smeeclient depends on its Rust source files - let Cargo handle incremental builds
 smeeclient: rustybits/Cargo.toml
 	export PATH=/${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p smeeclient
 else
@@ -495,8 +495,8 @@ install:	FORCE
 		systemctl daemon-reload; \
 		echo "Enabling zerotier-one service..."; \
 		systemctl enable zerotier-one; \
-		echo "Starting zerotier-one service..."; \
-		systemctl start zerotier-one; \
+		echo "Restarting zerotier-one service..."; \
+		systemctl restart zerotier-one; \
 		echo "ZeroTier One service is now running!"; \
 	else \
 		echo "To complete setup, run:"; \

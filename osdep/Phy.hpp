@@ -433,7 +433,7 @@ public:
 
 #ifdef __UNIX_LIKE__
 		struct sockaddr_in *sin = (struct sockaddr_in *)localAddress;
-		sws.localPort = ntohs(sin->sin_port);
+		sws.localPort = htons(sin->sin_port);
 #endif
 		memset(&(sws.saddr),0,sizeof(struct sockaddr_storage));
 		memcpy(&(sws.saddr),localAddress,(localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
@@ -479,8 +479,8 @@ public:
 				len,
 				0,
 				remoteAddress,
-				(remoteAddress->sa_family == AF_INET6) ? 
-					sizeof(struct sockaddr_in6) : 
+				(remoteAddress->sa_family == AF_INET6) ?
+					sizeof(struct sockaddr_in6) :
 					sizeof(struct sockaddr_in)) == (long)len);
 #else
 		sent = ((long)::sendto(
@@ -489,9 +489,9 @@ public:
 				len,
 				0,
 				remoteAddress,
-				(remoteAddress->sa_family == AF_INET6) ? 
-					sizeof(struct sockaddr_in6) : 
-				 	sizeof(struct sockaddr_in)) == (long)len);
+				(remoteAddress->sa_family == AF_INET6) ?
+					sizeof(struct sockaddr_in6) :
+					sizeof(struct sockaddr_in)) == (long)len);
 #endif
 		if (sent) {
 			Metrics::udp_send += len;

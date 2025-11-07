@@ -3335,6 +3335,7 @@ public:
 
 
 
+
 	inline void phyOnDatagram(PhySocket* sock, void** uptr, const struct sockaddr* localAddr, const struct sockaddr* from, void* data, unsigned long len)
 	{
 		if (_forceTcpRelay) {
@@ -4155,14 +4156,12 @@ public:
             }
 
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
-
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
                 _phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
             }
 			return ((r) ? 0 : -1);
 		} else {
-			const bool r = _binder.udpSendAll(_phy,addr,data,len,ttl);
-			return (r ? 0 : -1);
+			return ((_binder.udpSendAll(_phy,addr,data,len,ttl)) ? 0 : -1);
 		}
 	}
 
@@ -4857,8 +4856,8 @@ public:
 
 }; // End of OneServiceImpl class
 
-static int SnodeVirtualNetworkConfigFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t nwid,void **nuptr,enum ZT_VirtualNetworkConfigOperation op,const ZT_VirtualNetworkConfig *nwc)
-{ return reinterpret_cast<OneServiceImpl *>(uptr)->nodeVirtualNetworkConfigFunction(nwid,nuptr,op,nwc); }
+static int SnodeVirtualNetworkConfigFunction(ZT_Node *node,void *uptr,void *tptr,uint64_t nwid,void **nuptr,enum ZT_VirtualNetworkConfigOperation op,const ZT_VirtualNetworkConfig *nwconf)
+{ return reinterpret_cast<OneServiceImpl *>(uptr)->nodeVirtualNetworkConfigFunction(nwid,nuptr,op,nwconf); }
 static void SnodeEventCallback(ZT_Node *node,void *uptr,void *tptr,enum ZT_Event event,const void *metaData)
 { reinterpret_cast<OneServiceImpl *>(uptr)->nodeEventCallback(event,metaData); }
 static void SnodeStatePutFunction(ZT_Node *node,void *uptr,void *tptr,enum ZT_StateObjectType type,const uint64_t id[2],const void *data,int len)
