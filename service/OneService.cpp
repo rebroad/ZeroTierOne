@@ -47,7 +47,6 @@
 #include "../node/Bond.hpp"
 #include "../node/Peer.hpp"
 #include "../node/PacketMultiplexer.hpp"
-#include "../node/IptablesManager.hpp"
 #include "../node/SecurityMonitor.hpp"
 #include "../node/Topology.hpp"
 
@@ -904,10 +903,6 @@ public:
 	RedisConfig *_rc;
 	std::string _ssoRedirectURL;
 
-	// Iptables manager for peer connection rules
-	std::unique_ptr<IptablesManager> _iptablesManager;
-	bool _iptablesEnabled;
-
 	// Peer-port usage tracking (now per ZT address + IP address combination)
 	struct PeerStats {
 		// TIER 1: Wire-level port usage (UNTRUSTED - all packets at wire level)
@@ -1032,7 +1027,6 @@ public:
 		,_run(true)
 		,_rc(NULL)
 		,_ssoRedirectURL()
-		,_iptablesEnabled(false)
 	{
 		_ports[0] = 0;
 		_ports[1] = 0;
@@ -1226,25 +1220,6 @@ public:
 			}
 #endif
 
-			// TIMING FIX: Update iptables rules now that secondary/tertiary ports are bound
-			// Background: iptables manager initializes early with only primary port (9993)
-			// Secondary port (_ports[1]) and tertiary port (_ports[2]) are bound later
-			// This is the ONLY chance for tertiary port to get iptables rules (it never changes)
-			// Secondary port gets additional updates during runtime (see line ~1244)
-			if (_iptablesEnabled && _iptablesManager) {
-				std::vector<unsigned int> udpPorts = _collectUdpPorts();
-				if (!udpPorts.empty()) {
-					if (_iptablesManager->updateUdpPorts(udpPorts)) {
-						fprintf(stderr, "INFO: Updated iptables rules with all bound ports after initialization (%zu ports)" ZT_EOL_S, udpPorts.size());
-						for (unsigned int port : udpPorts) {
-							fprintf(stderr, "INFO:   - UDP port %u" ZT_EOL_S, port);
-						}
-					} else {
-						fprintf(stderr, "WARNING: Failed to update iptables rules with bound ports after initialization" ZT_EOL_S);
-					}
-				}
-			}
-
 			// Delete legacy iddb.d if present (cleanup)
 			OSUtils::rmDashRf((_homePath + ZT_PATH_SEPARATOR_S "iddb.d").c_str());
 
@@ -1286,7 +1261,6 @@ public:
 			int64_t lastUpdateCheck = clockShouldBe;
 			int64_t lastCleanedPeersDb = 0;
 			int64_t lastLocalConfFileCheck = OSUtils::now();
-			int64_t lastIptablesCheck = OSUtils::now();
 			int64_t lastOnline = lastLocalConfFileCheck;
 			for(;;) {
 				_run_m.lock();
@@ -1329,15 +1303,6 @@ public:
 					}
 				}
 
-				// Check and restore iptables rules if they were deleted by external tools
-				// This handles cases like "sudo iptables-restore < /etc/iptables/rules.v4"
-				if (_iptablesEnabled && _iptablesManager && ((now - lastIptablesCheck) >= 60000)) { // Check every 60 seconds
-					lastIptablesCheck = now;
-					if (!_iptablesManager->checkAndRestoreRules()) {
-						fprintf(stderr, "WARNING: Failed to restore iptables rules after external deletion" ZT_EOL_S);
-					}
-				}
-
 				// Refresh bindings in case device's interfaces have changed, and also sync routes to update any shadow routes (e.g. shadow default)
 				if (((now - lastBindRefresh) >= (_node->bondController()->inUse() ? ZT_BINDER_REFRESH_PERIOD / 4 : ZT_BINDER_REFRESH_PERIOD))||restarted) {
 					// If secondary port is not configured to a constant value and we've been offline for a while,
@@ -1354,22 +1319,6 @@ public:
 #if ZT_DEBUG==1
 							fprintf(stderr, "Randomized secondary port. Now it's %d\n", _ports[1]);
 #endif
-
-							// RUNTIME UPDATE: Update iptables rules when secondary port changes
-							// This handles secondary port randomization during runtime (connectivity issues)
-							// Tertiary port never changes, so this only affects secondary port rules
-							// Initial port binding is handled separately (see line ~1139)
-							if (_iptablesEnabled && _iptablesManager) {
-								std::vector<unsigned int> udpPorts = _collectUdpPorts();
-
-								if (!udpPorts.empty()) {
-									if (_iptablesManager->updateUdpPorts(udpPorts)) {
-										fprintf(stderr, "INFO: Updated iptables rules with new secondary port %u" ZT_EOL_S, _ports[1]);
-									} else {
-										fprintf(stderr, "WARNING: Failed to update iptables rules with new secondary port %u" ZT_EOL_S, _ports[1]);
-									}
-								}
-							}
 						}
 					}
 
@@ -1608,8 +1557,6 @@ public:
 				_controllerDbPath = cdbp;
 
 			_ssoRedirectURL = OSUtils::jsonString(settings["ssoRedirectURL"], "");
-
-			_initializeIptablesManager(settings);
 
 #ifdef ZT_CONTROLLER_USE_LIBPQ
 			// TODO:  Redis config
@@ -2160,7 +2107,7 @@ public:
 			setContent(req, res, out.dump());
 		};
 		_controlPlane.Delete(moonPath, moonDelete);
-		_controlPlaneV6.Delete(moonPath, moonDelete);
+		_controlPlaneV6.Delete(moonPath, moonDelete); // TODO - needed? (not in upstream)
 
 		auto networkListGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
             Mutex::Lock _l(_nets_m);
@@ -2646,58 +2593,6 @@ public:
 
 
 
-		auto iptablesPost = [&, setContent](const httplib::Request &req, httplib::Response &res) {
-			fprintf(stderr, "[DEBUG] Entered /iptables handler\n");
-			if (!bearerTokenValid(req.get_header_value("Authorization"), _authToken)) {
-				fprintf(stderr, "[DEBUG] Auth failed\n");
-				res.status = 403;
-				setContent(req, res, "{\"error\":\"403 Forbidden\"}");
-				return;
-			}
-			try {
-				fprintf(stderr, "[DEBUG] Parsing JSON body\n");
-				json requestBody = json::parse(req.body);
-				json newSettings = requestBody["settings"];
-
-				fprintf(stderr, "[DEBUG] Acquiring _localConfig_m lock\n");
-				{
-					Mutex::Lock lc(_localConfig_m);
-					json localConf = _localConfig; // Make a copy
-
-					if (!localConf.contains("settings")) {
-						localConf["settings"] = json::object();
-					}
-
-					if (newSettings.contains("iptablesEnabled")) {
-						localConf["settings"]["iptablesEnabled"] = newSettings["iptablesEnabled"];
-					}
-					if (newSettings.contains("iptablesWanInterface")) {
-						localConf["settings"]["iptablesWanInterface"] = newSettings["iptablesWanInterface"];
-					}
-
-					std::string confPath = _homePath + ZT_PATH_SEPARATOR_S + "local.conf";
-					fprintf(stderr, "[DEBUG] Writing to local.conf\n");
-					if (OSUtils::writeFile(confPath.c_str(), localConf.dump(4))) {
-						_localConfig = localConf; // Update in-memory config
-						res.status = 200;
-						setContent(req, res, "{\"status\":\"OK\"}");
-					} else {
-						res.status = 500;
-						setContent(req, res, "{\"error\":\"Error writing to local.conf\"}");
-					}
-				}
-				fprintf(stderr, "[DEBUG] Calling applyLocalConfig()\n");
-				applyLocalConfig();
-				fprintf(stderr, "[DEBUG] Finished applyLocalConfig()\n");
-			} catch (const json::exception &e) {
-				fprintf(stderr, "[DEBUG] JSON exception: %s\n", e.what());
-				res.status = 400;
-				setContent(req, res, std::string("{\"error\":\"Bad Request: ") + e.what() + "\"}");
-			}
-		};
-		_controlPlane.Post("/iptables", iptablesPost);
-		_controlPlaneV6.Post("/iptables", iptablesPost);
-
 		auto exceptionHandler = [&, setContent](const httplib::Request &req, httplib::Response &res, std::exception_ptr ep) {
 			char buf[1024];
 			auto fmt = "{\"error\": %d, \"description\": \"%s\"}";
@@ -3046,12 +2941,6 @@ public:
 				if (nw)
 					_allowManagementFrom.push_back(nw);
 			}
-		}
-
-		try {
-			_initializeIptablesManager(settings);
-		} catch (const json::exception &e) {
-			fprintf(stderr,"ERROR: exception processing local config settings: %s" ZT_EOL_S,e.what());
 		}
 	}
 
@@ -4079,7 +3968,7 @@ public:
 				ztAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
 			}
 
-			// Unified Layer 7 processing: Statistics + Logging + iptables
+			// Unified Layer 7 processing: Statistics + Logging
 			unsigned int localPort = _getLocalPortSafely(localSocket);
 			_handlePacketAtLayer7(ztAddr, ipAddr, localPort, len, false, true); // false = outgoing packet
 		} catch (...) {
@@ -4154,7 +4043,6 @@ public:
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
                 _phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),ttl);
             }
-
 			const bool r = _phy.udpSend((PhySocket *)((uintptr_t)localSocket),(const struct sockaddr *)addr,data,len);
 			if ((ttl)&&(addr->ss_family == AF_INET)) {
                 _phy.setIp4UdpTtl((PhySocket *)((uintptr_t)localSocket),255);
@@ -4372,32 +4260,6 @@ public:
 		return false;
 	}
 
-	// Iptables peer path management
-	void _handlePeerPathUpdate(const InetAddress& peerAddress, const Address& peerZtAddr, bool isAdd)
-	{
-		if (_iptablesEnabled && _iptablesManager) {
-			// Only add globally routable addresses to iptables ipset
-			// Private/local addresses should not need firewall rules
-			if (peerAddress.ipScope() != InetAddress::IP_SCOPE_GLOBAL) {
-				// Skip non-global addresses (private, link-local, loopback, etc.)
-				return;
-			}
-
-			char ipStr[64];
-			peerAddress.toIpString(ipStr);
-
-			char ztAddrStr[16];
-			peerZtAddr.toString(ztAddrStr);
-
-			if (_iptablesManager->updatePeer(ipStr, isAdd)) {
-				const char* operation = isAdd ? "Added" : "Removed";
-				const char* preposition = isAdd ? "to" : "from";
-				fprintf(stderr, "INFO: %s peer %s (zt:%s) %s iptables ipset" ZT_EOL_S,
-						operation, ipStr, ztAddrStr, preposition);
-			}
-		}
-	}
-
 	// Track peer introductions for misbehavior detection
 	void _trackPeerIntroduction(const InetAddress& introducedIP, const Address& targetPeerAddr, const Address& introducedBy, uint64_t now)
 	{
@@ -4515,7 +4377,7 @@ public:
 
 
 	/**
-	 * Collect all active UDP ports for iptables rules
+	 * Collect all active UDP ports
 	 *
 	 * Ports collected:
 	 * - Primary port (_ports[0]): Always 9993 (or configured primary)
@@ -4544,82 +4406,6 @@ public:
 		return udpPorts;
 	}
 
-	/**
-	 * Initialize or cleanup the iptables manager based on configuration
-	 *
-	 * @param settings The settings object containing iptables configuration
-	 * @return True if operation was successful
-	 */
-	bool _initializeIptablesManager(const json& settings)
-	{
-		bool newEnabledState = OSUtils::jsonBool(settings["iptablesEnabled"], false);
-
-		// Handle state transitions
-		if (_iptablesEnabled && !newEnabledState) {
-			// Disabling iptables - cleanup existing manager
-			if (_iptablesManager) {
-				fprintf(stderr, "INFO: Disabling iptables integration - cleaning up rules and ipsets" ZT_EOL_S);
-				_iptablesManager.reset(); // Destructor calls cleanup()
-			}
-			_iptablesEnabled = false;
-			return true;
-		}
-
-		if (!newEnabledState) {
-			// Disabled and should stay disabled
-			return true;
-		}
-
-		if (_iptablesEnabled && _iptablesManager) {
-			// Already enabled and initialized
-			return true;
-		}
-
-		// Enable iptables - initialize manager
-		_iptablesEnabled = true;
-
-		std::string wanInterface = OSUtils::jsonString(settings["iptablesWanInterface"], "auto");
-		if (wanInterface == "auto") {
-#ifdef __LINUX__
-			wanInterface = OSUtils::getPrimaryNetworkInterface();
-			if (wanInterface.empty()) {
-				fprintf(stderr, "WARNING: Could not auto-detect WAN interface for iptables, feature disabled. Please set 'iptablesWanInterface' in local.conf." ZT_EOL_S);
-				_iptablesEnabled = false;
-				return false;
-			} else {
-				fprintf(stderr, "INFO: Auto-detected WAN interface '%s' for iptables" ZT_EOL_S, wanInterface.c_str());
-			}
-#else
-			fprintf(stderr, "WARNING: iptables WAN interface auto-detection is only supported on Linux." ZT_EOL_S);
-			_iptablesEnabled = false;
-			return false;
-#endif
-		}
-
-		// Collect all UDP ports (primary, secondary, tertiary)
-		std::vector<unsigned int> udpPorts = _collectUdpPorts();
-
-		if (!udpPorts.empty()) {
-			try {
-				fprintf(stderr, "INFO: Enabling iptables integration with WAN interface '%s' and %zu UDP ports" ZT_EOL_S, wanInterface.c_str(), udpPorts.size());
-				for (unsigned int port : udpPorts) {
-					fprintf(stderr, "INFO:   - UDP port %u" ZT_EOL_S, port);
-				}
-				_iptablesManager = std::make_unique<IptablesManager>(wanInterface, udpPorts);
-				return true;
-			} catch (const std::exception& e) {
-				fprintf(stderr, "ERROR: Failed to initialize iptables manager: %s" ZT_EOL_S, e.what());
-				_iptablesEnabled = false;
-				return false;
-			}
-		} else {
-			fprintf(stderr, "WARNING: No UDP ports available for iptables, feature disabled" ZT_EOL_S);
-			_iptablesEnabled = false;
-			return false;
-		}
-	}
-
-
 	// Attack detection through divergence analysis
 	// Helper function to check if a ZT address is a PLANET or MOON (infrastructure node)
 	bool _isInfrastructureNode(const Address& ztAddr) {
@@ -4644,7 +4430,7 @@ public:
 		}
 	}
 
-	// Add an IP address to the infrastructure lookup table
+	// Add an IP address to the infrastructure lookup table - TODO needed? Didn't upstream already have a way to do this?
 	void _addInfrastructureIP(const InetAddress& ipAddr) {
 		Mutex::Lock _l(_infrastructureIPs_m);
 		_infrastructureIPs.insert(ipAddr);
@@ -4668,7 +4454,7 @@ public:
 		}
 	}
 
-	// Unified Layer 7 function: Statistics + Logging + iptables
+	// Unified Layer 7 function: Statistics + Logging
 	void _handlePacketAtLayer7(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort,
 							  unsigned long packetSize, bool incoming, bool successful) {
 		// Skip processing during early initialization
@@ -4731,21 +4517,6 @@ public:
 				} else {
 					fprintf(stderr, "PACKET_TO: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S,
 						packetSize, ipBuf, ztBuf, localPort);
-				}
-			}
-
-			// 3. IPTABLES UPDATES (add new peers to firewall rules)
-			if (incoming && _iptablesEnabled && _iptablesManager) {
-				// Only add globally routable addresses to iptables
-				if (ipAddr.ipScope() == InetAddress::IP_SCOPE_GLOBAL) {
-					char ipStr[64];
-					ipAddr.toIpString(ipStr);
-
-					// Check if this is a new peer+IP combination
-					if (_seenPacketReceived.find(packetKey) == _seenPacketReceived.end()) {
-						// Add to iptables (this will be called after the logging above)
-						_iptablesManager->updatePeer(ipStr, true);
-					}
 				}
 			}
 
@@ -4879,10 +4650,6 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
 	switch (eventType) {
-		case RuntimeEnvironment::PEER_EVENT_PATH_ADD:
-		case RuntimeEnvironment::PEER_EVENT_PATH_REMOVE:
-			service->_handlePeerPathUpdate(peerAddress, peerZtAddr, (eventType == RuntimeEnvironment::PEER_EVENT_PATH_ADD));
-			break;
 		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
 		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
 			service->_handlePacketAtLayer7(peerZtAddr, peerAddress, 0, packetSize, (eventType == RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET), successful);

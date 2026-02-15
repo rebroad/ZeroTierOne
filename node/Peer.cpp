@@ -181,13 +181,6 @@ void Peer::received(
 					if(_bond) {
 						_bond->nominatePathToBond(_paths[replacePath].p, now);
 					}
-
-					// Notify service about new peer path (iptables integration)
-					// TODO - Is this function still needed now that we're passing localPort from tier 1 to tier 2
-					//    and returning ztaddr from tier 2 to tier 1 ?
-					if (RR->peerEventCallback) {
-						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, path->address(), _id.address(), Address(), true, 0);
-					}
 				}
 			} else {
 				Mutex::Lock ltl(_lastTriedPath_m);
@@ -476,12 +469,6 @@ void Peer::sendHELLO(void *tPtr,const int64_t localSocket,const InetAddress &atA
 
 void Peer::attemptToContactAt(void *tPtr,const int64_t localSocket,const InetAddress &atAddress,int64_t now,bool sendFullHello)
 {
-	// Proactively notify service about outbound contact attempt (iptables integration)
-	// This ensures ipset rules are in place BEFORE sending packets, allowing responses
-	if (RR->peerEventCallback) {
-		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_PATH_ADD, atAddress, _id.address(), Address(), true, 0);
-	} // TODO - document other ways we could do this that could be simpler
-
 	if ( (!sendFullHello) && (_vProto >= 5) && (!((_vMajor == 1)&&(_vMinor == 1)&&(_vRevision == 0))) ) {
 		Packet outp(_id.address(),RR->identity.address(),Packet::VERB_ECHO);
 		outp.armor(_key,true,aesKeysIfSupported());

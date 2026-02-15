@@ -92,8 +92,6 @@ public:
 
 	// Unified peer event callback for all peer-related events
 	enum PeerEventType {
-		PEER_EVENT_PATH_ADD,        // Peer path added (for iptables)
-		PEER_EVENT_PATH_REMOVE,     // Peer path removed (for iptables)
 		PEER_EVENT_INTRODUCTION,    // Peer introduced another peer's IP
 		PEER_EVENT_CONNECTION_ATTEMPT, // Connection attempt made to introduced IP
 		PEER_EVENT_OUTGOING_PACKET, // Outgoing packet sent to peer (for port tracking)

@@ -288,7 +288,7 @@ public:
 	void initMultithreading(unsigned int concurrency, bool cpuPinningEnabled);
 
 	/**
-	 * Set unified callback for all peer events (iptables, introductions, connection attempts)
+	 * Set unified callback for all peer events (introductions, connection attempts)
 	 *
 	 * @param callback Function to call for peer events
 	 * @param userPtr User pointer to pass to callback

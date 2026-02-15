@@ -45,6 +45,5 @@ ONE_OBJS=\
 	osdep/ManagedRoute.o \
 	osdep/Http.o \
 	service/SoftwareUpdater.o \
-	service/OneService.o \
-	node/IptablesManager.o
+	service/OneService.o
 
