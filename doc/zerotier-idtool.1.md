@@ -16,8 +16,8 @@ When command arguments call for a public or secret (full) identity, the identity
  * `help`:
    Display help. (Also running with no command does this.)
 
- * `generate` [secret file] [public file] [vanity] [threads]:
-   Generate a new ZeroTier identity. If a secret file is specified, the full identity including the private key will be written to this file. If the public file is specified, the public portion will be written there. If no file paths are specified the full secret identity is output to STDOUT. The vanity prefix is a series of hexadecimal digits that the generated identity's address should start with. Typically this isn't used, and if it's specified generation can take a very long time due to the intrinsic cost of generating identities with their proof of work function. While searching for a vanity prefix, idtool prints periodic progress including attempts, IDs/sec, and an estimate for reaching a 50% success probability. The optional thread count defaults to 1 and can improve search throughput on multi-core systems.
+ * `generate` [secret file] [public file] [vanity] [threads|auto]:
+   Generate a new ZeroTier identity. If a secret file is specified, the full identity including the private key will be written to this file. If the public file is specified, the public portion will be written there. If no file paths are specified the full secret identity is output to STDOUT. The vanity prefix is a series of hexadecimal digits that the generated identity's address should start with. Typically this isn't used, and if it's specified generation can take a very long time due to the intrinsic cost of generating identities with their proof of work function. While searching for a vanity prefix, idtool prints periodic progress including attempts, IDs/sec, and an estimate for reaching a 50% success probability. If omitted, the thread setting defaults to `auto` (short benchmark then pick a thread count). You can also pass an explicit thread count.
 
  * `validate` <identity, only public part required>:
    Locally validate an identity's key and proof of work function correspondence.

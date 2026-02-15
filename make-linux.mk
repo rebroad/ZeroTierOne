@@ -75,9 +75,13 @@ else
 	ZT_CARGO_FLAGS=--release
 endif
 
+ZT_NATIVE?=auto
 ifeq ($(ZT_NATIVE),1)
 	override CFLAGS+=-march=native -mtune=native
 	override CXXFLAGS+=-march=native -mtune=native
+	override DEFS+=-DZT_NATIVE_BUILD=1
+else
+	override DEFS+=-DZT_NATIVE_BUILD=0
 endif
 
 ifeq ($(ZT_QNAP), 1)
@@ -547,6 +551,8 @@ echo_flags:
 	@echo "echo_flags :: CFLAGS=$(CFLAGS)"
 	@echo "echo_flags :: CXXFLAGS=$(CXXFLAGS)"
 	@echo "echo_flags :: LDFLAGS=$(LDFLAGS)"
+	@echo "echo_flags :: ZT_NATIVE=$(ZT_NATIVE)"
+	@echo "echo_flags :: origin(ZT_NATIVE)=$(origin ZT_NATIVE)"
 	@echo "echo_flags :: RUSTFLAGS=$(RUSTFLAGS)"
 	@echo "=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~"
 

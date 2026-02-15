@@ -69,6 +69,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <limits>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -117,6 +118,80 @@ static OneService *volatile zt1Service = (OneService *)0;
 #define COPYRIGHT_NOTICE "Copyright (c) 2020 ZeroTier, Inc."
 #define LICENSE_GRANT "Licensed under the ZeroTier BSL 1.1 (see LICENSE.txt)"
 
+#ifndef ZT_NATIVE_BUILD
+#define ZT_NATIVE_BUILD 0
+#endif
+
+static inline const char *nativeBuildMode()
+{
+	return ZT_NATIVE_BUILD ? "native" : "portable";
+}
+
+#ifdef __LINUX__
+static bool readUnsignedLongLongFromFile(const char *path,unsigned long long &v)
+{
+	FILE *f = fopen(path,"r");
+	if (!f)
+		return false;
+	unsigned long long tmp = 0ULL;
+	const int r = fscanf(f,"%llu",&tmp);
+	fclose(f);
+	if (r != 1)
+		return false;
+	v = tmp;
+	return true;
+}
+
+struct LinuxThermalSample
+{
+	bool freqValid;
+	double freqRatio;
+	unsigned long long coreThrottleCount;
+	unsigned long long packageThrottleCount;
+};
+
+static LinuxThermalSample readLinuxThermalSample()
+{
+	LinuxThermalSample s;
+	s.freqValid = false;
+	s.freqRatio = std::numeric_limits<double>::quiet_NaN();
+	s.coreThrottleCount = 0ULL;
+	s.packageThrottleCount = 0ULL;
+
+	unsigned long long freqCurSum = 0ULL;
+	unsigned long long freqMaxSum = 0ULL;
+	unsigned int freqCount = 0U;
+
+	char path[256];
+	for(unsigned int cpu=0;cpu<256;++cpu) {
+		unsigned long long v = 0ULL;
+		snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/cpufreq/scaling_cur_freq",cpu);
+		if (readUnsignedLongLongFromFile(path,v)) {
+			freqCurSum += v;
+			snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/cpufreq/cpuinfo_max_freq",cpu);
+			unsigned long long vmax = 0ULL;
+			if (readUnsignedLongLongFromFile(path,vmax) && vmax > 0ULL) {
+				freqMaxSum += vmax;
+				++freqCount;
+			}
+		}
+
+		snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/thermal_throttle/core_throttle_count",cpu);
+		if (readUnsignedLongLongFromFile(path,v))
+			s.coreThrottleCount += v;
+		snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/thermal_throttle/package_throttle_count",cpu);
+		if (readUnsignedLongLongFromFile(path,v))
+			s.packageThrottleCount += v;
+	}
+
+	if ((freqCount > 0U) && (freqMaxSum > 0ULL)) {
+		s.freqValid = true;
+		s.freqRatio = (double)freqCurSum / (double)freqMaxSum;
+	}
+	return s;
+}
+#endif
+
 /****************************************************************************/
 /* zerotier-cli personality                                                 */
 /****************************************************************************/
@@ -126,10 +201,10 @@ static OneService *volatile zt1Service = (OneService *)0;
 static void cliPrintHelp(const char *pn,FILE *out)
 {
 	fprintf(out,
-		"%s version %d.%d.%d build %d (platform %d arch %d)" ZT_EOL_S,
+		"%s version %d.%d.%d build %d (platform %d arch %d, %s build)" ZT_EOL_S,
 		PROGRAM_NAME,
 		ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, ZEROTIER_ONE_VERSION_BUILD,
-		ZT_BUILD_PLATFORM, ZT_BUILD_ARCHITECTURE);
+		ZT_BUILD_PLATFORM, ZT_BUILD_ARCHITECTURE, nativeBuildMode());
 	fprintf(out,
 		COPYRIGHT_NOTICE ZT_EOL_S
 		LICENSE_GRANT ZT_EOL_S);
@@ -251,7 +326,7 @@ static int cli(int argc,char **argv)
 						cliPrintHelp(argv[0],stdout);
 						return 1;
 					}
-					printf("%d.%d.%d" ZT_EOL_S,ZEROTIER_ONE_VERSION_MAJOR,ZEROTIER_ONE_VERSION_MINOR,ZEROTIER_ONE_VERSION_REVISION);
+					printf("%d.%d.%d (%s build)" ZT_EOL_S,ZEROTIER_ONE_VERSION_MAJOR,ZEROTIER_ONE_VERSION_MINOR,ZEROTIER_ONE_VERSION_REVISION,nativeBuildMode());
 					return 0;
 
 				case 'h':
@@ -2493,14 +2568,19 @@ static std::string formatDurationSeconds(double seconds)
 	if (!(seconds > 0.0) || (!std::isfinite(seconds)))
 		return "unknown";
 	char tmp[64];
-	if (seconds >= (24.0 * 3600.0)) {
-		snprintf(tmp,sizeof(tmp),"%.1f days",seconds / 86400.0);
-	} else if (seconds >= 3600.0) {
-		snprintf(tmp,sizeof(tmp),"%.1f hours",seconds / 3600.0);
-	} else if (seconds >= 60.0) {
-		snprintf(tmp,sizeof(tmp),"%.1f min",seconds / 60.0);
+	const unsigned long long total = (unsigned long long)seconds;
+	const unsigned long long hours = total / 3600ULL;
+	const unsigned long long minutes = (total % 3600ULL) / 60ULL;
+	const unsigned long long secs = total % 60ULL;
+	if (hours > 0ULL) {
+		snprintf(tmp,sizeof(tmp),"%02llu:%02llu:%02llu",
+			(unsigned long long)hours,
+			(unsigned long long)minutes,
+			(unsigned long long)secs);
 	} else {
-		snprintf(tmp,sizeof(tmp),"%.0f sec",seconds);
+		snprintf(tmp,sizeof(tmp),"%02llu:%02llu",
+			(unsigned long long)minutes,
+			(unsigned long long)secs);
 	}
 	return std::string(tmp);
 }
@@ -2508,14 +2588,14 @@ static std::string formatDurationSeconds(double seconds)
 static void idtoolPrintHelp(FILE *out,const char *pn)
 {
 	fprintf(out,
-		"%s version %d.%d.%d" ZT_EOL_S,
+		"%s version %d.%d.%d (%s build)" ZT_EOL_S,
 		PROGRAM_NAME,
-		ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION);
+		ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, nativeBuildMode());
 	fprintf(out,
 		COPYRIGHT_NOTICE ZT_EOL_S
 		LICENSE_GRANT ZT_EOL_S);
 	fprintf(out,"Usage: %s <command> [<args>]" ZT_EOL_S"" ZT_EOL_S"Commands:" ZT_EOL_S,pn);
-	fprintf(out,"  generate [<identity.secret>] [<identity.public>] [<vanity>] [<threads>]" ZT_EOL_S);
+	fprintf(out,"  generate [<identity.secret>] [<identity.public>] [<vanity>] [<threads|auto>]" ZT_EOL_S);
 	fprintf(out,"  validate <identity.secret/public>" ZT_EOL_S);
 	fprintf(out,"  getpublic <identity.secret>" ZT_EOL_S);
 	fprintf(out,"  sign <identity.secret> <file>" ZT_EOL_S);
@@ -2554,15 +2634,23 @@ static int idtool(int argc,char **argv)
 	if (!strcmp(argv[1],"generate")) {
 		uint64_t vanity = 0;
 		int vanityBits = 0;
-		unsigned int vanityThreads = 1;
+		unsigned int vanityThreads = 0;
+		bool autoThreads = true;
 		if (argc >= 5) {
 			vanity = Utils::hexStrToU64(argv[4]) & 0xffffffffffULL;
 			vanityBits = 4 * (int)strlen(argv[4]);
 			if (vanityBits > 40)
 				vanityBits = 40;
 		}
-		if (argc >= 6)
-			vanityThreads = std::max(1U,Utils::strToUInt(argv[5]));
+		if (argc >= 6) {
+			if (!strcmp(argv[5],"auto")) {
+				autoThreads = true;
+				vanityThreads = 0;
+			} else {
+				autoThreads = false;
+				vanityThreads = std::max(1U,Utils::strToUInt(argv[5]));
+			}
+		}
 
 		if (vanityBits >= 8) {
 			const uint64_t prefixFirstByte = (vanity >> (vanityBits - 8)) & 0xffULL;
@@ -2586,46 +2674,188 @@ static int idtool(int argc,char **argv)
 				? 1ULL
 				: (uint64_t)std::ceil(std::log(0.5) / logFailure);
 			std::atomic<uint64_t> attempts(0ULL);
+			std::atomic<bool> stopFlag(false);
 			std::atomic<bool> found(false);
 			std::mutex winnerLock;
 			Identity winner;
 			const uint64_t target = vanity << (40 - vanityBits);
+			const unsigned int hwThreads = std::max(1U,std::thread::hardware_concurrency());
+
+			if (autoThreads) {
+				unsigned int bestT = 1U;
+				double bestRate = 0.0;
+				const unsigned int maxProbe = std::min(12U,hwThreads);
+				fprintf(stderr,"vanity address: auto-tuning threads (1..%u, 3s each)\n",maxProbe);
+				for(unsigned int t=1;t<=maxProbe;++t) {
+					std::atomic<uint64_t> probeAttempts(0ULL);
+					std::atomic<bool> probeStop(false);
+					std::vector<std::thread> probeWorkers;
+					probeWorkers.reserve(t);
+					for(unsigned int i=0;i<t;++i) {
+						probeWorkers.emplace_back([&probeAttempts,&probeStop]() {
+							Identity local;
+							while (!probeStop.load(std::memory_order_relaxed)) {
+								if (!local.generateVanity(0ULL,0,&probeStop,&probeAttempts))
+									return;
+							}
+						});
+					}
+					const auto probeStart = std::chrono::steady_clock::now();
+					std::this_thread::sleep_for(std::chrono::seconds(3));
+					probeStop.store(true,std::memory_order_relaxed);
+					for(std::thread &th : probeWorkers)
+						th.join();
+					const double probeElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - probeStart).count();
+					const double probeRate = (probeElapsed > 0.0) ? ((double)probeAttempts.load(std::memory_order_relaxed) / probeElapsed) : 0.0;
+					fprintf(stderr,"vanity address: autotune %u thread(s) => %.2f ids/s\n",t,probeRate);
+					if (probeRate > bestRate) {
+						bestRate = probeRate;
+						bestT = t;
+					}
+				}
+				vanityThreads = bestT;
+				fprintf(stderr,"vanity address: auto selected %u thread(s)\n",vanityThreads);
+			}
+			if (vanityThreads == 0)
+				vanityThreads = 1;
 
 			fprintf(stderr,"vanity address: searching for prefix %s (%d bits) with %u thread(s)\n",argv[4],vanityBits,vanityThreads);
 			fprintf(stderr,"vanity address: 50%% success chance after ~%llu tries\n",(unsigned long long)triesFor50pct);
+			fprintf(stderr,"vanity address: hash impl %s (set ZT_IDENTITY_HASH_IMPL=generic|avx2|auto)\n",Identity::memoryHardHashImplName());
 
-			auto worker = [&attempts,&found,&winnerLock,&winner,vanity,vanityBits]() {
-				Identity local;
-				if (local.generateVanity(vanity,vanityBits,&found,&attempts)) {
-					bool expected = false;
-					if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
-						std::lock_guard<std::mutex> lock(winnerLock);
-						winner = local;
-					}
+			unsigned int currentThreads = vanityThreads;
+			auto launchWorkers = [&attempts,&stopFlag,&found,&winnerLock,&winner,vanity,vanityBits](unsigned int count,std::vector<std::thread> &workers) {
+				workers.clear();
+				workers.reserve(count);
+				for(unsigned int i=0;i<count;++i) {
+					workers.emplace_back([&attempts,&stopFlag,&found,&winnerLock,&winner,vanity,vanityBits]() {
+						Identity local;
+						if (local.generateVanity(vanity,vanityBits,&stopFlag,&attempts)) {
+							bool expected = false;
+							if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
+								std::lock_guard<std::mutex> lock(winnerLock);
+								winner = local;
+								stopFlag.store(true,std::memory_order_relaxed);
+							}
+						}
+					});
 				}
 			};
 
 			std::vector<std::thread> workers;
-			workers.reserve(vanityThreads);
+			launchWorkers(currentThreads,workers);
 			const auto start = std::chrono::steady_clock::now();
-			for(unsigned int i=0;i<vanityThreads;++i)
-				workers.emplace_back(worker);
+			const double statusIntervalSeconds = 5.0;
+			auto lastStatus = start;
+			uint64_t lastAttempts = 0ULL;
+			double bestWindowRate = 0.0;
+			double rate1m = 0.0;
+			double rate5m = 0.0;
+			double rate15m = 0.0;
+			int lowRateStreak = 0;
+#ifdef __LINUX__
+			LinuxThermalSample lastThermal = readLinuxThermalSample();
+#endif
 
 			while (!found.load(std::memory_order_relaxed)) {
-				std::this_thread::sleep_for(std::chrono::seconds(1));
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				const auto now = std::chrono::steady_clock::now();
+				const double statusElapsed = std::chrono::duration<double>(now - lastStatus).count();
+				if (statusElapsed < statusIntervalSeconds)
+					continue;
 				const uint64_t t = attempts.load(std::memory_order_relaxed);
-				const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-				const double rate = (elapsed > 0.0) ? ((double)t / elapsed) : 0.0;
+				const uint64_t delta = t - lastAttempts;
+				const double rate = (statusElapsed > 0.0) ? ((double)delta / statusElapsed) : 0.0;
+				const double alpha1m = 1.0 - std::exp(-statusElapsed / 60.0);
+				const double alpha5m = 1.0 - std::exp(-statusElapsed / 300.0);
+				const double alpha15m = 1.0 - std::exp(-statusElapsed / 900.0);
+				if (rate1m <= 0.0) {
+					rate1m = rate;
+					rate5m = rate;
+					rate15m = rate;
+				} else {
+					rate1m = (alpha1m * rate) + ((1.0 - alpha1m) * rate1m);
+					rate5m = (alpha5m * rate) + ((1.0 - alpha5m) * rate5m);
+					rate15m = (alpha15m * rate) + ((1.0 - alpha15m) * rate15m);
+				}
+				if (rate > bestWindowRate)
+					bestWindowRate = rate;
 				const double successProb = 1.0 - std::exp(logFailure * (double)t);
-				double eta50 = 0.0;
-				if ((t < triesFor50pct)&&(rate > 0.0))
-					eta50 = ((double)(triesFor50pct - t) / rate);
-				fprintf(stderr,
-					"vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA %s\n",
+				double eta50_1m = 0.0;
+				double eta50_5m = 0.0;
+				double eta50_15m = 0.0;
+				if (t < triesFor50pct) {
+					if (rate1m > 0.0)
+						eta50_1m = ((double)(triesFor50pct - t) / rate1m);
+					if (rate5m > 0.0)
+						eta50_5m = ((double)(triesFor50pct - t) / rate5m);
+					if (rate15m > 0.0)
+						eta50_15m = ((double)(triesFor50pct - t) / rate15m);
+				}
+
+#ifdef __LINUX__
+				const LinuxThermalSample thermal = readLinuxThermalSample();
+				unsigned long long coreThrottleDelta = 0ULL;
+				unsigned long long packageThrottleDelta = 0ULL;
+				if (lastThermal.coreThrottleCount <= thermal.coreThrottleCount)
+					coreThrottleDelta = thermal.coreThrottleCount - lastThermal.coreThrottleCount;
+				if (lastThermal.packageThrottleCount <= thermal.packageThrottleCount)
+					packageThrottleDelta = thermal.packageThrottleCount - lastThermal.packageThrottleCount;
+#endif
+
+				fprintf(stderr,"vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA(1m/5m/15m) %s / %s / %s",
 					(unsigned long long)t,
 					rate,
 					std::min(100.0,successProb * 100.0),
-					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50).c_str());
+					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50_1m).c_str(),
+					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50_5m).c_str(),
+					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50_15m).c_str());
+#ifdef __LINUX__
+				if (thermal.freqValid) {
+					const double freqPct = thermal.freqRatio * 100.0;
+					if (freqPct < 99.5) {
+						fprintf(stderr,", freq %.0f%% of max",freqPct);
+					}
+				}
+				if ((coreThrottleDelta > 0ULL)||(packageThrottleDelta > 0ULL)) {
+					fprintf(stderr,", throttle +%llu core/+%llu pkg",
+						(unsigned long long)coreThrottleDelta,
+						(unsigned long long)packageThrottleDelta);
+				}
+				lastThermal = thermal;
+#endif
+				fprintf(stderr,"\n");
+
+				if ((bestWindowRate > 0.0) && (rate < (bestWindowRate * 0.78))) {
+					++lowRateStreak;
+				} else {
+					lowRateStreak = 0;
+				}
+
+#ifdef __LINUX__
+				const bool thermalPressure =
+					((coreThrottleDelta + packageThrottleDelta) > 0ULL) ||
+					(thermal.freqValid && (thermal.freqRatio < 0.80));
+#else
+				const bool thermalPressure = false;
+#endif
+				if ((currentThreads > 1U) && (lowRateStreak >= 3) && thermalPressure) {
+					const unsigned int newThreads = std::max(1U,currentThreads - 1U);
+					fprintf(stderr,"vanity address: throughput degraded under thermal pressure, reducing threads %u -> %u\n",currentThreads,newThreads);
+					stopFlag.store(true,std::memory_order_relaxed);
+					for(std::thread &th : workers)
+						th.join();
+					if (!found.load(std::memory_order_relaxed)) {
+						stopFlag.store(false,std::memory_order_relaxed);
+						currentThreads = newThreads;
+						launchWorkers(currentThreads,workers);
+						lowRateStreak = 0;
+						bestWindowRate = rate;
+					}
+				}
+
+				lastStatus = now;
+				lastAttempts = t;
 			}
 
 			for(std::thread &th : workers)
@@ -2640,12 +2870,13 @@ static int idtool(int argc,char **argv)
 			const double totalElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 			const double finalRate = (totalElapsed > 0.0) ? ((double)totalAttempts / totalElapsed) : 0.0;
 			fprintf(stderr,
-				"vanity address: found %.10llx after %llu tries in %s (%.2f ids/s), target %.10llx\n",
+				"vanity address: found %.10llx after %llu tries in %s (%.2f ids/s), target %.10llx, final threads %u\n",
 				(unsigned long long)id.address().toInt(),
 				(unsigned long long)totalAttempts,
 				formatDurationSeconds(totalElapsed).c_str(),
 				finalRate,
-				(unsigned long long)target);
+				(unsigned long long)target,
+				currentThreads);
 		}
 
 		char idtmp[1024];
@@ -3171,9 +3402,9 @@ static BOOL IsCurrentUserLocalAdministrator(void)
 static void printHelp(const char *cn,FILE *out)
 {
 	fprintf(out,
-		"%s version %d.%d.%d" ZT_EOL_S,
+		"%s version %d.%d.%d (%s build)" ZT_EOL_S,
 		PROGRAM_NAME,
-		ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION);
+		ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, nativeBuildMode());
 	fprintf(out,
 		COPYRIGHT_NOTICE ZT_EOL_S
 		LICENSE_GRANT ZT_EOL_S);
@@ -3332,7 +3563,7 @@ int main(int argc,char **argv)
 					break;
 
 				case 'v': // Display version
-					printf("%d.%d.%d" ZT_EOL_S,ZEROTIER_ONE_VERSION_MAJOR,ZEROTIER_ONE_VERSION_MINOR,ZEROTIER_ONE_VERSION_REVISION);
+					printf("%d.%d.%d (%s build)" ZT_EOL_S,ZEROTIER_ONE_VERSION_MAJOR,ZEROTIER_ONE_VERSION_MINOR,ZEROTIER_ONE_VERSION_REVISION,nativeBuildMode());
 					return 0;
 
 				case 'i': // Invoke idtool personality
