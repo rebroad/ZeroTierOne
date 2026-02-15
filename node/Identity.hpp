@@ -16,6 +16,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <atomic>
 
 #include "Constants.hpp"
 #include "Utils.hpp"
@@ -98,6 +99,17 @@ public:
 	 * This is a time consuming operation.
 	 */
 	void generate();
+
+	/**
+	 * Generate a new identity matching vanity prefix criteria.
+	 *
+	 * @param vanityPrefix Prefix value as an integer
+	 * @param vanityBits Number of high bits of address that must match vanityPrefix
+	 * @param stopFlag Optional cancellation flag checked during search
+	 * @param attemptCounter Optional counter incremented once per valid non-reserved candidate identity
+	 * @return True if a matching identity was generated, false if canceled via stopFlag
+	 */
+	bool generateVanity(uint64_t vanityPrefix,int vanityBits,const std::atomic<bool> *stopFlag = (const std::atomic<bool> *)0,std::atomic<uint64_t> *attemptCounter = (std::atomic<uint64_t> *)0);
 
 	/**
 	 * Check the validity of this identity's pairing of key to address

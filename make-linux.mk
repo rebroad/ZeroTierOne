@@ -75,6 +75,11 @@ else
 	ZT_CARGO_FLAGS=--release
 endif
 
+ifeq ($(ZT_NATIVE),1)
+	override CFLAGS+=-march=native -mtune=native
+	override CXXFLAGS+=-march=native -mtune=native
+endif
+
 ifeq ($(ZT_QNAP), 1)
 	override DEFS+=-D__QNAP__
 	ZT_EMBEDDED=1

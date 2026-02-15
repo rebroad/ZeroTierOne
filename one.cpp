@@ -2564,6 +2564,18 @@ static int idtool(int argc,char **argv)
 		if (argc >= 6)
 			vanityThreads = std::max(1U,Utils::strToUInt(argv[5]));
 
+		if (vanityBits >= 8) {
+			const uint64_t prefixFirstByte = (vanity >> (vanityBits - 8)) & 0xffULL;
+			if (prefixFirstByte == ZT_ADDRESS_RESERVED_PREFIX) {
+				fprintf(stderr,"error: vanity prefix '%s' can never match: addresses beginning with %02x are reserved\n",argv[4],ZT_ADDRESS_RESERVED_PREFIX);
+				return 1;
+			}
+		}
+		if ((vanityBits == 40)&&(vanity == 0ULL)) {
+			fprintf(stderr,"error: vanity prefix '%s' can never match: 0000000000 is the null reserved address\n",argv[4]);
+			return 1;
+		}
+
 		Identity id;
 		if (vanityBits <= 0) {
 			id.generate();
@@ -2584,18 +2596,11 @@ static int idtool(int argc,char **argv)
 
 			auto worker = [&attempts,&found,&winnerLock,&winner,vanity,vanityBits]() {
 				Identity local;
-				for(;;) {
-					if (found.load(std::memory_order_relaxed))
-						return;
-					local.generate();
-					attempts.fetch_add(1ULL,std::memory_order_relaxed);
-					if ((local.address().toInt() >> (40 - vanityBits)) == vanity) {
-						bool expected = false;
-						if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
-							std::lock_guard<std::mutex> lock(winnerLock);
-							winner = local;
-						}
-						return;
+				if (local.generateVanity(vanity,vanityBits,&found,&attempts)) {
+					bool expected = false;
+					if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
+						std::lock_guard<std::mutex> lock(winnerLock);
+						winner = local;
 					}
 				}
 			};
