@@ -16,8 +16,8 @@ When command arguments call for a public or secret (full) identity, the identity
  * `help`:
    Display help. (Also running with no command does this.)
 
- * `generate` [secret file] [public file] [vanity]:
-   Generate a new ZeroTier identity. If a secret file is specified, the full identity including the private key will be written to this file. If the public file is specified, the public portion will be written there. If no file paths are specified the full secret identity is output to STDOUT. The vanity prefix is a series of hexadecimal digits that the generated identity's address should start with. Typically this isn't used, and if it's specified generation can take a very long time due to the intrinsic cost of generating identities with their proof of work function. Generating an identity with a known 16-bit (4 digit) prefix on a 2.8ghz Core i5 (using one core) takes an average of two hours.
+ * `generate` [secret file] [public file] [vanity] [threads]:
+   Generate a new ZeroTier identity. If a secret file is specified, the full identity including the private key will be written to this file. If the public file is specified, the public portion will be written there. If no file paths are specified the full secret identity is output to STDOUT. The vanity prefix is a series of hexadecimal digits that the generated identity's address should start with. Typically this isn't used, and if it's specified generation can take a very long time due to the intrinsic cost of generating identities with their proof of work function. While searching for a vanity prefix, idtool prints periodic progress including attempts, IDs/sec, and an estimate for reaching a 50% success probability. The optional thread count defaults to 1 and can improve search throughput on multi-core systems.
 
  * `validate` <identity, only public part required>:
    Locally validate an identity's key and proof of work function correspondence.
@@ -47,6 +47,10 @@ Generate and write a new identity, both secret and public parts:
 Generate a vanity address that begins with the hex digits "beef" (this will take a while!):
 
     $ zerotier-idtool generate beef.secret beef.public beef
+
+Generate the same vanity address using 8 worker threads:
+
+    $ zerotier-idtool generate beef.secret beef.public beef 8
 
 Sign a file with an identity's secret key:
 

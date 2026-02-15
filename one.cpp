@@ -69,7 +69,13 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <mutex>
 #include <set> // TODO - need by what?
+#include <thread>
+#include <vector>
 
 #include "version.h"
 #include "include/ZeroTierOne.h"
@@ -2482,6 +2488,23 @@ static int cli(int argc,char **argv)
 /* zerotier-idtool personality                                              */
 /****************************************************************************/
 
+static std::string formatDurationSeconds(double seconds)
+{
+	if (!(seconds > 0.0) || (!std::isfinite(seconds)))
+		return "unknown";
+	char tmp[64];
+	if (seconds >= (24.0 * 3600.0)) {
+		snprintf(tmp,sizeof(tmp),"%.1f days",seconds / 86400.0);
+	} else if (seconds >= 3600.0) {
+		snprintf(tmp,sizeof(tmp),"%.1f hours",seconds / 3600.0);
+	} else if (seconds >= 60.0) {
+		snprintf(tmp,sizeof(tmp),"%.1f min",seconds / 60.0);
+	} else {
+		snprintf(tmp,sizeof(tmp),"%.0f sec",seconds);
+	}
+	return std::string(tmp);
+}
+
 static void idtoolPrintHelp(FILE *out,const char *pn)
 {
 	fprintf(out,
@@ -2492,7 +2515,7 @@ static void idtoolPrintHelp(FILE *out,const char *pn)
 		COPYRIGHT_NOTICE ZT_EOL_S
 		LICENSE_GRANT ZT_EOL_S);
 	fprintf(out,"Usage: %s <command> [<args>]" ZT_EOL_S"" ZT_EOL_S"Commands:" ZT_EOL_S,pn);
-	fprintf(out,"  generate [<identity.secret>] [<identity.public>] [<vanity>]" ZT_EOL_S);
+	fprintf(out,"  generate [<identity.secret>] [<identity.public>] [<vanity>] [<threads>]" ZT_EOL_S);
 	fprintf(out,"  validate <identity.secret/public>" ZT_EOL_S);
 	fprintf(out,"  getpublic <identity.secret>" ZT_EOL_S);
 	fprintf(out,"  sign <identity.secret> <file>" ZT_EOL_S);
@@ -2531,24 +2554,93 @@ static int idtool(int argc,char **argv)
 	if (!strcmp(argv[1],"generate")) {
 		uint64_t vanity = 0;
 		int vanityBits = 0;
+		unsigned int vanityThreads = 1;
 		if (argc >= 5) {
 			vanity = Utils::hexStrToU64(argv[4]) & 0xffffffffffULL;
 			vanityBits = 4 * (int)strlen(argv[4]);
 			if (vanityBits > 40)
 				vanityBits = 40;
 		}
+		if (argc >= 6)
+			vanityThreads = std::max(1U,Utils::strToUInt(argv[5]));
 
 		Identity id;
-		for(;;) {
+		if (vanityBits <= 0) {
 			id.generate();
-			if ((id.address().toInt() >> (40 - vanityBits)) == vanity) {
-				if (vanityBits > 0) {
-					fprintf(stderr,"vanity address: found %.10llx !\n",(unsigned long long)id.address().toInt());
+		} else {
+			const double successProbPerTry = std::ldexp(1.0,-vanityBits);
+			const double logFailure = std::log1p(-successProbPerTry);
+			const uint64_t triesFor50pct = (successProbPerTry >= 1.0)
+				? 1ULL
+				: (uint64_t)std::ceil(std::log(0.5) / logFailure);
+			std::atomic<uint64_t> attempts(0ULL);
+			std::atomic<bool> found(false);
+			std::mutex winnerLock;
+			Identity winner;
+			const uint64_t target = vanity << (40 - vanityBits);
+
+			fprintf(stderr,"vanity address: searching for prefix %s (%d bits) with %u thread(s)\n",argv[4],vanityBits,vanityThreads);
+			fprintf(stderr,"vanity address: 50%% success chance after ~%llu tries\n",(unsigned long long)triesFor50pct);
+
+			auto worker = [&attempts,&found,&winnerLock,&winner,vanity,vanityBits]() {
+				Identity local;
+				for(;;) {
+					if (found.load(std::memory_order_relaxed))
+						return;
+					local.generate();
+					attempts.fetch_add(1ULL,std::memory_order_relaxed);
+					if ((local.address().toInt() >> (40 - vanityBits)) == vanity) {
+						bool expected = false;
+						if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
+							std::lock_guard<std::mutex> lock(winnerLock);
+							winner = local;
+						}
+						return;
+					}
 				}
-				break;
-			} else {
-				fprintf(stderr,"vanity address: tried %.10llx looking for first %d bits of %.10llx\n",(unsigned long long)id.address().toInt(),vanityBits,(unsigned long long)(vanity << (40 - vanityBits)));
+			};
+
+			std::vector<std::thread> workers;
+			workers.reserve(vanityThreads);
+			const auto start = std::chrono::steady_clock::now();
+			for(unsigned int i=0;i<vanityThreads;++i)
+				workers.emplace_back(worker);
+
+			while (!found.load(std::memory_order_relaxed)) {
+				std::this_thread::sleep_for(std::chrono::seconds(1));
+				const uint64_t t = attempts.load(std::memory_order_relaxed);
+				const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+				const double rate = (elapsed > 0.0) ? ((double)t / elapsed) : 0.0;
+				const double successProb = 1.0 - std::exp(logFailure * (double)t);
+				double eta50 = 0.0;
+				if ((t < triesFor50pct)&&(rate > 0.0))
+					eta50 = ((double)(triesFor50pct - t) / rate);
+				fprintf(stderr,
+					"vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA %s\n",
+					(unsigned long long)t,
+					rate,
+					std::min(100.0,successProb * 100.0),
+					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50).c_str());
 			}
+
+			for(std::thread &th : workers)
+				th.join();
+
+			{
+				std::lock_guard<std::mutex> lock(winnerLock);
+				id = winner;
+			}
+
+			const uint64_t totalAttempts = attempts.load(std::memory_order_relaxed);
+			const double totalElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+			const double finalRate = (totalElapsed > 0.0) ? ((double)totalAttempts / totalElapsed) : 0.0;
+			fprintf(stderr,
+				"vanity address: found %.10llx after %llu tries in %s (%.2f ids/s), target %.10llx\n",
+				(unsigned long long)id.address().toInt(),
+				(unsigned long long)totalAttempts,
+				formatDurationSeconds(totalElapsed).c_str(),
+				finalRate,
+				(unsigned long long)target);
 		}
 
 		char idtmp[1024];
