@@ -79,11 +79,22 @@
 #include "version.h"
 
 #include <algorithm>
+#include <atomic> // TODO needed?
+#include <cctype> // TODO needed?
+#include <chrono> // TODO needed?
+#include <cmath>  // TODO needed?
+#include <deque>  // TODO needed?
 #include <iostream>
+#include <limits> // TODO needed?
+#include <mutex>  // TODO needed?
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread> // TODO needed?
+#include <vector> // TODO needed?
+
+using json = nlohmann::json;
 
 #ifdef __APPLE__
 #include <CoreServices/CoreServices.h>
@@ -108,6 +119,80 @@ static OneService* volatile zt1Service = (OneService*)0;
 #define LICENSE_GRANT "Licensed under Mozilla Public License v2.0 (LICENSE-MPL.txt)."
 #endif
 
+#ifndef ZT_NATIVE_BUILD
+#define ZT_NATIVE_BUILD 0
+#endif
+
+static inline const char *nativeBuildMode()
+{
+	return ZT_NATIVE_BUILD ? "native" : "portable";
+}
+
+#ifdef __LINUX__
+static bool readUnsignedLongLongFromFile(const char *path,unsigned long long &v)
+{
+	FILE *f = fopen(path,"r");
+	if (!f)
+		return false;
+	unsigned long long tmp = 0ULL;
+	const int r = fscanf(f,"%llu",&tmp);
+	fclose(f);
+	if (r != 1)
+		return false;
+	v = tmp;
+	return true;
+}
+
+struct LinuxThermalSample
+{
+	bool freqValid;
+	double freqRatio;
+	unsigned long long coreThrottleCount;
+	unsigned long long packageThrottleCount;
+};
+
+static LinuxThermalSample readLinuxThermalSample()
+{
+	LinuxThermalSample s;
+	s.freqValid = false;
+	s.freqRatio = std::numeric_limits<double>::quiet_NaN();
+	s.coreThrottleCount = 0ULL;
+	s.packageThrottleCount = 0ULL;
+
+	unsigned long long freqCurSum = 0ULL;
+	unsigned long long freqMaxSum = 0ULL;
+	unsigned int freqCount = 0U;
+
+	char path[256];
+	for(unsigned int cpu=0;cpu<256;++cpu) {
+		unsigned long long v = 0ULL;
+		snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/cpufreq/scaling_cur_freq",cpu);
+		if (readUnsignedLongLongFromFile(path,v)) {
+			freqCurSum += v;
+			snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/cpufreq/cpuinfo_max_freq",cpu);
+			unsigned long long vmax = 0ULL;
+			if (readUnsignedLongLongFromFile(path,vmax) && vmax > 0ULL) {
+				freqMaxSum += vmax;
+				++freqCount;
+			}
+		}
+
+		snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/thermal_throttle/core_throttle_count",cpu);
+		if (readUnsignedLongLongFromFile(path,v))
+			s.coreThrottleCount += v;
+		snprintf(path,sizeof(path),"/sys/devices/system/cpu/cpu%u/thermal_throttle/package_throttle_count",cpu);
+		if (readUnsignedLongLongFromFile(path,v))
+			s.packageThrottleCount += v;
+	}
+
+	if ((freqCount > 0U) && (freqMaxSum > 0ULL)) {
+		s.freqValid = true;
+		s.freqRatio = (double)freqCurSum / (double)freqMaxSum;
+	}
+	return s;
+}
+#endif
+
 /****************************************************************************/
 /* zerotier-cli personality                                                 */
 /****************************************************************************/
@@ -116,14 +201,15 @@ static void cliPrintHelp(const char* pn, FILE* out)
 {
 	fprintf(
 		out,
-		"%s version %d.%d.%d build %d (platform %d arch %d)" ZT_EOL_S,
+		"%s version %d.%d.%d build %d (platform %d arch %d, %s build)" ZT_EOL_S,
 		PROGRAM_NAME,
 		ZEROTIER_ONE_VERSION_MAJOR,
 		ZEROTIER_ONE_VERSION_MINOR,
 		ZEROTIER_ONE_VERSION_REVISION,
 		ZEROTIER_ONE_VERSION_BUILD,
 		ZT_BUILD_PLATFORM,
-		ZT_BUILD_ARCHITECTURE);
+		ZT_BUILD_ARCHITECTURE,
+		nativeBuildMode());
 	fprintf(out, COPYRIGHT_NOTICE ZT_EOL_S LICENSE_GRANT ZT_EOL_S);
 	fprintf(out, ZT_EOL_S "Usage: %s [-switches] <command/path> [<args>]" ZT_EOL_S "" ZT_EOL_S, pn);
 	fprintf(out, "Available switches:" ZT_EOL_S);
@@ -143,6 +229,15 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  set <network ID> <setting> - Set a network setting" ZT_EOL_S);
 	fprintf(out, "  get <network ID> <setting> - Get a network setting" ZT_EOL_S);
 	fprintf(out, "  dump                    - Debug settings dump for support" ZT_EOL_S);
+	fprintf(out, "  stats                   - Show peer port usage statistics" ZT_EOL_S);
+	fprintf(out, "  stats-by-ip             - Show statistics aggregated by IP address only" ZT_EOL_S); // TODO - test
+	fprintf(out, "  health                  - Show system health status" ZT_EOL_S); // TODO - test
+	fprintf(out, "  metrics                 - Show system metrics" ZT_EOL_S); // TODO - test
+	fprintf(out, "  debug-peer <zt_address> - Show debug information for a peer" ZT_EOL_S); // TODO - test
+	fprintf(out, "  debug-lookup <ip>       - Debug IP to ZT address lookup" ZT_EOL_S); // TODO - test
+	fprintf(out, "  findztaddr <ip_address> - Find ZeroTier address for given IP" ZT_EOL_S);
+	fprintf(out, "  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
+	fprintf(out, "  set-api-token <token>   - Set ZeroTier Central API token for enhanced lookups" ZT_EOL_S);
 	fprintf(out, ZT_EOL_S "Available settings:" ZT_EOL_S);
 	fprintf(out, "  Settings to use with [get/set] may include property names from " ZT_EOL_S);
 	fprintf(out, "  the JSON output of \"zerotier-cli -j listnetworks\". Additionally, " ZT_EOL_S);
@@ -234,7 +329,7 @@ static int cli(int argc, char** argv)
 						cliPrintHelp(argv[0], stdout);
 						return 1;
 					}
-					printf("%d.%d.%d" ZT_EOL_S, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION);
+					printf("%d.%d.%d (%s build)" ZT_EOL_S, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, nativeBuildMode());
 					return 0;
 
 				case 'h':
@@ -1365,6 +1460,1070 @@ static int cli(int argc, char** argv)
 #endif
 
 		// fprintf(stderr, "%s\n", dump.str().c_str());
+
+	}
+	else if (command == "stats") {
+		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/stats",requestHeaders,responseHeaders,responseBody);
+
+		if (scode == 0) {
+			printf("Error connecting to the ZeroTier service: %s\n\nPlease check that the service is running and that TCP port 9993 can be contacted via 127.0.0.1." ZT_EOL_S, responseBody.c_str());
+			return 1;
+		}
+
+		nlohmann::json j;
+		try {
+			j = OSUtils::jsonParse(responseBody);
+		} catch (std::exception &exc) {
+			printf("%u %s invalid JSON response (%s)" ZT_EOL_S,scode,command.c_str(),exc.what());
+			return 1;
+		} catch ( ... ) {
+			printf("%u %s invalid JSON response (unknown exception)" ZT_EOL_S,scode,command.c_str());
+			return 1;
+		}
+
+		if (scode == 200) {
+			if (json) {
+				printf("%s" ZT_EOL_S,OSUtils::jsonDump(j).c_str());
+			} else {
+				printf("200 stats - Peer Port Usage Statistics" ZT_EOL_S);
+
+				// Total peer count is now shown in diagnostics section below
+
+				// Show diagnostic information about lookup table sizes
+				if (j.contains("diagnostics")) {
+					auto& diag = j["diagnostics"];
+					printf("Lookup Table Diagnostics:" ZT_EOL_S);
+					printf("  Lookup Table Entries:  %u (ZT+IP combinations)" ZT_EOL_S, (unsigned int)diag.value("peerStatsTableSize", 0));
+					printf("    Unique ZT Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueZTAddresses", 0));
+					printf("    Unique IP Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueIPAddresses", 0));
+					// Check if allPeersCount is a string or number and format accordingly
+					std::string allPeersStr;
+					if (diag.contains("allPeersCount")) {
+						if (diag["allPeersCount"].is_string()) {
+							allPeersStr = diag["allPeersCount"].get<std::string>();
+						} else {
+							allPeersStr = std::to_string((unsigned int)diag["allPeersCount"]);
+						}
+					} else {
+						allPeersStr = "unknown";
+					}
+					printf("  AllPeers (topology):   %s" ZT_EOL_S, allPeersStr.c_str());
+					printf("  Port Tracking Entries: %u incoming, %u outgoing" ZT_EOL_S,
+						(unsigned int)diag.value("seenIncomingPeerPortsSize", 0),
+						(unsigned int)diag.value("seenOutgoingPeerPortsSize", 0));
+				}
+				printf(ZT_EOL_S);
+
+				// Show port configuration
+				if (j.contains("portConfiguration")) {
+					auto& portConfig = j["portConfiguration"];
+					uint32_t primaryPort = portConfig["primaryPort"];
+					uint32_t secondaryPort = portConfig["secondaryPort"];
+					uint32_t tertiaryPort = portConfig["tertiaryPort"];
+					bool allowSecondaryPort = portConfig["allowSecondaryPort"];
+
+					printf("Port Configuration:" ZT_EOL_S);
+					printf("  Primary Port:   %u (always active)" ZT_EOL_S, primaryPort);
+
+					if (allowSecondaryPort && secondaryPort > 0) {
+						printf("  Secondary Port: %u (enabled)" ZT_EOL_S, secondaryPort);
+					} else if (allowSecondaryPort) {
+						printf("  Secondary Port: enabled (dynamic port assignment)" ZT_EOL_S);
+					} else {
+						printf("  Secondary Port: disabled (use 'allowSecondaryPort' setting to enable)" ZT_EOL_S);
+					}
+
+					printf("  Tertiary Port:  %u (always active - NAT traversal & failover)" ZT_EOL_S, tertiaryPort);
+
+					// Show actual bound ports only if they differ from configured ports
+					if (portConfig.contains("actualBoundPorts") && portConfig["actualBoundPorts"].is_array()) {
+						auto actualPorts = portConfig["actualBoundPorts"];
+						std::set<unsigned int> expectedPorts = {primaryPort, tertiaryPort};
+						if (allowSecondaryPort && secondaryPort > 0) {
+							expectedPorts.insert(secondaryPort);
+						}
+
+						std::set<unsigned int> actualPortsSet;
+						for (auto& port : actualPorts) {
+							actualPortsSet.insert((unsigned int)port);
+						}
+
+						// Only show if different from expected
+						if (actualPortsSet != expectedPorts) {
+							printf("  Actually Bound: ");
+							bool first = true;
+							for (auto& port : actualPorts) {
+								if (!first) printf(", ");
+								printf("%u", (unsigned int)port);
+								first = false;
+							}
+							printf(ZT_EOL_S);
+						}
+					}
+					printf(ZT_EOL_S);
+				}
+
+				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
+					"ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Security", "Last Seen", "Port Usage");
+				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
+					"----------", "---------------", "---------", "---------", "--------", "----------", "----------");
+
+				// Process per-IP peer data from the /stats endpoint (already sorted by server)
+				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_array()) {
+					for (auto& peerData : j["peersByZtAddressAndIP"]) {
+						std::string ztaddr = peerData.value("ztAddress", "unknown");
+						std::string ipAddress = peerData.value("ipAddress", "-");
+
+						// Truncate IPv6 addresses to 15 characters
+						if (ipAddress.length() > 15) {
+							ipAddress = ipAddress.substr(0, 15);
+						}
+
+						// Get display statistics (higher of IP vs ZT address stats) - these are for enforcement
+						uint64_t displayBytesIncoming = peerData.value("displayBytesIncoming", 0ULL);
+						uint64_t displayBytesOutgoing = peerData.value("displayBytesOutgoing", 0ULL);
+						std::string rxSource = peerData.value("rxSource", "?");
+						std::string txSource = peerData.value("txSource", "?");
+
+						// Get attack detection metrics
+						uint64_t suspiciousPackets = peerData.value("SuspiciousPacketCount", 0ULL);
+						uint64_t attackEvents = peerData.value("AttackEventCount", 0ULL);
+						double maxDivergenceRatio = peerData.value("MaxDivergenceRatio", 0.0);
+						uint64_t lastAttackDetected = peerData.value("LastAttackDetected", 0ULL);
+
+						// Get last seen timestamps (use authenticated packets for accuracy)
+						uint64_t lastSeen = peerData.value("lastIncomingSeen", 0ULL);
+
+						// Format statistics for display
+						char rxBytesStr[32], txBytesStr[32], securityStr[16], lastSeenStr[16];
+
+						// Format RX bytes with source indicator ("i" = IP stats, "z" = ZT address stats)
+						if (displayBytesIncoming > 1024*1024*1024) {
+							snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fG%s",
+								displayBytesIncoming / (1024.0*1024.0*1024.0), rxSource.c_str());
+						} else if (displayBytesIncoming > 1024*1024) {
+							snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fM%s",
+								displayBytesIncoming / (1024.0*1024.0), rxSource.c_str());
+						} else if (displayBytesIncoming > 1024) {
+							snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fK%s",
+								displayBytesIncoming / 1024.0, rxSource.c_str());
+						} else {
+							snprintf(rxBytesStr, sizeof(rxBytesStr), "%llu%s",
+								(unsigned long long)displayBytesIncoming, rxSource.c_str());
+						}
+
+						// Format TX bytes with source indicator ("i" = IP stats, "z" = ZT address stats)
+						if (displayBytesOutgoing > 1024*1024*1024) {
+							snprintf(txBytesStr, sizeof(txBytesStr), "%.1fG%s",
+								displayBytesOutgoing / (1024.0*1024.0*1024.0), txSource.c_str());
+						} else if (displayBytesOutgoing > 1024*1024) {
+							snprintf(txBytesStr, sizeof(txBytesStr), "%.1fM%s",
+								displayBytesOutgoing / (1024.0*1024.0), txSource.c_str());
+						} else if (displayBytesOutgoing > 1024) {
+							snprintf(txBytesStr, sizeof(txBytesStr), "%.1fK%s",
+								displayBytesOutgoing / 1024.0, txSource.c_str());
+						} else {
+							snprintf(txBytesStr, sizeof(txBytesStr), "%llu%s",
+								(unsigned long long)displayBytesOutgoing, txSource.c_str());
+						}
+
+						// Format security status based on attack detection
+						if (attackEvents > 0) {
+							if (maxDivergenceRatio >= 20.0) {
+								strcpy(securityStr, "DANGER");
+							} else if (maxDivergenceRatio >= 5.0) {
+								strcpy(securityStr, "WARNING");
+							} else {
+								strcpy(securityStr, "MINOR");
+						}
+						} else if (suspiciousPackets > 100) {
+							strcpy(securityStr, "SUSPECT");
+						} else {
+							strcpy(securityStr, "OK");
+						}
+
+						// Format last seen time
+						if (lastSeen == 0) {
+							strcpy(lastSeenStr, "never");
+						} else {
+							uint64_t now = OSUtils::now();
+							uint64_t secondsAgo = (now - lastSeen) / 1000;
+							if (secondsAgo < 60) {
+								snprintf(lastSeenStr, sizeof(lastSeenStr), "%lus", (unsigned long)secondsAgo);
+							} else if (secondsAgo < 3600) {
+								snprintf(lastSeenStr, sizeof(lastSeenStr), "%lum", (unsigned long)(secondsAgo / 60));
+							} else if (secondsAgo < 86400) {
+								snprintf(lastSeenStr, sizeof(lastSeenStr), "%luh", (unsigned long)(secondsAgo / 3600));
+							} else {
+								snprintf(lastSeenStr, sizeof(lastSeenStr), "%lud", (unsigned long)(secondsAgo / 86400));
+							}
+						}
+
+						// Build port usage string in correct order
+						std::string portUsage;
+						bool hasAnyTraffic = false;
+
+						// Get port configuration to determine correct order
+						uint32_t primaryPort = 9993;   // Default
+						uint32_t secondaryPort = 0;
+						uint32_t tertiaryPort = 0;
+
+						if (j.contains("portConfiguration")) {
+							auto& portConfig = j["portConfiguration"];
+							primaryPort = portConfig.value("primaryPort", 9993U);
+							secondaryPort = portConfig.value("secondaryPort", 0U);
+							tertiaryPort = portConfig.value("tertiaryPort", 0U);
+						}
+
+						// Get port data for both tiers
+						// TIER 1: Wire-level port usage (all packets at wire level)
+						auto wireIncomingPorts = peerData.value("wireIncomingPorts", nlohmann::json::object());
+						auto wireOutgoingPorts = peerData.value("wireOutgoingPorts", nlohmann::json::object());
+
+						// TIER 2: Authenticated port usage (cryptographically verified packets only)
+						auto authIncomingPorts = peerData.value("authIncomingPorts", nlohmann::json::object());
+						auto authOutgoingPorts = peerData.value("authOutgoingPorts", nlohmann::json::object());
+
+						// Fallback to legacy field names for backward compatibility
+						if (authIncomingPorts.empty()) {
+							authIncomingPorts = peerData.value("incomingPorts", nlohmann::json::object());
+						}
+						if (authOutgoingPorts.empty()) {
+							authOutgoingPorts = peerData.value("outgoingPorts", nlohmann::json::object());
+						}
+
+						// Order ports: primary, secondary, tertiary, then any others
+						std::vector<std::string> orderedPorts;
+						std::set<std::string> usedPorts;
+
+						// Add primary port first (check both tiers)
+						std::string primaryStr = std::to_string(primaryPort);
+						if (wireIncomingPorts.contains(primaryStr) || wireOutgoingPorts.contains(primaryStr) ||
+							authIncomingPorts.contains(primaryStr) || authOutgoingPorts.contains(primaryStr)) {
+							orderedPorts.push_back(primaryStr);
+							usedPorts.insert(primaryStr);
+						}
+
+						// Add secondary port if enabled (check both tiers)
+						if (secondaryPort > 0) {
+							std::string secondaryStr = std::to_string(secondaryPort);
+							if (wireIncomingPorts.contains(secondaryStr) || wireOutgoingPorts.contains(secondaryStr) ||
+								authIncomingPorts.contains(secondaryStr) || authOutgoingPorts.contains(secondaryStr)) {
+								orderedPorts.push_back(secondaryStr);
+								usedPorts.insert(secondaryStr);
+							}
+						}
+
+						// Add tertiary port (check both tiers)
+						if (tertiaryPort > 0) {
+							std::string tertiaryStr = std::to_string(tertiaryPort);
+							if (wireIncomingPorts.contains(tertiaryStr) || wireOutgoingPorts.contains(tertiaryStr) ||
+								authIncomingPorts.contains(tertiaryStr) || authOutgoingPorts.contains(tertiaryStr)) {
+								orderedPorts.push_back(tertiaryStr);
+								usedPorts.insert(tertiaryStr);
+							}
+						}
+
+						// Collect other ports (not primary/secondary/tertiary) from both tiers
+						std::set<std::string> otherPorts;
+						uint64_t otherWireIncoming = 0, otherWireOutgoing = 0;
+						uint64_t otherAuthIncoming = 0, otherAuthOutgoing = 0;
+
+						// Wire-level other ports
+						for (auto& [port, count] : wireIncomingPorts.items()) {
+							if (usedPorts.find(port) == usedPorts.end()) {
+								otherPorts.insert(port);
+								otherWireIncoming += count.get<uint64_t>();
+							}
+						}
+						for (auto& [port, count] : wireOutgoingPorts.items()) {
+							if (usedPorts.find(port) == usedPorts.end()) {
+								otherPorts.insert(port);
+								otherWireOutgoing += wireOutgoingPorts.value(port, 0ULL);
+							}
+						}
+
+						// Authenticated other ports
+						for (auto& [port, count] : authIncomingPorts.items()) {
+							if (usedPorts.find(port) == usedPorts.end()) {
+								otherPorts.insert(port);
+								otherAuthIncoming += count.get<uint64_t>();
+							}
+						}
+						for (auto& [port, count] : authOutgoingPorts.items()) {
+							if (usedPorts.find(port) == usedPorts.end()) {
+								otherPorts.insert(port);
+								otherAuthOutgoing += authOutgoingPorts.value(port, 0ULL);
+							}
+						}
+
+						// Add summary for other ports if any exist
+						if (!otherPorts.empty()) {
+							if (otherPorts.size() == 1) {
+								// If only one "other" port, show it explicitly
+								orderedPorts.push_back(*otherPorts.begin());
+							} else {
+								// If multiple "other" ports, show them as a summary
+								orderedPorts.push_back("other");
+							}
+						}
+
+						// Build the display string with two-tier format: port:wire_in/wire_out(auth_in/auth_out)
+						bool first = true;
+						for (const auto& port : orderedPorts) {
+							if (!first) portUsage += ", ";
+
+							if (port == "other") {
+								// Special handling for summarized other ports
+								uint64_t totalWireIn = otherWireIncoming;
+								uint64_t totalWireOut = otherWireOutgoing;
+								uint64_t totalAuthIn = otherAuthIncoming;
+								uint64_t totalAuthOut = otherAuthOutgoing;
+
+								if (totalAuthIn > 0 || totalAuthOut > 0) {
+									portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut) +
+											   "," + std::to_string(totalAuthIn) + "/" + std::to_string(totalAuthOut);
+								} else {
+									portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut);
+								}
+							} else {
+								// Normal port display with two-tier format
+								uint64_t wireInCount = wireIncomingPorts.value(port, 0ULL);
+								uint64_t wireOutCount = wireOutgoingPorts.value(port, 0ULL);
+								uint64_t authInCount = authIncomingPorts.value(port, 0ULL);
+								uint64_t authOutCount = authOutgoingPorts.value(port, 0ULL);
+
+								if (authInCount > 0 || authOutCount > 0) {
+									// Show both wire and auth counts: port:wire_in/wire_out,auth_in/auth_out
+									portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount) +
+											   "," + std::to_string(authInCount) + "/" + std::to_string(authOutCount);
+								} else {
+									// Show only wire counts when no auth traffic: port:wire_in/wire_out
+									portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount);
+								}
+							}
+
+							first = false;
+							hasAnyTraffic = true;
+						} // loop through orderedPorts
+
+						if (!hasAnyTraffic) portUsage = "none";
+
+						printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S,
+							ztaddr.c_str(), ipAddress.c_str(), rxBytesStr, txBytesStr, securityStr, lastSeenStr, portUsage.c_str());
+					} // loop through peersByZtAddressAndIP
+				} // if j.contains("peersByZtAddressAndIP
+			} // else if json
+			return 0;
+		} else { // if scode == 200
+			printf("%u %s %s" ZT_EOL_S, scode, command.c_str(), responseBody.c_str());
+			return 1;
+		}
+	}
+	else if (command == "findztaddr") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli findztaddr <ip_address>" ZT_EOL_S);
+			return 2;
+		}
+
+		// Parse the target IP address
+		std::string targetIp = arg1;
+		size_t slashPos = targetIp.find('/');
+		if (slashPos != std::string::npos) {
+			targetIp = targetIp.substr(0, slashPos); // Remove CIDR suffix if present
+		}
+
+		// Get network list to find which networks we're on
+		const unsigned int netscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/network",requestHeaders,responseHeaders,responseBody);
+		if (netscode != 200) {
+			printf("Error getting network list: %u %s" ZT_EOL_S, netscode, responseBody.c_str());
+			return 1;
+		}
+
+		nlohmann::json networks;
+		try {
+			networks = OSUtils::jsonParse(responseBody);
+		} catch (...) {
+			printf("Error parsing network JSON" ZT_EOL_S);
+			return 1;
+		}
+
+		std::string foundNetwork;
+		bool ipInOurNetwork = false;
+
+		// Check if the target IP is in any of our networks
+		if (networks.is_array()) {
+			for (unsigned long i = 0; i < networks.size(); ++i) {
+				nlohmann::json &network = networks[i];
+				std::string nwid = OSUtils::jsonString(network["id"], "");
+				nlohmann::json &routes = network["routes"];
+
+				if (routes.is_array()) {
+					for (unsigned long j = 0; j < routes.size(); ++j) {
+						nlohmann::json &route = routes[j];
+						std::string target = OSUtils::jsonString(route["target"], "");
+
+						// Simple check if IP is in network range
+						if (!target.empty()) {
+							size_t slashPos = target.find('/');
+							if (slashPos != std::string::npos) {
+								std::string networkBase = target.substr(0, slashPos);
+								// Basic prefix matching for demonstration
+								if (targetIp.find(networkBase.substr(0, networkBase.rfind('.'))) == 0) {
+									foundNetwork = nwid;
+									ipInOurNetwork = true;
+									break;
+								}
+							}
+						}
+					}
+				}
+				if (ipInOurNetwork) break;
+			}
+		}
+
+		if (!ipInOurNetwork) {
+			printf("IP %s does not appear to be in any of your ZeroTier networks" ZT_EOL_S, targetIp.c_str());
+			return 1;
+		}
+
+				// Check if this is our own IP first
+		for (unsigned long i = 0; i < networks.size(); ++i) {
+			nlohmann::json &network = networks[i];
+			nlohmann::json &assignedAddresses = network["assignedAddresses"];
+
+			if (assignedAddresses.is_array()) {
+				for (unsigned long j = 0; j < assignedAddresses.size(); ++j) {
+					std::string assignedIp = assignedAddresses[j];
+					size_t slashPos = assignedIp.find('/');
+					if (slashPos != std::string::npos) {
+						assignedIp = assignedIp.substr(0, slashPos);
+					}
+
+					if (assignedIp == targetIp) {
+						// This IP belongs to our local node
+						const unsigned int statuscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/status",requestHeaders,responseHeaders,responseBody);
+						if (statuscode == 200) {
+							nlohmann::json status = OSUtils::jsonParse(responseBody);
+							std::string ourAddress = OSUtils::jsonString(status["address"], "");
+							printf("200 findip %s %s (local)" ZT_EOL_S, targetIp.c_str(), ourAddress.c_str());
+							return 0;
+						}
+					}
+				}
+			}
+		}
+
+		// For remote peers, try to resolve by triggering ARP and checking system ARP cache
+		printf("Searching for ZeroTier address for IP %s..." ZT_EOL_S, targetIp.c_str());
+
+		// First try ZeroTier Central API if we have an API token
+		std::string apiToken;
+		char tokenPath[1024];
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
+		std::string tokenData;
+		if (OSUtils::readFile(tokenPath, tokenData)) {
+			// Remove any whitespace/newlines
+			size_t pos = tokenData.find_first_of(" \t\r\n");
+			if (pos != std::string::npos) {
+				apiToken = tokenData.substr(0, pos);
+			} else {
+				apiToken = tokenData;
+			}
+		}
+
+		// First, determine which network this IP belongs to
+		std::string targetNetworkId;
+		std::string targetInterface;
+		for (unsigned long i = 0; i < networks.size(); ++i) {
+			nlohmann::json &network = networks[i];
+			nlohmann::json &routes = network["routes"];
+
+			if (routes.is_array()) {
+				for (unsigned long j = 0; j < routes.size(); ++j) {
+					nlohmann::json &route = routes[j];
+					std::string target = OSUtils::jsonString(route["target"], "");
+
+					if (!target.empty() && target.find('/') != std::string::npos) {
+						// Parse network CIDR (e.g., "192.168.192.0/24")
+						std::string networkBase = target.substr(0, target.find('/'));
+						std::string maskStr = target.substr(target.find('/') + 1);
+						int maskBits = atoi(maskStr.c_str());
+
+						// Convert IP strings to integers for subnet matching
+						uint32_t targetIpInt = 0, networkInt = 0;
+						inet_pton(AF_INET, targetIp.c_str(), &targetIpInt);
+						inet_pton(AF_INET, networkBase.c_str(), &networkInt);
+
+						// Create subnet mask
+						uint32_t mask = (maskBits == 0) ? 0 : (~0U << (32 - maskBits));
+
+						// Check if target IP is in this subnet
+						if ((ntohl(targetIpInt) & mask) == (ntohl(networkInt) & mask)) {
+							targetNetworkId = OSUtils::jsonString(network["id"], "");
+							targetInterface = OSUtils::jsonString(network["portDeviceName"], "");
+							break;
+						}
+					}
+				}
+				if (!targetNetworkId.empty()) break;
+			}
+		}
+
+		if (targetNetworkId.empty()) {
+			printf("Could not determine which ZeroTier network contains this IP" ZT_EOL_S);
+			return 1;
+		}
+
+		printf("Found IP in network %s (interface %s)" ZT_EOL_S, targetNetworkId.c_str(), targetInterface.c_str());
+
+		// If we have an API token, try the Central API first
+		if (!apiToken.empty()) {
+			printf("Querying ZeroTier Central API..." ZT_EOL_S);
+
+			// Query Central API for network members
+			std::string centralUrl = "https://api.zerotier.com/api/v1/network/" + targetNetworkId + "/member";
+			std::string curlCmd = "curl -s -H 'Authorization: token " + apiToken + "' '" + centralUrl + "'";
+
+			FILE* curlPipe = popen(curlCmd.c_str(), "r");
+			if (curlPipe) {
+				std::string apiResponse;
+				char buffer[4096];
+				while (fgets(buffer, sizeof(buffer), curlPipe)) {
+					apiResponse += buffer;
+				}
+				pclose(curlPipe);
+
+				try {
+					nlohmann::json members = OSUtils::jsonParse(apiResponse);
+					if (members.is_array()) {
+						for (unsigned long j = 0; j < members.size(); ++j) {
+							nlohmann::json &member = members[j];
+							nlohmann::json &ipAssignments = member["config"]["ipAssignments"];
+
+							if (ipAssignments.is_array()) {
+								for (unsigned long k = 0; k < ipAssignments.size(); ++k) {
+									std::string assignedIp = ipAssignments[k];
+									size_t slashPos = assignedIp.find('/');
+									if (slashPos != std::string::npos) {
+										assignedIp = assignedIp.substr(0, slashPos);
+									}
+
+									if (assignedIp == targetIp) {
+										std::string memberId = OSUtils::jsonString(member["nodeId"], "");
+										printf("200 findztaddr %s %s (network %s, via Central API)" ZT_EOL_S,
+											   targetIp.c_str(), memberId.c_str(), targetNetworkId.c_str());
+										return 0;
+									}
+								}
+							}
+						}
+					}
+				} catch (...) {
+					// API query failed, fall back to ARP method
+				}
+			}
+
+			printf("IP not found via Central API, falling back to ARP method..." ZT_EOL_S);
+		}
+
+		// Trigger ARP resolution by sending a ping
+		printf("Triggering ARP resolution..." ZT_EOL_S);
+		std::string pingCmd = "ping -c 1 -W 1 " + targetIp + " >/dev/null 2>&1";
+		(void)system(pingCmd.c_str());
+
+		// Small delay to allow ARP cache to populate
+		usleep(100000); // 100ms
+
+		// Now check ARP cache for the MAC address
+		std::string arpCmd = "ip neigh show " + targetIp + " 2>/dev/null | awk '{print $5}' | head -1";
+		FILE* arpPipe = popen(arpCmd.c_str(), "r");
+		if (!arpPipe) {
+			printf("Failed to check ARP cache" ZT_EOL_S);
+			return 1;
+		}
+
+		char macBuffer[32] = {0};
+		if (fgets(macBuffer, sizeof(macBuffer), arpPipe)) {
+			// Remove trailing newline
+			char* newline = strchr(macBuffer, '\n');
+			if (newline) *newline = '\0';
+
+			// Parse MAC address and convert to ZeroTier address
+			if (strlen(macBuffer) >= 17) { // MAC format: XX:XX:XX:XX:XX:XX
+				uint64_t macInt = 0;
+				unsigned int macBytes[6];
+				if (sscanf(macBuffer, "%02x:%02x:%02x:%02x:%02x:%02x",
+						   &macBytes[0], &macBytes[1], &macBytes[2],
+						   &macBytes[3], &macBytes[4], &macBytes[5]) == 6) {
+
+					// Convert to 64-bit MAC
+					for (int i = 0; i < 6; i++) {
+						macInt = (macInt << 8) | (macBytes[i] & 0xFF);
+					}
+
+					// Convert network ID string to uint64_t
+					uint64_t nwid = strtoull(targetNetworkId.c_str(), NULL, 16);
+
+					// Convert MAC back to ZeroTier address using the reverse algorithm
+					// This reverses the fromAddress() function in MAC.hpp
+					uint64_t ztAddr = macInt & 0xffffffffffULL; // least significant 40 bits
+					ztAddr ^= ((nwid >> 8) & 0xff) << 32;
+					ztAddr ^= ((nwid >> 16) & 0xff) << 24;
+					ztAddr ^= ((nwid >> 24) & 0xff) << 16;
+					ztAddr ^= ((nwid >> 32) & 0xff) << 8;
+					ztAddr ^= (nwid >> 40) & 0xff;
+
+					// Format as 10-character hex string (40 bits = 5 bytes)
+					char ztAddrStr[16];
+					snprintf(ztAddrStr, sizeof(ztAddrStr), "%010llx", (unsigned long long)(ztAddr & 0xffffffffffULL));
+
+					printf("200 findztaddr %s %s (via MAC %s)" ZT_EOL_S, targetIp.c_str(), ztAddrStr, macBuffer);
+					pclose(arpPipe);
+					return 0;
+				}
+			}
+		}
+		pclose(arpPipe);
+
+		printf("Could not resolve IP to MAC address via ARP" ZT_EOL_S);
+		printf("" ZT_EOL_S);
+		printf("This could mean:" ZT_EOL_S);
+		printf("  - The device is offline or unreachable" ZT_EOL_S);
+		printf("  - ARP cache has expired and device didn't respond to ping" ZT_EOL_S);
+		printf("  - The IP address is not currently assigned to any ZeroTier peer" ZT_EOL_S);
+		printf("" ZT_EOL_S);
+		printf("Try:" ZT_EOL_S);
+		printf("  - Ensure the target device is online and reachable" ZT_EOL_S);
+		printf("  - Try again after some network activity to the target IP" ZT_EOL_S);
+		printf("  - Check 'ip neigh show %s' manually" ZT_EOL_S, targetIp.c_str());
+
+		return 1;
+	}
+	else if (command == "stats-by-ip") {
+		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/stats/by-ip",requestHeaders,responseHeaders,responseBody);
+		if (scode == 200) {
+			if (json) {
+				printf("%s" ZT_EOL_S,cliFixJsonCRs(responseBody).c_str());
+			} else {
+				nlohmann::json result = OSUtils::jsonParse(responseBody);
+				printf("IP Address Statistics (aggregated by IP only):" ZT_EOL_S);
+				printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, "IP Address", "RX Bytes", "TX Bytes", "Last Seen");
+				printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, "---------------", "------------", "------------", "--------------------");
+
+				for (auto it = result.begin(); it != result.end(); ++it) {
+					const std::string& ipAddr = it.key();
+					const nlohmann::json& stats = it.value();
+
+					uint64_t rxBytes = OSUtils::jsonInt(stats["incomingBytes"], 0ULL);
+					uint64_t txBytes = OSUtils::jsonInt(stats["outgoingBytes"], 0ULL);
+					uint64_t lastSeen = OSUtils::jsonInt(stats["lastSeen"], 0ULL);
+
+					char rxStr[32], txStr[32], lastSeenStr[32];
+
+					// Format bytes in human-readable format
+					auto formatBytes = [](uint64_t bytes, char* str) {
+						if (bytes >= 1073741824ULL) {
+							snprintf(str, 32, "%.1f GB", (double)bytes / 1073741824.0);
+						} else if (bytes >= 1048576ULL) {
+							snprintf(str, 32, "%.1f MB", (double)bytes / 1048576.0);
+						} else if (bytes >= 1024ULL) {
+							snprintf(str, 32, "%.1f KB", (double)bytes / 1024.0);
+						} else {
+							snprintf(str, 32, "%llu B", (unsigned long long)bytes);
+						}
+					};
+
+					formatBytes(rxBytes, rxStr);
+					formatBytes(txBytes, txStr);
+
+					if (lastSeen > 0) {
+						time_t t = (time_t)(lastSeen / 1000ULL);
+						struct tm *tm = localtime(&t);
+						strftime(lastSeenStr, sizeof(lastSeenStr), "%Y-%m-%d %H:%M:%S", tm);
+					} else {
+						strcpy(lastSeenStr, "never");
+					}
+
+					printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, ipAddr.c_str(), rxStr, txStr, lastSeenStr);
+				}
+			}
+		} else {
+			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+	}
+	else if (command == "health") {
+		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/health",requestHeaders,responseHeaders,responseBody);
+		if (scode == 200) {
+			if (json) {
+				printf("%s" ZT_EOL_S,cliFixJsonCRs(responseBody).c_str());
+			} else {
+				nlohmann::json result = OSUtils::jsonParse(responseBody);
+				printf("System Health Status:" ZT_EOL_S);
+				printf("Status: %s" ZT_EOL_S, OSUtils::jsonString(result["status"], "unknown").c_str());
+				printf("Uptime: %llu seconds" ZT_EOL_S, (unsigned long long)OSUtils::jsonInt(result["uptime"], 0ULL));
+				printf("Clock: %llu" ZT_EOL_S, (unsigned long long)OSUtils::jsonInt(result["clock"], 0ULL));
+			}
+		} else {
+			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+	}
+	else if (command == "metrics") {
+		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/metrics",requestHeaders,responseHeaders,responseBody);
+		if (scode == 200) {
+			printf("System Metrics:" ZT_EOL_S);
+			printf("%s" ZT_EOL_S, responseBody.c_str());
+		} else {
+			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+	}
+	else if (command == "debug-peer") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli debug-peer <zt_address>" ZT_EOL_S);
+			return 2;
+		}
+
+		std::string url = "/debug/peer?ztaddr=" + arg1;
+		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,url.c_str(),requestHeaders,responseHeaders,responseBody);
+		if (scode == 200) {
+			if (json) {
+				printf("%s" ZT_EOL_S,cliFixJsonCRs(responseBody).c_str());
+			} else {
+				nlohmann::json result = OSUtils::jsonParse(responseBody);
+				printf("Debug Information for Peer %s:" ZT_EOL_S, arg1.c_str());
+				printf("Address: %s" ZT_EOL_S, OSUtils::jsonString(result["address"], "unknown").c_str());
+				printf("Last Seen: %llu" ZT_EOL_S, (unsigned long long)OSUtils::jsonInt(result["lastSeen"], 0ULL));
+				printf("Paths: %u" ZT_EOL_S, (unsigned int)OSUtils::jsonInt(result["pathCount"], 0));
+				if (result.contains("paths") && result["paths"].is_array()) {
+					for (const auto& path : result["paths"]) {
+						printf("  Path: %s" ZT_EOL_S, OSUtils::jsonString(path["address"], "unknown").c_str());
+					}
+				}
+			}
+		} else {
+			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+	}
+	else if (command == "debug-lookup") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli debug-lookup <ip_address>" ZT_EOL_S);
+			return 2;
+		}
+
+		std::string url = "/debug/lookup?ip=" + arg1;
+		const unsigned int scode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,url.c_str(),requestHeaders,responseHeaders,responseBody);
+		if (scode == 200) {
+			if (json) {
+				printf("%s" ZT_EOL_S,cliFixJsonCRs(responseBody).c_str());
+			} else {
+				nlohmann::json result = OSUtils::jsonParse(responseBody);
+				printf("Debug Lookup for IP %s:" ZT_EOL_S, arg1.c_str());
+				printf("Found ZT Addresses:" ZT_EOL_S);
+				if (result.contains("addresses") && result["addresses"].is_array()) {
+					for (const auto& addr : result["addresses"]) {
+						printf("  %s" ZT_EOL_S, addr.get<std::string>().c_str());
+					}
+				} else {
+					printf("  None found" ZT_EOL_S);
+				}
+			}
+		} else {
+			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+
+	}
+	else if (command == "findip") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli findip <zt_address>" ZT_EOL_S);
+			return 2;
+		}
+
+		// Parse the ZeroTier address
+		std::string targetZtAddr = arg1;
+		if (targetZtAddr.length() != 10) {
+			printf("Invalid ZeroTier address format. Expected 10 hex characters." ZT_EOL_S);
+			return 2;
+		}
+
+		// Convert ZeroTier address string to uint64_t
+		uint64_t ztAddr = strtoull(targetZtAddr.c_str(), NULL, 16);
+		if (ztAddr == 0) {
+			printf("Invalid ZeroTier address: %s" ZT_EOL_S, targetZtAddr.c_str());
+			return 2;
+		}
+
+		printf("Searching for IP address for ZeroTier address %s..." ZT_EOL_S, targetZtAddr.c_str());
+
+		// First try ZeroTier Central API if we have an API token
+		std::string apiToken;
+		char tokenPath[1024];
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
+		std::string tokenData;
+		if (OSUtils::readFile(tokenPath, tokenData)) {
+			// Remove any whitespace/newlines
+			size_t pos = tokenData.find_first_of(" \t\r\n");
+			if (pos != std::string::npos) {
+				apiToken = tokenData.substr(0, pos);
+			} else {
+				apiToken = tokenData;
+			}
+		}
+
+		// Get network list
+		const unsigned int netscode = Http::GET(1024 * 1024 * 16,60000,(const struct sockaddr *)&addr,"/network",requestHeaders,responseHeaders,responseBody);
+		if (netscode != 200) {
+			printf("Error getting network list: %u %s" ZT_EOL_S, netscode, responseBody.c_str());
+			return 1;
+		}
+
+		nlohmann::json networks;
+		try {
+			networks = OSUtils::jsonParse(responseBody);
+		} catch (...) {
+			printf("Error parsing network list" ZT_EOL_S);
+			return 1;
+		}
+
+		if (!networks.is_array()) {
+			printf("Invalid network list format" ZT_EOL_S);
+			return 1;
+		}
+
+		std::vector<std::string> foundIps; // Store all found IPs
+		std::set<std::string> networksFoundInAPI; // Track which networks were successfully queried via API
+		bool foundViaAPI = false;
+
+		// If we have an API token, try the Central API first
+		if (!apiToken.empty()) {
+			printf("Querying ZeroTier Central API..." ZT_EOL_S);
+
+			for (unsigned long i = 0; i < networks.size(); ++i) {
+				nlohmann::json &network = networks[i];
+				std::string networkId = OSUtils::jsonString(network["id"], "");
+				if (networkId.empty()) continue;
+
+				// Query Central API for network members
+				std::string centralUrl = "https://api.zerotier.com/api/v1/network/" + networkId + "/member";
+				std::string curlCmd = "curl -s -H 'Authorization: token " + apiToken + "' '" + centralUrl + "'";
+
+				FILE* curlPipe = popen(curlCmd.c_str(), "r");
+				if (curlPipe) {
+					std::string apiResponse;
+					char buffer[4096];
+					while (fgets(buffer, sizeof(buffer), curlPipe)) {
+						apiResponse += buffer;
+					}
+					pclose(curlPipe);
+
+					try {
+						nlohmann::json members = OSUtils::jsonParse(apiResponse);
+						if (members.is_array()) {
+							// Mark this network as successfully queried via API
+							networksFoundInAPI.insert(networkId);
+
+							for (unsigned long j = 0; j < members.size(); ++j) {
+								nlohmann::json &member = members[j];
+								std::string memberId = OSUtils::jsonString(member["nodeId"], "");
+
+								if (memberId == targetZtAddr) {
+									nlohmann::json &ipAssignments = member["config"]["ipAssignments"];
+									if (ipAssignments.is_array()) {
+										for (unsigned long k = 0; k < ipAssignments.size(); ++k) {
+											std::string assignedIp = ipAssignments[k];
+											std::string result = "200 findip " + targetZtAddr + " " + assignedIp + " (network " + networkId + ", via Central API)";
+											foundIps.push_back(result);
+											foundViaAPI = true;
+										}
+									}
+								}
+							}
+						}
+					} catch (...) {
+						// API query failed for this network, we'll try ARP method for it
+					}
+				}
+			}
+
+			if (!foundViaAPI) {
+				printf("ZeroTier address not found via Central API, checking local networks..." ZT_EOL_S);
+			} else {
+				printf("Found via Central API. Checking remaining local networks..." ZT_EOL_S);
+			}
+		}
+
+		// Check each network for this ZeroTier address (only networks not found via API)
+		for (unsigned long i = 0; i < networks.size(); ++i) {
+			nlohmann::json &network = networks[i];
+			std::string networkId = OSUtils::jsonString(network["id"], "");
+			std::string portDeviceName = OSUtils::jsonString(network["portDeviceName"], "");
+
+			if (networkId.empty()) continue;
+
+			// Skip networks that were already successfully queried via Central API
+			if (networksFoundInAPI.find(networkId) != networksFoundInAPI.end()) {
+				continue;
+			}
+
+			// Convert network ID to uint64_t
+			uint64_t nwid = strtoull(networkId.c_str(), NULL, 16);
+
+			// Generate the expected MAC address for this ZeroTier address on this network
+			// Using the same algorithm as MAC::fromAddress()
+			uint64_t expectedMac = ((uint64_t)((unsigned char)((nwid & 0xfe) | 0x02))) << 40; // first octet
+			if (((expectedMac >> 40) & 0xff) == 0x52) { // blacklist 0x52
+				expectedMac = (expectedMac & 0xff0000000000ULL) | (0x32ULL << 40);
+			}
+			expectedMac |= ztAddr; // ZT address goes in lower 40 bits
+			expectedMac ^= ((nwid >> 8) & 0xff) << 32;
+			expectedMac ^= ((nwid >> 16) & 0xff) << 24;
+			expectedMac ^= ((nwid >> 24) & 0xff) << 16;
+			expectedMac ^= ((nwid >> 32) & 0xff) << 8;
+			expectedMac ^= (nwid >> 40) & 0xff;
+
+			// Format MAC address as string
+			char expectedMacStr[18];
+			snprintf(expectedMacStr, sizeof(expectedMacStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+				(unsigned int)((expectedMac >> 40) & 0xff),
+				(unsigned int)((expectedMac >> 32) & 0xff),
+				(unsigned int)((expectedMac >> 24) & 0xff),
+				(unsigned int)((expectedMac >> 16) & 0xff),
+				(unsigned int)((expectedMac >> 8) & 0xff),
+				(unsigned int)(expectedMac & 0xff));
+
+			printf("Looking for MAC %s in network %s..." ZT_EOL_S, expectedMacStr, networkId.c_str());
+
+			// First check if this MAC is already in ARP cache
+			std::string arpCmd = "ip neigh show | grep -i " + std::string(expectedMacStr) + " | awk '{print $1}' | head -1";
+			FILE* arpPipe = popen(arpCmd.c_str(), "r");
+			std::string foundIp;
+
+			if (arpPipe) {
+				char ipBuffer[64] = {0};
+				if (fgets(ipBuffer, sizeof(ipBuffer), arpPipe)) {
+					// Remove trailing newline
+					char* newline = strchr(ipBuffer, '\n');
+					if (newline) *newline = '\0';
+
+					if (strlen(ipBuffer) > 0) {
+						foundIp = std::string(ipBuffer);
+					}
+				}
+				pclose(arpPipe);
+			}
+
+			// If not found in ARP cache, try to discover it by scanning the network
+			if (foundIp.empty()) {
+				printf("MAC not in ARP cache, scanning network %s..." ZT_EOL_S, networkId.c_str());
+
+				// Get the network routes to determine what IP ranges to scan
+				nlohmann::json &routes = network["routes"];
+				if (routes.is_array()) {
+					for (unsigned long j = 0; j < routes.size(); ++j) {
+						nlohmann::json &route = routes[j];
+						std::string target = OSUtils::jsonString(route["target"], "");
+
+						if (!target.empty() && target.find('/') != std::string::npos) {
+							// Parse network CIDR (e.g., "192.168.193.0/24")
+							std::string networkBase = target.substr(0, target.find('/'));
+							std::string maskStr = target.substr(target.find('/') + 1);
+							int maskBits = atoi(maskStr.c_str());
+
+							// For small networks (>= /24), do a quick ping sweep
+							if (maskBits >= 24) {
+								printf("Ping sweeping %s..." ZT_EOL_S, target.c_str());
+
+								// Extract base network (e.g., "192.168.193" from "192.168.193.0")
+								size_t lastDot = networkBase.rfind('.');
+								if (lastDot != std::string::npos) {
+									std::string baseNetwork = networkBase.substr(0, lastDot);
+
+									// Ping sweep the network (parallel pings for speed)
+									// Use a more reliable approach with seq instead of bash ranges
+									std::string pingCmd = "seq 1 254 | xargs -I {} -P 50 ping -c 1 -W 1 " + baseNetwork + ".{} >/dev/null 2>&1";
+									printf("Running: %s" ZT_EOL_S, pingCmd.c_str());
+									(void)system(pingCmd.c_str());
+
+									// Small delay to let ARP cache populate
+									usleep(500000); // 500ms
+
+									// Check ARP cache again
+									FILE* arpPipe2 = popen(arpCmd.c_str(), "r");
+									if (arpPipe2) {
+										char ipBuffer2[64] = {0};
+										if (fgets(ipBuffer2, sizeof(ipBuffer2), arpPipe2)) {
+											char* newline = strchr(ipBuffer2, '\n');
+											if (newline) *newline = '\0';
+
+											if (strlen(ipBuffer2) > 0) {
+												foundIp = std::string(ipBuffer2);
+											}
+										}
+										pclose(arpPipe2);
+									}
+								}
+							}
+
+							if (!foundIp.empty()) break;
+						}
+					}
+				}
+			}
+
+			if (!foundIp.empty()) {
+				std::string result = "200 findip " + targetZtAddr + " " + foundIp + " (network " + networkId + ", MAC " + expectedMacStr + ")";
+				foundIps.push_back(result);
+			}
+		}
+
+		// Display all found results
+		if (!foundIps.empty()) {
+			for (const std::string& result : foundIps) {
+				printf("%s" ZT_EOL_S, result.c_str());
+			}
+			return 0;
+		}
+
+		printf("No IP address found for ZeroTier address %s" ZT_EOL_S, targetZtAddr.c_str());
+		printf("" ZT_EOL_S);
+		printf("This could mean:" ZT_EOL_S);
+		printf("  - The ZeroTier address is not currently online" ZT_EOL_S);
+		printf("  - No recent network communication has occurred" ZT_EOL_S);
+		printf("  - The address is not a member of any of your networks" ZT_EOL_S);
+		printf("" ZT_EOL_S);
+		printf("Try:" ZT_EOL_S);
+		printf("  - Ensure the target device is online and communicating" ZT_EOL_S);
+		printf("  - Try 'zerotier-cli listpeers' to see if the peer is known" ZT_EOL_S);
+		printf("  - Generate some network traffic to populate ARP cache" ZT_EOL_S);
+
+		return 1;
+	}
+	else if (command == "set-api-token") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli set-api-token <token>" ZT_EOL_S);
+			printf("" ZT_EOL_S);
+			printf("Get your API token from https://my.zerotier.com/account" ZT_EOL_S);
+			return 2;
+		}
+
+		// Save API token to a secure file
+		char tokenPath[1024];
+		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
+
+		if (OSUtils::writeFile(tokenPath, arg1.c_str(), arg1.length())) {
+			// Set restrictive permissions (owner read/write only)
+			chmod(tokenPath, 0600);
+			printf("200 set-api-token API token saved successfully" ZT_EOL_S);
+			printf("Enhanced IP/ZeroTier address lookups are now available" ZT_EOL_S);
+			return 0;
+		} else {
+			printf("Error saving API token to %s" ZT_EOL_S, tokenPath);
+			return 1;
+		}
 	}
 	else {
 		cliPrintHelp(argv[0], stderr);
@@ -1380,16 +2539,38 @@ static int cli(int argc, char** argv)
 
 static void idtoolPrintHelp(FILE* out, const char* pn)
 {
-	fprintf(out, "%s version %d.%d.%d" ZT_EOL_S, PROGRAM_NAME, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION);
+	fprintf(out, "%s version %d.%d.%d (%s build)" ZT_EOL_S, PROGRAM_NAME, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, nativeBuildMode());
 	fprintf(out, COPYRIGHT_NOTICE ZT_EOL_S LICENSE_GRANT ZT_EOL_S);
 	fprintf(out, "Usage: %s <command> [<args>]" ZT_EOL_S "" ZT_EOL_S "Commands:" ZT_EOL_S, pn);
-	fprintf(out, "  generate [<identity.secret>] [<identity.public>] [<vanity>]" ZT_EOL_S);
+	fprintf(out, "  generate [<identity.secret>] [<identity.public>] [<vanity[,vanity...]>] [<threads|auto>] [--prefix-file <file>] [--count <n>]" ZT_EOL_S);
 	fprintf(out, "  validate <identity.secret/public>" ZT_EOL_S);
 	fprintf(out, "  getpublic <identity.secret>" ZT_EOL_S);
 	fprintf(out, "  sign <identity.secret> <file>" ZT_EOL_S);
 	fprintf(out, "  verify <identity.secret/public> <file> <signature>" ZT_EOL_S);
 	fprintf(out, "  initmoon <identity.public of first seed>" ZT_EOL_S);
 	fprintf(out, "  genmoon <moon json>" ZT_EOL_S);
+}
+
+static std::string formatDurationSeconds(double seconds)
+{
+	if (!(seconds > 0.0) || (!std::isfinite(seconds)))
+		return "unknown";
+	char tmp[64];
+	const unsigned long long total = (unsigned long long)seconds;
+	const unsigned long long hours = total / 3600ULL;
+	const unsigned long long minutes = (total % 3600ULL) / 60ULL;
+	const unsigned long long secs = total % 60ULL;
+	if (hours > 0ULL) {
+		snprintf(tmp,sizeof(tmp),"%02llu:%02llu:%02llu",
+			(unsigned long long)hours,
+			(unsigned long long)minutes,
+			(unsigned long long)secs);
+	} else {
+		snprintf(tmp,sizeof(tmp),"%02llu:%02llu",
+			(unsigned long long)minutes,
+			(unsigned long long)secs);
+	}
+	return std::string(tmp);
 }
 
 static Identity getIdFromArg(char* arg)
@@ -1409,6 +2590,192 @@ static Identity getIdFromArg(char* arg)
 	return Identity();
 }
 
+static bool parseUnsignedIntArg(const char *s,unsigned int &v)
+{
+	if ((!s)||(!*s))
+		return false;
+	unsigned long tmp = 0UL;
+	for(const char *p=s;*p;++p) {
+		if ((*p < '0')||(*p > '9'))
+			return false;
+		tmp = (tmp * 10UL) + (unsigned long)(*p - '0');
+		if (tmp > (unsigned long)std::numeric_limits<unsigned int>::max())
+			return false;
+	}
+	v = (unsigned int)tmp;
+	return (v > 0U);
+}
+
+static std::string trimAsciiWhitespace(const std::string &s)
+{
+	std::size_t begin = 0;
+	while ((begin < s.size()) && ((s[begin] == ' ')||(s[begin] == '\t')||(s[begin] == '\r')||(s[begin] == '\n')))
+		++begin;
+	std::size_t end = s.size();
+	while ((end > begin) && ((s[end - 1] == ' ')||(s[end - 1] == '\t')||(s[end - 1] == '\r')||(s[end - 1] == '\n')))
+		--end;
+	return s.substr(begin,end - begin);
+}
+
+static bool normalizeVanityPrefix(const std::string &raw,std::string &out,std::string &err)
+{
+	std::string p = trimAsciiWhitespace(raw);
+	if (p.empty()) {
+		err = "empty vanity prefix";
+		return false;
+	}
+	if (p.size() > ZT_ADDRESS_LENGTH_HEX) {
+		err = "vanity prefix '" + p + "' is too long (max 10 hex chars)";
+		return false;
+	}
+	for(std::size_t i=0;i<p.size();++i) {
+		const char c = (char)std::tolower((unsigned char)p[i]);
+		if (c == '.') {
+			p[i] = c;
+			continue;
+		}
+		switch (c) {
+			case 'g': p[i] = '6'; continue;
+			case 'i': p[i] = '1'; continue;
+			case 'o': p[i] = '0'; continue;
+			case 's': p[i] = '5'; continue;
+			case 't': p[i] = '7'; continue;
+			case 'z': p[i] = '2'; continue;
+			default: break;
+		}
+		if (((c >= '0')&&(c <= '9'))||((c >= 'a')&&(c <= 'f'))) {
+			p[i] = c;
+			continue;
+		}
+		err = "invalid character in vanity prefix '" + p + "' (allowed: 0-9, a-f, g, i, o, s, t, z, '.')"; // '.' => any numeric digit
+		return false;
+	}
+	if ((p.size() >= 2)&&(p[0] == 'f')&&(p[1] == 'f')) {
+		err = "vanity prefix '" + p + "' can never match: addresses beginning with ff are reserved";
+		return false;
+	}
+	if ((p.size() == ZT_ADDRESS_LENGTH_HEX)&&(p == "0000000000")) {
+		err = "vanity prefix '" + p + "' can never match: 0000000000 is the null reserved address";
+		return false;
+	}
+	out = p;
+	return true;
+}
+
+static bool addVanityPrefixesFromCsv(const std::string &csv,std::set<std::string> &out,std::string &err)
+{
+	std::size_t start = 0;
+	while (start <= csv.size()) {
+		std::size_t comma = csv.find(',',start);
+		if (comma == std::string::npos)
+			comma = csv.size();
+		const std::string token = csv.substr(start,comma - start);
+		const std::string trimmed = trimAsciiWhitespace(token);
+		if (!trimmed.empty()) {
+			std::string normalized;
+			if (!normalizeVanityPrefix(trimmed,normalized,err))
+				return false;
+			out.insert(normalized);
+		}
+		start = comma + 1;
+	}
+	return true;
+}
+
+static bool loadVanityPrefixes(const std::string &csvArg,const std::string &prefixFile,std::vector<std::string> &prefixes,std::string &err)
+{
+	std::set<std::string> unique;
+	if (!csvArg.empty()) {
+		if (!addVanityPrefixesFromCsv(csvArg,unique,err))
+			return false;
+	}
+	if (!prefixFile.empty()) {
+		std::string contents;
+		if (!OSUtils::readFile(prefixFile.c_str(),contents)) {
+			err = "unable to read prefix file: " + prefixFile;
+			return false;
+		}
+		std::istringstream in(contents);
+		std::string line;
+		while (std::getline(in,line)) {
+			const std::string trimmed = trimAsciiWhitespace(line);
+			if (trimmed.empty())
+				continue;
+			if (trimmed[0] == '#')
+				continue;
+			std::istringstream lineIn(trimmed);
+			std::string token;
+			while (lineIn >> token) {
+				std::string normalized;
+				if (!normalizeVanityPrefix(token,normalized,err))
+					return false;
+				unique.insert(normalized);
+			}
+		}
+	}
+	prefixes.assign(unique.begin(),unique.end());
+	return true;
+}
+
+static bool vanityPrefixMatchesAddress(const char *addressHex10,const std::string &prefix)
+{
+	for(std::size_t i=0;i<prefix.size();++i) {
+		const char p = prefix[i];
+		const char a = addressHex10[i];
+		if (p == '.') {
+			if ((a < '0')||(a > '9'))
+				return false;
+		} else if (p != a) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool vanityAddressMatchesAny(const char *addressHex10,const std::vector<std::string> &prefixes,std::string *matchedPrefix)
+{
+	for(std::size_t i=0;i<prefixes.size();++i) {
+		if (vanityPrefixMatchesAddress(addressHex10,prefixes[i])) {
+			if (matchedPrefix)
+				*matchedPrefix = prefixes[i];
+			return true;
+		}
+	}
+	return false;
+}
+
+static std::string sanitizePrefixForFilename(const std::string &prefix)
+{
+	std::string p = prefix;
+	for(char &c : p) {
+		if (c == '.')
+			c = '#';
+	}
+	return p;
+}
+
+static std::string prependPrefixToFilename(const std::string &path,const std::string &prefix)
+{
+	const std::size_t slash = path.find_last_of("/\\");
+	if (slash == std::string::npos)
+		return prefix + "-" + path;
+	return path.substr(0,slash + 1) + prefix + "-" + path.substr(slash + 1);
+}
+
+static double vanityPrefixHitProbability(const std::vector<std::string> &prefixes)
+{
+	double p = 0.0;
+	for(const std::string &prefix : prefixes) {
+		double term = 1.0;
+		for(const char c : prefix)
+			term *= (c == '.') ? (10.0 / 16.0) : (1.0 / 16.0);
+		p += term;
+	}
+	if (p > 1.0)
+		p = 1.0;
+	return p;
+}
+
 #ifdef __WINDOWS__
 static int idtool(int argc, _TCHAR* argv[])
 #else
@@ -1421,50 +2788,353 @@ static int idtool(int argc, char** argv)
 	}
 
 	if (! strcmp(argv[1], "generate")) {
-		uint64_t vanity = 0;
-		int vanityBits = 0;
-		if (argc >= 5) {
-			vanity = Utils::hexStrToU64(argv[4]) & 0xffffffffffULL;
-			vanityBits = 4 * (int)strlen(argv[4]);
-			if (vanityBits > 40)
-				vanityBits = 40;
-		}
-
-		Identity id;
-		for (;;) {
-			id.generate();
-			if ((id.address().toInt() >> (40 - vanityBits)) == vanity) {
-				if (vanityBits > 0) {
-					fprintf(stderr, "vanity address: found %.10llx !\n", (unsigned long long)id.address().toInt());
-				}
-				break;
-			}
-			else {
-				fprintf(stderr, "vanity address: tried %.10llx looking for first %d bits of %.10llx\n", (unsigned long long)id.address().toInt(), vanityBits, (unsigned long long)(vanity << (40 - vanityBits)));
-			}
-		}
-
-		char idtmp[1024];
-		std::string idser = id.toString(true, idtmp);
-		if (argc >= 3) {
-			if (! OSUtils::writeFile(argv[2], idser)) {
-				fprintf(stderr, "Error writing to %s" ZT_EOL_S, argv[2]);
-				return 1;
-			}
-			else
-				printf("%s written" ZT_EOL_S, argv[2]);
-			if (argc >= 4) {
-				idser = id.toString(false, idtmp);
-				if (! OSUtils::writeFile(argv[3], idser)) {
-					fprintf(stderr, "Error writing to %s" ZT_EOL_S, argv[3]);
+		unsigned int vanityThreads = 0;
+		unsigned int generateCount = 1;
+		bool autoThreads = true;
+		std::string vanityArg;
+		std::string prefixFileArg;
+		for(int i=4;i<argc;++i) {
+			if ((!strcmp(argv[i],"--prefix-file"))||(!strcmp(argv[i],"-f"))) {
+				if ((i + 1) >= argc) {
+					fprintf(stderr, "error: missing value for %s\n", argv[i]);
 					return 1;
 				}
-				else
-					printf("%s written" ZT_EOL_S, argv[3]);
+				prefixFileArg = argv[++i];
+				continue;
+			}
+			if (! strcmp(argv[i], "--count")) {
+				if ((i + 1) >= argc) {
+					fprintf(stderr, "error: missing value for %s\n", argv[i]);
+					return 1;
+				}
+				if (! parseUnsignedIntArg(argv[i + 1], generateCount)) {
+					fprintf(stderr, "error: invalid --count value: %s\n", argv[i + 1]);
+					return 1;
+				}
+				++i;
+				continue;
+			}
+			if (vanityArg.empty()) {
+				vanityArg = argv[i];
+				continue;
+			}
+			if (! strcmp(argv[i], "auto")) {
+				autoThreads = true;
+				vanityThreads = 0;
+				continue;
+			}
+			unsigned int parsedThreads = 0U;
+			if (! parseUnsignedIntArg(argv[i], parsedThreads)) {
+				fprintf(stderr, "error: unrecognized generate argument: %s\n", argv[i]);
+				return 1;
+			}
+			autoThreads = false;
+			vanityThreads = parsedThreads;
+		}
+		std::vector<std::string> vanityPrefixes;
+		std::string prefixLoadErr;
+		if (! loadVanityPrefixes(vanityArg, prefixFileArg, vanityPrefixes, prefixLoadErr)) {
+			fprintf(stderr, "error: %s\n", prefixLoadErr.c_str());
+			return 1;
+		}
+
+		struct VanityGenerateResult {
+			Identity id;
+			std::string matchedPrefix;
+		};
+
+		auto generateVanityIdentity = [&vanityPrefixes, &autoThreads, &vanityThreads]() -> VanityGenerateResult {
+			std::atomic<uint64_t> attempts(0ULL);
+			std::atomic<bool> stopFlag(false);
+			std::atomic<bool> found(false);
+			std::mutex winnerLock;
+			Identity winner;
+			std::string winnerPrefix;
+			const unsigned int hwThreads = std::max(1U,std::thread::hardware_concurrency());
+			const double successProbPerTry = vanityPrefixHitProbability(vanityPrefixes);
+			const double logFailure = (successProbPerTry > 0.0) ? std::log1p(-successProbPerTry) : 0.0;
+			const uint64_t triesFor50pct = (successProbPerTry >= 1.0)
+				? 1ULL
+				: ((successProbPerTry > 0.0) ? (uint64_t)std::ceil(std::log(0.5) / logFailure) : 0ULL);
+
+			if (autoThreads) {
+				unsigned int bestT = 1U;
+				double bestRate = 0.0;
+				const unsigned int maxProbe = std::min(12U,hwThreads);
+				fprintf(stderr,"vanity address: auto-tuning threads (1..%u, 3s each)\n",maxProbe);
+				for(unsigned int t=1;t<=maxProbe;++t) {
+					std::atomic<uint64_t> probeAttempts(0ULL);
+					std::atomic<bool> probeStop(false);
+					std::vector<std::thread> probeWorkers;
+					probeWorkers.reserve(t);
+					for(unsigned int i=0;i<t;++i) {
+						probeWorkers.emplace_back([&probeAttempts,&probeStop]() {
+							Identity local;
+							while (!probeStop.load(std::memory_order_relaxed)) {
+								local.generate();
+								probeAttempts.fetch_add(1ULL,std::memory_order_relaxed);
+							}
+						});
+					}
+					const auto probeStart = std::chrono::steady_clock::now();
+					std::this_thread::sleep_for(std::chrono::seconds(3));
+					probeStop.store(true,std::memory_order_relaxed);
+					for(std::thread &th : probeWorkers)
+						th.join();
+					const double probeElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - probeStart).count();
+					const double probeRate = (probeElapsed > 0.0) ? ((double)probeAttempts.load(std::memory_order_relaxed) / probeElapsed) : 0.0;
+					fprintf(stderr, "vanity address: autotune %u thread(s) => %.2f ids/s\n", t, probeRate);
+					if (probeRate > bestRate) {
+						bestRate = probeRate;
+						bestT = t;
+					}
+				}
+				vanityThreads = bestT;
+				fprintf(stderr, "vanity address: auto selected %u thread(s)\n", vanityThreads);
+				autoThreads = false;
+			}
+			if (vanityThreads == 0)
+				vanityThreads = 1;
+
+			fprintf(stderr, "vanity address: searching for %zu prefix(es) with %u thread(s): ", vanityPrefixes.size(), vanityThreads);
+			for(std::size_t i=0;i<vanityPrefixes.size();++i) {
+				if (i)
+					fprintf(stderr,",");
+				fprintf(stderr,"%s",vanityPrefixes[i].c_str());
+			}
+			fprintf(stderr,"\n");
+			if (triesFor50pct > 0ULL)
+				fprintf(stderr, "vanity address: 50%% success chance after ~%llu tries\n", (unsigned long long)triesFor50pct);
+			else
+				fprintf(stderr, "vanity address: could not estimate 50%% success point (very low/unknown hit probability)\n");
+
+			unsigned int currentThreads = vanityThreads;
+			auto launchWorkers = [&attempts, &stopFlag, &found, &winnerLock, &winner, &winnerPrefix, &vanityPrefixes](unsigned int count, std::vector<std::thread> &workers) {
+				workers.clear();
+				workers.reserve(count);
+				for(unsigned int i=0;i<count;++i) {
+					workers.emplace_back([&attempts, &stopFlag, &found, &winnerLock, &winner, &winnerPrefix, &vanityPrefixes]() {
+						Identity local;
+						char addrBuf[11];
+						while (! stopFlag.load(std::memory_order_relaxed)) {
+							local.generate();
+							attempts.fetch_add(1ULL, std::memory_order_relaxed);
+							local.address().toString(addrBuf);
+							std::string matched;
+							if (vanityAddressMatchesAny(addrBuf, vanityPrefixes, &matched)) {
+								bool expected = false;
+								if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
+									std::lock_guard<std::mutex> lock(winnerLock);
+									winner = local;
+									winnerPrefix = matched;
+									stopFlag.store(true,std::memory_order_relaxed);
+								}
+								return;
+							}
+						}
+					});
+				}
+			};
+
+			std::vector<std::thread> workers;
+			launchWorkers(currentThreads,workers);
+			const auto start = std::chrono::steady_clock::now();
+			const double statusIntervalSeconds = 5.0;
+			auto lastStatus = start;
+			uint64_t lastAttempts = 0ULL;
+			double bestWindowRate = 0.0;
+			struct RateSample {
+				std::chrono::steady_clock::time_point ts;
+				uint64_t attemptsDelta;
+				double elapsedSeconds;
+			};
+			std::deque<RateSample> rateSamples;
+			int lowRateStreak = 0;
+#ifdef __LINUX__
+			LinuxThermalSample lastThermal = readLinuxThermalSample();
+#endif
+
+			while (! found.load(std::memory_order_relaxed)) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				const auto now = std::chrono::steady_clock::now();
+				const double statusElapsed = std::chrono::duration<double>(now - lastStatus).count();
+				if (statusElapsed < statusIntervalSeconds)
+					continue;
+				const uint64_t t = attempts.load(std::memory_order_relaxed);
+				const uint64_t delta = t - lastAttempts;
+				const double rate = (statusElapsed > 0.0) ? ((double)delta / statusElapsed) : 0.0;
+				rateSamples.push_back({now, delta, statusElapsed});
+				const auto oldestNeeded = now - std::chrono::seconds(15 * 60);
+				while ((! rateSamples.empty()) && (rateSamples.front().ts < oldestNeeded))
+					rateSamples.pop_front();
+				auto boxcarRate = [&rateSamples,now](double windowSeconds) -> double {
+					const auto cutoff = now - std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(windowSeconds));
+					uint64_t sumDelta = 0ULL;
+					double sumElapsed = 0.0;
+					for(const RateSample &s : rateSamples) {
+						if (s.ts >= cutoff) {
+							sumDelta += s.attemptsDelta;
+							sumElapsed += s.elapsedSeconds;
+						}
+					}
+					return (sumElapsed > 0.0) ? ((double)sumDelta / sumElapsed) : 0.0;
+				};
+				const double rate1m = boxcarRate(60.0);
+				const double rate5m = boxcarRate(300.0);
+				const double rate15m = boxcarRate(900.0);
+				if (rate > bestWindowRate)
+					bestWindowRate = rate;
+				const double successProb = (successProbPerTry > 0.0) ? (1.0 - std::exp(logFailure * (double)t)) : 0.0;
+				double eta50_1m = 0.0;
+				double eta50_5m = 0.0;
+				double eta50_15m = 0.0;
+				if ((triesFor50pct > 0ULL) && (t < triesFor50pct)) {
+					if (rate1m > 0.0)
+						eta50_1m = ((double)(triesFor50pct - t) / rate1m);
+					if (rate5m > 0.0)
+						eta50_5m = ((double)(triesFor50pct - t) / rate5m);
+					if (rate15m > 0.0)
+						eta50_15m = ((double)(triesFor50pct - t) / rate15m);
+				}
+
+#ifdef __LINUX__
+				const LinuxThermalSample thermal = readLinuxThermalSample();
+				unsigned long long coreThrottleDelta = 0ULL;
+				unsigned long long packageThrottleDelta = 0ULL;
+				if (lastThermal.coreThrottleCount <= thermal.coreThrottleCount)
+					coreThrottleDelta = thermal.coreThrottleCount - lastThermal.coreThrottleCount;
+				if (lastThermal.packageThrottleCount <= thermal.packageThrottleCount)
+					packageThrottleDelta = thermal.packageThrottleCount - lastThermal.packageThrottleCount;
+#endif
+
+				fprintf(stderr, "vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA(1m/5m/15m) %s / %s / %s",
+					(unsigned long long)t,
+					rate,
+					std::min(100.0,successProb * 100.0),
+					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_1m).c_str(),
+					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_5m).c_str(),
+					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_15m).c_str());
+#ifdef __LINUX__
+				if (thermal.freqValid) {
+					const double freqPct = thermal.freqRatio * 100.0;
+					if (freqPct < 99.5) {
+						fprintf(stderr, ", freq %.0f%% of max", freqPct);
+					}
+				}
+				if ((coreThrottleDelta > 0ULL)||(packageThrottleDelta > 0ULL)) {
+					fprintf(stderr, ", throttle +%llu core/+%llu pkg",
+						(unsigned long long)coreThrottleDelta,
+						(unsigned long long)packageThrottleDelta);
+				}
+				lastThermal = thermal;
+#endif
+				fprintf(stderr, "\n");
+
+				if ((bestWindowRate > 0.0) && (rate < (bestWindowRate * 0.78))) {
+					++lowRateStreak;
+				}
+				else {
+					lowRateStreak = 0;
+				}
+
+#ifdef __LINUX__
+				const bool thermalPressure =
+					((coreThrottleDelta + packageThrottleDelta) > 0ULL) ||
+					(thermal.freqValid && (thermal.freqRatio < 0.80));
+#else
+				const bool thermalPressure = false;
+#endif
+				if ((currentThreads > 1U) && (lowRateStreak >= 3) && thermalPressure) {
+					const unsigned int newThreads = std::max(1U,currentThreads - 1U);
+					fprintf(stderr, "vanity address: throughput degraded under thermal pressure, reducing threads %u -> %u\n", currentThreads, newThreads);
+					stopFlag.store(true, std::memory_order_relaxed);
+					for(std::thread &th : workers)
+						th.join();
+					if (! found.load(std::memory_order_relaxed)) {
+						stopFlag.store(false, std::memory_order_relaxed);
+						currentThreads = newThreads;
+						launchWorkers(currentThreads,workers);
+						lowRateStreak = 0;
+						bestWindowRate = rate;
+					}
+				}
+
+				lastStatus = now;
+				lastAttempts = t;
+			}
+
+			for(std::thread &th : workers)
+				th.join();
+
+			const uint64_t totalAttempts = attempts.load(std::memory_order_relaxed);
+			const double totalElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+			const double finalRate = (totalElapsed > 0.0) ? ((double)totalAttempts / totalElapsed) : 0.0;
+			char foundAddr[11];
+			winner.address().toString(foundAddr);
+			fprintf(stderr,
+				"vanity address: found %s (prefix %s) after %llu tries in %s (%.2f ids/s)\n",
+				foundAddr,
+				winnerPrefix.c_str(),
+				(unsigned long long)totalAttempts,
+				formatDurationSeconds(totalElapsed).c_str(),
+				finalRate);
+			VanityGenerateResult r;
+			r.id = winner;
+			r.matchedPrefix = winnerPrefix;
+			return r;
+		};
+
+		for(unsigned int n=0;n<generateCount;++n) {
+			Identity id;
+			std::string matchedPrefix;
+			if (vanityPrefixes.empty()) {
+				id.generate();
+			}
+			else {
+				if (generateCount > 1U)
+					fprintf(stderr,"vanity address: generating identity %u/%u\n",n + 1U,generateCount);
+				const VanityGenerateResult r = generateVanityIdentity();
+				id = r.id;
+				matchedPrefix = r.matchedPrefix;
+			}
+
+			char idtmp[1024];
+			std::string idser = id.toString(true,idtmp);
+			if (argc >= 3) {
+				std::string outSecret = argv[2];
+				std::string outPublic;
+				if (argc >= 4)
+					outPublic = argv[3];
+				if (generateCount > 1U) {
+					std::string filePrefix = matchedPrefix;
+					if (filePrefix.empty()) {
+						char addrBuf[11];
+						id.address().toString(addrBuf);
+						filePrefix = addrBuf;
+					}
+					const std::string safePrefix = sanitizePrefixForFilename(filePrefix);
+					outSecret = prependPrefixToFilename(outSecret, safePrefix);
+					if (! outPublic.empty())
+						outPublic = prependPrefixToFilename(outPublic, safePrefix);
+				}
+				if (! OSUtils::writeFile(outSecret.c_str(), idser)) {
+					fprintf(stderr, "Error writing to %s" ZT_EOL_S, outSecret.c_str());
+					return 1;
+				}
+				else printf("%s written" ZT_EOL_S, outSecret.c_str());
+				if (! outPublic.empty()) {
+					idser = id.toString(false,idtmp);
+					if (! OSUtils::writeFile(outPublic.c_str(),idser)) {
+						fprintf(stderr, "Error writing to %s" ZT_EOL_S, outPublic.c_str());
+						return 1;
+					}
+					else printf("%s written" ZT_EOL_S, outPublic.c_str());
+				}
+			} else {
+				if (generateCount == 1U) printf("%s", idser.c_str());
+				else printf("%s" ZT_EOL_S, idser.c_str());
 			}
 		}
-		else
-			printf("%s", idser.c_str());
 	}
 	else if (! strcmp(argv[1], "validate")) {
 		if (argc < 3) {
@@ -2018,7 +3688,7 @@ static BOOL IsCurrentUserLocalAdministrator(void)
 
 static void printHelp(const char* cn, FILE* out)
 {
-	fprintf(out, "%s version %d.%d.%d" ZT_EOL_S, PROGRAM_NAME, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION);
+	fprintf(out, "%s version %d.%d.%d (%s build)" ZT_EOL_S, PROGRAM_NAME, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, nativeBuildMode());
 	fprintf(out, COPYRIGHT_NOTICE ZT_EOL_S LICENSE_GRANT ZT_EOL_S);
 	fprintf(out, ZT_EOL_S "Usage: %s [-switches] [home directory]" ZT_EOL_S "" ZT_EOL_S, cn);
 	fprintf(out, "Available switches:" ZT_EOL_S);
@@ -2196,7 +3866,7 @@ int main(int argc, char** argv)
 					break;
 
 				case 'v':	// Display version
-					printf("%d.%d.%d" ZT_EOL_S, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION);
+					printf("%d.%d.%d (%s build)" ZT_EOL_S, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, nativeBuildMode());
 					return 0;
 
 				case 'i':	// Invoke idtool personality

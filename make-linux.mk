@@ -82,12 +82,21 @@ ifeq ($(ZT_DEBUG),1)
 	# C25519 in particular is almost UNUSABLE in -O0 even on a 3ghz box!
 node/Salsa20.o node/SHA512.o node/C25519.o node/Poly1305.o: CXXFLAGS=-Wall -O2 -g -pthread $(INCLUDES) $(DEFS)
 else
-	CFLAGS?=-O3 -fstack-protector
+	CFLAGS?=-O3 -fstack-protector -g
 	override CFLAGS+=-Wall -Wno-deprecated -pthread $(INCLUDES) -DNDEBUG $(DEFS)
-	CXXFLAGS?=-O3 -fstack-protector
+	CXXFLAGS?=-O3 -fstack-protector -g
 	override CXXFLAGS+=-Wall -Wno-deprecated -std=c++17 -pthread $(INCLUDES) -DNDEBUG $(DEFS)
 	LDFLAGS?=-pie -Wl,-z,relro,-z,now
 	ZT_CARGO_FLAGS=--release
+endif
+
+ZT_NATIVE?=auto
+ifeq ($(ZT_NATIVE),1)
+	override CFLAGS+=-march=native -mtune=native
+	override CXXFLAGS+=-march=native -mtune=native
+	override DEFS+=-DZT_NATIVE_BUILD=1
+else
+	override DEFS+=-DZT_NATIVE_BUILD=0
 endif
 
 ifeq ($(ZT_QNAP), 1)
@@ -406,7 +415,7 @@ from_builder:	FORCE
 	ln -sf zerotier-one zerotier-idtool
 	ln -sf zerotier-one zerotier-cli
 
-zerotier-one: $(CORE_OBJS) $(ONE_OBJS) one.o ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h
+zerotier-one: $(CORE_OBJS) $(ONE_OBJS) one.o ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h zeroidc smeeclient
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o zerotier-one $(CORE_OBJS) $(ONE_OBJS) one.o $(LDLIBS)
 
 zerotier-idtool: zerotier-one
@@ -415,7 +424,9 @@ zerotier-idtool: zerotier-one
 zerotier-cli: zerotier-one
 	ln -sf zerotier-one zerotier-cli
 
-$(ONE_OBJS): zeroidc smeeclient
+# Rust libraries should only rebuild when their source changes, not when C++ changes
+# The zerotier-one binary depends on the Rust libraries being available, but
+# individual object files should not trigger Rust rebuilds
 
 libzerotiercore.a:	FORCE
 	make CFLAGS="-O3 -fstack-protector -fPIC" CXXFLAGS="-O3 -std=c++17 -fstack-protector -fPIC" $(CORE_OBJS)
@@ -482,7 +493,8 @@ debug:	FORCE
 
 ifeq ($(ZT_SSO_SUPPORTED), 1)
 ifeq ($(ZT_EMBEDDED),)
-zeroidc:	FORCE
+# zeroidc depends on its Rust source files - let Cargo handle incremental builds
+zeroidc: rustybits/Cargo.toml
 	export PATH=/${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p zeroidc
 endif
 else
@@ -490,11 +502,15 @@ zeroidc:
 endif
 
 ifeq ($(ZT_CONTROLLER), 1)
-smeeclient:	FORCE
+# smeeclient depends on its Rust source files - let Cargo handle incremental builds
+smeeclient: rustybits/Cargo.toml
 	export PATH=/${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p smeeclient
 else
 smeeclient:
 endif
+
+# Ensure generated zeroidc.h exists before compiling OneService.cpp.
+service/OneService.o: zeroidc
 
 # Note: keep the symlinks in /var/lib/zerotier-one to the binaries since these
 # provide backward compatibility with old releases where the binaries actually
@@ -524,11 +540,34 @@ install:	FORCE
 	cat doc/zerotier-cli.1 | gzip -9 >$(DESTDIR)/usr/share/man/man1/zerotier-cli.1.gz
 	cat doc/zerotier-idtool.1 | gzip -9 >$(DESTDIR)/usr/share/man/man1/zerotier-idtool.1.gz
 	cp ext/installfiles/linux/zerotier-one.te $(DESTDIR)/var/lib/zerotier-one/zerotier-one.te
+	@echo "Installing systemd service..."
+	@mkdir -p $(DESTDIR)/etc/systemd/system; \
+	cp debian/zerotier-one.service $(DESTDIR)/etc/systemd/system/; \
+	echo "Systemd service file installed to $(DESTDIR)/etc/systemd/system/zerotier-one.service"; \
+	if [ -z "$(DESTDIR)" ] && command -v systemctl >/dev/null 2>&1; then \
+		echo "Reloading systemd daemon..."; \
+		systemctl daemon-reload; \
+		echo "Enabling zerotier-one service..."; \
+		systemctl enable zerotier-one; \
+		echo "Restarting zerotier-one service..."; \
+		systemctl restart zerotier-one; \
+		echo "ZeroTier One service is now running!"; \
+	else \
+		echo "To complete setup, run:"; \
+		echo "  sudo systemctl daemon-reload"; \
+		echo "  sudo systemctl enable zerotier-one"; \
+		echo "  sudo systemctl start zerotier-one"; \
+	fi
 
 # Uninstall preserves identity.public and identity.secret since the user might
 # want to save these. These are your ZeroTier address.
 
 uninstall:	FORCE
+	@echo "Stopping and disabling ZeroTier One service..."
+	@if [ -z "$(DESTDIR)" ] && command -v systemctl >/dev/null 2>&1; then \
+		systemctl stop zerotier-one 2>/dev/null || true; \
+		systemctl disable zerotier-one 2>/dev/null || true; \
+	fi
 	rm -f $(DESTDIR)/var/lib/zerotier-one/zerotier-one
 	rm -f $(DESTDIR)/var/lib/zerotier-one/zerotier-cli
 	rm -f $(DESTDIR)/var/lib/zerotier-one/zerotier-idtool
@@ -542,6 +581,11 @@ uninstall:	FORCE
 	rm -f $(DESTDIR)/usr/share/man/man8/zerotier-one.8.gz
 	rm -f $(DESTDIR)/usr/share/man/man1/zerotier-idtool.1.gz
 	rm -f $(DESTDIR)/usr/share/man/man1/zerotier-cli.1.gz
+	rm -f $(DESTDIR)/etc/systemd/system/zerotier-one.service
+	@if [ -z "$(DESTDIR)" ] && command -v systemctl >/dev/null 2>&1; then \
+		systemctl daemon-reload; \
+		echo "ZeroTier One service removed and stopped"; \
+	fi
 
 # These are just for convenience for building Linux packages
 
@@ -552,6 +596,8 @@ echo_flags:
 	@echo "echo_flags :: CFLAGS=$(CFLAGS)"
 	@echo "echo_flags :: CXXFLAGS=$(CXXFLAGS)"
 	@echo "echo_flags :: LDFLAGS=$(LDFLAGS)"
+	@echo "echo_flags :: ZT_NATIVE=$(ZT_NATIVE)"
+	@echo "echo_flags :: origin(ZT_NATIVE)=$(origin ZT_NATIVE)"
 	@echo "echo_flags :: RUSTFLAGS=$(RUSTFLAGS)"
 	@echo "=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~"
 

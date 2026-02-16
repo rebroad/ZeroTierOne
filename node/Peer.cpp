@@ -106,6 +106,13 @@ void Peer::received(
 		path->trustedPacketReceived(now);
 	}
 
+	// Trigger callback for authenticated packet tracking (TIER 2)
+	if (RR->peerEventCallback) {
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
+			// Args are: peerInetAddress, peerZtAddr, introducerZtAddr, success, packetSize
+			path->address(), _id.address(), Address(), true, payloadLength);
+	} // TODO - document what this is and if it's needed
+
 	if (hops == 0) {
 		// If this is a direct packet (no hops), update existing paths or learn new ones
 		bool havePath = false;
@@ -481,6 +488,9 @@ void Peer::attemptToContactAt(void* tPtr, const int64_t localSocket, const InetA
 	else {
 		sendHELLO(tPtr, localSocket, atAddress, now);
 	}
+
+	// Outgoing packet tracking is now handled in nodeWirePacketSendFunction()
+	// where we have access to both the socket and destination information
 }
 
 void Peer::tryMemorizedPath(void* tPtr, int64_t now)
@@ -689,9 +699,16 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path>& path, const uint64_t pack
 #ifndef ZT_NO_PEER_METRICS
 	_outgoing_packet++;
 #endif
-	if (_localMultipathSupported && _bond) {
+	if (_localMultipathSupported && _bond) { // TODO - what is multipath support? when is it useful? Is it like onecast?
 		_bond->recordOutgoingPacket(path, packetId, payloadLength, verb, flowId, now);
 	}
+
+	// Track outgoing packet for port usage statistics (only for established peers)
+	if (RR->peerEventCallback && path) {
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
+		// Args are: peerInetAddress, peerZtAddr, introducerZtAddr, success, packetSize
+						  path->address(), _id.address(), Address(), true, payloadLength);
+	} // TODO - document other ways we might do this (compare with how we track incoming packets)
 }
 
 void Peer::recordIncomingInvalidPacket(const SharedPtr<Path>& path)
@@ -701,6 +718,12 @@ void Peer::recordIncomingInvalidPacket(const SharedPtr<Path>& path)
 #endif
 	if (_localMultipathSupported && _bond) {
 		_bond->recordIncomingInvalidPacket(path);
+	}
+
+	if (RR->peerEventCallback && path) {
+		RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET,
+		// Args are: peerInetAddress, peerZtAddr, introducerZtAddr, success, packetSize
+						  path->address(), _id.address(), Address(), false, 0);
 	}
 }
 
