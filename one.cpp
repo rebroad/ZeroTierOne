@@ -73,6 +73,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <deque>
 #include <mutex>
 #include <set> // TODO - need by what?
 #include <thread>
@@ -2721,7 +2722,6 @@ static int idtool(int argc,char **argv)
 
 			fprintf(stderr,"vanity address: searching for prefix %s (%d bits) with %u thread(s)\n",argv[4],vanityBits,vanityThreads);
 			fprintf(stderr,"vanity address: 50%% success chance after ~%llu tries\n",(unsigned long long)triesFor50pct);
-			fprintf(stderr,"vanity address: hash impl %s (set ZT_IDENTITY_HASH_IMPL=generic|avx2|auto)\n",Identity::memoryHardHashImplName());
 
 			unsigned int currentThreads = vanityThreads;
 			auto launchWorkers = [&attempts,&stopFlag,&found,&winnerLock,&winner,vanity,vanityBits](unsigned int count,std::vector<std::thread> &workers) {
@@ -2749,9 +2749,12 @@ static int idtool(int argc,char **argv)
 			auto lastStatus = start;
 			uint64_t lastAttempts = 0ULL;
 			double bestWindowRate = 0.0;
-			double rate1m = 0.0;
-			double rate5m = 0.0;
-			double rate15m = 0.0;
+			struct RateSample {
+				std::chrono::steady_clock::time_point ts;
+				uint64_t attemptsDelta;
+				double elapsedSeconds;
+			};
+			std::deque<RateSample> rateSamples;
 			int lowRateStreak = 0;
 #ifdef __LINUX__
 			LinuxThermalSample lastThermal = readLinuxThermalSample();
@@ -2766,18 +2769,25 @@ static int idtool(int argc,char **argv)
 				const uint64_t t = attempts.load(std::memory_order_relaxed);
 				const uint64_t delta = t - lastAttempts;
 				const double rate = (statusElapsed > 0.0) ? ((double)delta / statusElapsed) : 0.0;
-				const double alpha1m = 1.0 - std::exp(-statusElapsed / 60.0);
-				const double alpha5m = 1.0 - std::exp(-statusElapsed / 300.0);
-				const double alpha15m = 1.0 - std::exp(-statusElapsed / 900.0);
-				if (rate1m <= 0.0) {
-					rate1m = rate;
-					rate5m = rate;
-					rate15m = rate;
-				} else {
-					rate1m = (alpha1m * rate) + ((1.0 - alpha1m) * rate1m);
-					rate5m = (alpha5m * rate) + ((1.0 - alpha5m) * rate5m);
-					rate15m = (alpha15m * rate) + ((1.0 - alpha15m) * rate15m);
-				}
+				rateSamples.push_back({now,delta,statusElapsed});
+				const auto oldestNeeded = now - std::chrono::seconds(15 * 60);
+				while ((!rateSamples.empty()) && (rateSamples.front().ts < oldestNeeded))
+					rateSamples.pop_front();
+				auto boxcarRate = [&rateSamples,now](double windowSeconds) -> double {
+					const auto cutoff = now - std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(windowSeconds));
+					uint64_t sumDelta = 0ULL;
+					double sumElapsed = 0.0;
+					for(const RateSample &s : rateSamples) {
+						if (s.ts >= cutoff) {
+							sumDelta += s.attemptsDelta;
+							sumElapsed += s.elapsedSeconds;
+						}
+					}
+					return (sumElapsed > 0.0) ? ((double)sumDelta / sumElapsed) : 0.0;
+				};
+				const double rate1m = boxcarRate(60.0);
+				const double rate5m = boxcarRate(300.0);
+				const double rate15m = boxcarRate(900.0);
 				if (rate > bestWindowRate)
 					bestWindowRate = rate;
 				const double successProb = 1.0 - std::exp(logFailure * (double)t);
@@ -2870,13 +2880,12 @@ static int idtool(int argc,char **argv)
 			const double totalElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 			const double finalRate = (totalElapsed > 0.0) ? ((double)totalAttempts / totalElapsed) : 0.0;
 			fprintf(stderr,
-				"vanity address: found %.10llx after %llu tries in %s (%.2f ids/s), target %.10llx, final threads %u\n",
+				"vanity address: found %.10llx after %llu tries in %s (%.2f ids/s), target %.10llx\n",
 				(unsigned long long)id.address().toInt(),
 				(unsigned long long)totalAttempts,
 				formatDurationSeconds(totalElapsed).c_str(),
 				finalRate,
-				(unsigned long long)target,
-				currentThreads);
+				(unsigned long long)target);
 		}
 
 		char idtmp[1024];
