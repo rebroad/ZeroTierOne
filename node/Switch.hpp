@@ -69,8 +69,10 @@ class Switch {
 	 * @param fromAddr Internet IP address of origin
 	 * @param data Packet data
 	 * @param len Packet length
+	 * @param localPort Local port where packet was received
+	 * @param authenticatedPeerAddr Output parameter for authenticated peer ZT address (optional)
 	 */
-	void onRemotePacket(void* tPtr, const int64_t localSocket, const InetAddress& fromAddr, const void* data, unsigned int len);
+	void onRemotePacket(void* tPtr, const int64_t localSocket, const InetAddress& fromAddr, const void* data, unsigned int len, unsigned int localPort = 0, Address* authenticatedPeerAddr = nullptr);
 
 	/**
 	 * Returns whether our bonding or balancing policy is aware of flows.

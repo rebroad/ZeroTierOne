@@ -20,6 +20,7 @@
 #include "Packet.hpp"
 #include "PacketMultiplexer.hpp"
 #include "RuntimeEnvironment.hpp"
+#include "SecurityMonitor.hpp"
 #include "SelfAwareness.hpp"
 #include "SharedPtr.hpp"
 #include "Switch.hpp"
@@ -120,8 +121,9 @@ Node::Node(void* uptr, void* tptr, const struct ZT_Node_Config* config, const st
 		const unsigned long sas = sizeof(SelfAwareness) + (((sizeof(SelfAwareness) & 0xf) != 0) ? (16 - (sizeof(SelfAwareness) & 0xf)) : 0);
 		const unsigned long bcs = sizeof(Bond) + (((sizeof(Bond) & 0xf) != 0) ? (16 - (sizeof(Bond) & 0xf)) : 0);
 		const unsigned long pms = sizeof(PacketMultiplexer) + (((sizeof(PacketMultiplexer) & 0xf) != 0) ? (16 - (sizeof(PacketMultiplexer) & 0xf)) : 0);
+		const unsigned long sms = sizeof(SecurityMonitor) + (((sizeof(SecurityMonitor) & 0xf) != 0) ? (16 - (sizeof(SecurityMonitor) & 0xf)) : 0);
 
-		m = reinterpret_cast<char*>(::malloc(16 + ts + sws + mcs + topologys + sas + bcs + pms));
+		m = reinterpret_cast<char*>(::malloc(16 + ts + sws + mcs + topologys + sas + bcs + pms + sms));
 		if (! m) {
 			throw std::bad_alloc();
 		}
@@ -143,6 +145,8 @@ Node::Node(void* uptr, void* tptr, const struct ZT_Node_Config* config, const st
 		RR->bc = new (m) Bond(RR);
 		m += bcs;
 		RR->pm = new (m) PacketMultiplexer(RR);
+		m += pms;
+		RR->sm = new (m) SecurityMonitor(RR);
 	}
 	catch (...) {
 		if (RR->sa) {
@@ -165,6 +169,9 @@ Node::Node(void* uptr, void* tptr, const struct ZT_Node_Config* config, const st
 		}
 		if (RR->pm) {
 			RR->pm->~PacketMultiplexer();
+		}
+		if (RR->sm) {
+			RR->sm->~SecurityMonitor();
 		}
 		::free(m);
 		throw;
@@ -201,13 +208,40 @@ Node::~Node()
 	if (RR->pm) {
 		RR->pm->~PacketMultiplexer();
 	}
+	if (RR->sm) {
+		RR->sm->~SecurityMonitor();
+	}
 	::free(RR->rtmem);
 }
 
-ZT_ResultCode Node::processWirePacket(void* tptr, int64_t now, int64_t localSocket, const struct sockaddr_storage* remoteAddress, const void* packetData, unsigned int packetLength, volatile int64_t* nextBackgroundTaskDeadline)
+ZT_ResultCode Node::processWirePacket(
+	void* tptr,
+	int64_t now,
+	int64_t localSocket,
+	const struct sockaddr_storage* remoteAddress,
+	const void* packetData,
+	unsigned int packetLength,
+	volatile int64_t* nextBackgroundTaskDeadline,
+	Address* sourcePeerAddress,
+	unsigned int localPort)
 {
 	_now = now;
-	RR->sw->onRemotePacket(tptr, localSocket, *(reinterpret_cast<const InetAddress*>(remoteAddress)), packetData, packetLength);
+
+	// Process packet and get authenticated peer address if available
+	Address authenticatedPeerAddr;
+	RR->sw->onRemotePacket(tptr, localSocket, *(reinterpret_cast<const InetAddress*>(remoteAddress)), packetData, packetLength, localPort, &authenticatedPeerAddr);
+
+	// Return the authenticated peer address if available, otherwise try to extract from packet
+	if (sourcePeerAddress) {
+		if (authenticatedPeerAddr) {
+			*sourcePeerAddress = authenticatedPeerAddr;
+		}
+		else if (packetLength >= ZT_PROTO_MIN_PACKET_LENGTH) {
+			// Fallback: extract from packet header (less reliable)
+			sourcePeerAddress->setTo(reinterpret_cast<const uint8_t*>(packetData) + 13, ZT_ADDRESS_LENGTH);
+		}
+	}	// TODO inform calling process whether it was authenticated or not.
+
 	return ZT_RESULT_OK;
 }
 
@@ -395,6 +429,11 @@ ZT_ResultCode Node::processBackgroundTasks(void* tptr, int64_t now, volatile int
 			// Ping active peers, upstreams, and others that we should always contact
 			_PingPeersThatNeedPing pfunc(RR, tptr, alwaysContact, now);
 			RR->topology->eachPeer<_PingPeersThatNeedPing&>(pfunc);
+
+			// Run security monitor maintenance
+			if (RR->sm) {
+				RR->sm->doPeriodicMaintenance(tptr, now);
+			}
 
 			// Run WHOIS to create Peer for alwaysContact addresses that could not be contacted
 			{
@@ -950,7 +989,7 @@ enum ZT_ResultCode
 ZT_Node_processWirePacket(ZT_Node* node, void* tptr, int64_t now, int64_t localSocket, const struct sockaddr_storage* remoteAddress, const void* packetData, unsigned int packetLength, volatile int64_t* nextBackgroundTaskDeadline)
 {
 	try {
-		return reinterpret_cast<ZeroTier::Node*>(node)->processWirePacket(tptr, now, localSocket, remoteAddress, packetData, packetLength, nextBackgroundTaskDeadline);
+		return reinterpret_cast<ZeroTier::Node*>(node)->processWirePacket(tptr, now, localSocket, remoteAddress, packetData, packetLength, nextBackgroundTaskDeadline, nullptr, 0);	  // TODO - nullptr and 0 - is this correct?
 	}
 	catch (std::bad_alloc& exc) {
 		return ZT_RESULT_FATAL_ERROR_OUT_OF_MEMORY;

@@ -61,7 +61,7 @@ static bool _ipv6GetPayload(const uint8_t* frameData, unsigned int frameLen, uns
 	return false;	// overflow == invalid
 }
 
-void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAddress& fromAddr, const void* data, unsigned int len)
+void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAddress& fromAddr, const void* data, unsigned int len, unsigned int localPort, Address* authenticatedPeerAddr)
 {
 	int32_t flowId = ZT_QOS_NO_FLOW;
 	try {
@@ -69,6 +69,8 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 
 		const SharedPtr<Path> path(RR->topology->getPath(localSocket, fromAddr));
 		path->received(now);
+		// Store the local port in the path for use in Peer::received callback
+		path->setLocalPort(localPort);
 
 		if (len > ZT_PROTO_MIN_FRAGMENT_LENGTH) {
 			if (reinterpret_cast<const uint8_t*>(data)[ZT_PACKET_FRAGMENT_IDX_FRAGMENT_INDICATOR] == ZT_PACKET_FRAGMENT_INDICATOR) {
@@ -138,6 +140,10 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 								}
 
 								if (rq->frag0.tryDecode(RR, tPtr, flowId)) {
+									// Fragmented packet head was successfully decoded and authenticated
+									if (authenticatedPeerAddr) {
+										*authenticatedPeerAddr = rq->frag0.source();
+									}	// TODO - is this right?
 									rq->timestamp = 0;	 // packet decoded, free entry
 								}
 								else {
@@ -226,6 +232,10 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 							}
 
 							if (rq->frag0.tryDecode(RR, tPtr, flowId)) {
+								// Fragmented packet was successfully decoded and authenticated
+								if (authenticatedPeerAddr) {
+									*authenticatedPeerAddr = rq->frag0.source();
+								}	// TODO - is this right?
 								rq->timestamp = 0;	 // packet decoded, free entry
 							}
 							else {
@@ -242,7 +252,13 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 					// RECEIVE: unfragmented packet appears to be ours (this is validated in cryptographic auth after assembly)
 
 					IncomingPacket packet(data, len, path, now);
-					if (! packet.tryDecode(RR, tPtr, flowId)) {
+					if (packet.tryDecode(RR, tPtr, flowId)) {
+						// Packet was successfully decoded and authenticated
+						if (authenticatedPeerAddr) {
+							*authenticatedPeerAddr = packet.source();
+						}	// TODO - is this right?
+					}
+					else {
 						RXQueueEntry* const rq = _nextRXQueueEntry();
 						Mutex::Lock rql(rq->lock);
 						rq->flowId = flowId;

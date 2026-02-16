@@ -10,6 +10,7 @@
 #include "../node/Utils.hpp"
 
 #include <inttypes.h>
+#include <sstream>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

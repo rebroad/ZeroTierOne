@@ -69,28 +69,88 @@ struct _Identity_generate_cond {
 	_Identity_generate_cond()
 	{
 	}
-	_Identity_generate_cond(unsigned char* sb, char* gm) : digest(sb), genmem(gm)
+	_Identity_generate_cond(unsigned char* sb, char* gm, uint64_t vp, int vb, const std::atomic<bool>* sf, std::atomic<uint64_t>* ac, bool* ab)
+		: digest(sb)
+		, genmem(gm)
+		, vanity(vp)
+		, vanityBits(vb)
+		, stopFlag(sf)
+		, attemptCounter(ac)
+		, aborted(ab)
 	{
 	}
 	inline bool operator()(const ECC::Pair& kp) const
 	{
+		if ((stopFlag) && (stopFlag->load(std::memory_order_relaxed))) {
+			if (aborted) {
+				*aborted = true;
+			}
+			return true;
+		}
+
 		_computeMemoryHardHash(kp.pub.data, ZT_ECC_PUBLIC_KEY_SET_LEN, digest, genmem);
-		return (digest[0] < ZT_IDENTITY_GEN_HASHCASH_FIRST_BYTE_LESS_THAN);
+		if (digest[0] >= ZT_IDENTITY_GEN_HASHCASH_FIRST_BYTE_LESS_THAN) {
+			return false;
+		}
+
+		const uint64_t addr = (((uint64_t)digest[59]) << 32) | (((uint64_t)digest[60]) << 24) | (((uint64_t)digest[61]) << 16) | (((uint64_t)digest[62]) << 8) | ((uint64_t)digest[63]);
+		if ((! addr) || ((addr >> 32) == ZT_ADDRESS_RESERVED_PREFIX)) {
+			return false;
+		}
+
+		if (attemptCounter) {
+			attemptCounter->fetch_add(1ULL, std::memory_order_relaxed);
+		}
+
+		if ((vanityBits > 0) && ((addr >> (40 - vanityBits)) != vanity)) {
+			return false;
+		}
+
+		return true;
 	}
 	unsigned char* digest;
 	char* genmem;
+	uint64_t vanity;
+	int vanityBits;
+	const std::atomic<bool>* stopFlag;
+	std::atomic<uint64_t>* attemptCounter;
+	bool* aborted;
 };
 
 void Identity::generate()
 {
+	(void)generateVanity(0ULL, 0, (const std::atomic<bool>*)0, (std::atomic<uint64_t>*)0);
+}
+
+bool Identity::generateVanity(uint64_t vanityPrefix, int vanityBits, const std::atomic<bool>* stopFlag, std::atomic<uint64_t>* attemptCounter)
+{
+	if (vanityBits < 0) {
+		vanityBits = 0;
+	}
+	else if (vanityBits > 40) {
+		vanityBits = 40;
+	}
+	if (vanityBits <= 0) {
+		vanityPrefix = 0ULL;
+	}
+	else if (vanityBits < 40) {
+		vanityPrefix &= ((1ULL << vanityBits) - 1ULL);
+	}
+	else {
+		vanityPrefix &= 0xffffffffffULL;
+	}
+
 	unsigned char digest[64];
 	char* genmem = new char[ZT_IDENTITY_GEN_MEMORY];
+	bool aborted = false;
 
-	ECC::Pair kp;
-	do {
-		kp = ECC::generateSatisfying(_Identity_generate_cond(digest, genmem));
-		_address.setTo(digest + 59, ZT_ADDRESS_LENGTH);	  // last 5 bytes are address
-	} while (_address.isReserved());
+	ECC::Pair kp = ECC::generateSatisfying(_Identity_generate_cond(digest, genmem, vanityPrefix, vanityBits, stopFlag, attemptCounter, &aborted));
+	if (aborted) {
+		delete[] genmem;
+		return false;
+	}
+
+	_address.setTo(digest + 59, ZT_ADDRESS_LENGTH);	  // last 5 bytes are address
 
 	_publicKey = kp.pub;
 	if (! _privateKey) {
@@ -98,7 +158,7 @@ void Identity::generate()
 	}
 	*_privateKey = kp.priv;
 
-	delete[] genmem;
+	return true;
 }
 
 bool Identity::locallyValidate() const
