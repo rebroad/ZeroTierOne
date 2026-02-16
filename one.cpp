@@ -69,6 +69,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <atomic>
 #include <chrono>
@@ -2596,7 +2597,7 @@ static void idtoolPrintHelp(FILE *out,const char *pn)
 		COPYRIGHT_NOTICE ZT_EOL_S
 		LICENSE_GRANT ZT_EOL_S);
 	fprintf(out,"Usage: %s <command> [<args>]" ZT_EOL_S"" ZT_EOL_S"Commands:" ZT_EOL_S,pn);
-	fprintf(out,"  generate [<identity.secret>] [<identity.public>] [<vanity>] [<threads|auto>]" ZT_EOL_S);
+	fprintf(out,"  generate [<identity.secret>] [<identity.public>] [<vanity[,vanity...]>] [<threads|auto>] [--prefix-file <file>] [--count <n>]" ZT_EOL_S);
 	fprintf(out,"  validate <identity.secret/public>" ZT_EOL_S);
 	fprintf(out,"  getpublic <identity.secret>" ZT_EOL_S);
 	fprintf(out,"  sign <identity.secret> <file>" ZT_EOL_S);
@@ -2621,6 +2622,183 @@ static Identity getIdFromArg(char *arg)
 	return Identity();
 }
 
+static bool parseUnsignedIntArg(const char *s,unsigned int &v)
+{
+	if ((!s)||(!*s))
+		return false;
+	unsigned long tmp = 0UL;
+	for(const char *p=s;*p;++p) {
+		if ((*p < '0')||(*p > '9'))
+			return false;
+		tmp = (tmp * 10UL) + (unsigned long)(*p - '0');
+		if (tmp > (unsigned long)std::numeric_limits<unsigned int>::max())
+			return false;
+	}
+	v = (unsigned int)tmp;
+	return (v > 0U);
+}
+
+static std::string trimAsciiWhitespace(const std::string &s)
+{
+	std::size_t begin = 0;
+	while ((begin < s.size()) && ((s[begin] == ' ')||(s[begin] == '\t')||(s[begin] == '\r')||(s[begin] == '\n')))
+		++begin;
+	std::size_t end = s.size();
+	while ((end > begin) && ((s[end - 1] == ' ')||(s[end - 1] == '\t')||(s[end - 1] == '\r')||(s[end - 1] == '\n')))
+		--end;
+	return s.substr(begin,end - begin);
+}
+
+static bool normalizeVanityPrefix(const std::string &raw,std::string &out,std::string &err)
+{
+	std::string p = trimAsciiWhitespace(raw);
+	if (p.empty()) {
+		err = "empty vanity prefix";
+		return false;
+	}
+	if (p.size() > ZT_ADDRESS_LENGTH_HEX) {
+		err = "vanity prefix '" + p + "' is too long (max 10 hex chars)";
+		return false;
+	}
+	for(std::size_t i=0;i<p.size();++i) {
+		const char c = (char)std::tolower((unsigned char)p[i]);
+		if (c == '.') {
+			p[i] = c;
+			continue;
+		}
+		if (((c >= '0')&&(c <= '9'))||((c >= 'a')&&(c <= 'f'))) {
+			p[i] = c;
+			continue;
+		}
+		err = "invalid character in vanity prefix '" + p + "' (allowed: 0-9, a-f, '.')"; // '.' => any numeric digit
+		return false;
+	}
+	if ((p.size() >= 2)&&(p[0] == 'f')&&(p[1] == 'f')) {
+		err = "vanity prefix '" + p + "' can never match: addresses beginning with ff are reserved";
+		return false;
+	}
+	if ((p.size() == ZT_ADDRESS_LENGTH_HEX)&&(p == "0000000000")) {
+		err = "vanity prefix '" + p + "' can never match: 0000000000 is the null reserved address";
+		return false;
+	}
+	out = p;
+	return true;
+}
+
+static bool addVanityPrefixesFromCsv(const std::string &csv,std::set<std::string> &out,std::string &err)
+{
+	std::size_t start = 0;
+	while (start <= csv.size()) {
+		std::size_t comma = csv.find(',',start);
+		if (comma == std::string::npos)
+			comma = csv.size();
+		const std::string token = csv.substr(start,comma - start);
+		const std::string trimmed = trimAsciiWhitespace(token);
+		if (!trimmed.empty()) {
+			std::string normalized;
+			if (!normalizeVanityPrefix(trimmed,normalized,err))
+				return false;
+			out.insert(normalized);
+		}
+		start = comma + 1;
+	}
+	return true;
+}
+
+static bool loadVanityPrefixes(const std::string &csvArg,const std::string &prefixFile,std::vector<std::string> &prefixes,std::string &err)
+{
+	std::set<std::string> unique;
+	if (!csvArg.empty()) {
+		if (!addVanityPrefixesFromCsv(csvArg,unique,err))
+			return false;
+	}
+	if (!prefixFile.empty()) {
+		std::string contents;
+		if (!OSUtils::readFile(prefixFile.c_str(),contents)) {
+			err = "unable to read prefix file: " + prefixFile;
+			return false;
+		}
+		std::istringstream in(contents);
+		std::string line;
+		while (std::getline(in,line)) {
+			const std::string trimmed = trimAsciiWhitespace(line);
+			if (trimmed.empty())
+				continue;
+			if (trimmed[0] == '#')
+				continue;
+			std::istringstream lineIn(trimmed);
+			std::string token;
+			while (lineIn >> token) {
+				std::string normalized;
+				if (!normalizeVanityPrefix(token,normalized,err))
+					return false;
+				unique.insert(normalized);
+			}
+		}
+	}
+	prefixes.assign(unique.begin(),unique.end());
+	return true;
+}
+
+static bool vanityPrefixMatchesAddress(const char *addressHex10,const std::string &prefix)
+{
+	for(std::size_t i=0;i<prefix.size();++i) {
+		const char p = prefix[i];
+		const char a = addressHex10[i];
+		if (p == '.') {
+			if ((a < '0')||(a > '9'))
+				return false;
+		} else if (p != a) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool vanityAddressMatchesAny(const char *addressHex10,const std::vector<std::string> &prefixes,std::string *matchedPrefix)
+{
+	for(std::size_t i=0;i<prefixes.size();++i) {
+		if (vanityPrefixMatchesAddress(addressHex10,prefixes[i])) {
+			if (matchedPrefix)
+				*matchedPrefix = prefixes[i];
+			return true;
+		}
+	}
+	return false;
+}
+
+static std::string sanitizePrefixForFilename(const std::string &prefix)
+{
+	std::string p = prefix;
+	for(char &c : p) {
+		if (c == '.')
+			c = '#';
+	}
+	return p;
+}
+
+static std::string prependPrefixToFilename(const std::string &path,const std::string &prefix)
+{
+	const std::size_t slash = path.find_last_of("/\\");
+	if (slash == std::string::npos)
+		return prefix + "-" + path;
+	return path.substr(0,slash + 1) + prefix + "-" + path.substr(slash + 1);
+}
+
+static double vanityPrefixHitProbability(const std::vector<std::string> &prefixes)
+{
+	double p = 0.0;
+	for(const std::string &prefix : prefixes) {
+		double term = 1.0;
+		for(const char c : prefix)
+			term *= (c == '.') ? (10.0 / 16.0) : (1.0 / 16.0);
+		p += term;
+	}
+	if (p > 1.0)
+		p = 1.0;
+	return p;
+}
+
 #ifdef __WINDOWS__
 static int idtool(int argc, _TCHAR* argv[])
 #else
@@ -2633,54 +2811,74 @@ static int idtool(int argc,char **argv)
 	}
 
 	if (!strcmp(argv[1],"generate")) {
-		uint64_t vanity = 0;
-		int vanityBits = 0;
 		unsigned int vanityThreads = 0;
+		unsigned int generateCount = 1;
 		bool autoThreads = true;
-		if (argc >= 5) {
-			vanity = Utils::hexStrToU64(argv[4]) & 0xffffffffffULL;
-			vanityBits = 4 * (int)strlen(argv[4]);
-			if (vanityBits > 40)
-				vanityBits = 40;
-		}
-		if (argc >= 6) {
-			if (!strcmp(argv[5],"auto")) {
+		std::string vanityArg;
+		std::string prefixFileArg;
+		for(int i=4;i<argc;++i) {
+			if ((!strcmp(argv[i],"--prefix-file"))||(!strcmp(argv[i],"-f"))) {
+				if ((i + 1) >= argc) {
+					fprintf(stderr,"error: missing value for %s\n",argv[i]);
+					return 1;
+				}
+				prefixFileArg = argv[++i];
+				continue;
+			}
+			if (!strcmp(argv[i],"--count")) {
+				if ((i + 1) >= argc) {
+					fprintf(stderr,"error: missing value for %s\n",argv[i]);
+					return 1;
+				}
+				if (!parseUnsignedIntArg(argv[i + 1],generateCount)) {
+					fprintf(stderr,"error: invalid --count value: %s\n",argv[i + 1]);
+					return 1;
+				}
+				++i;
+				continue;
+			}
+			if (vanityArg.empty()) {
+				vanityArg = argv[i];
+				continue;
+			}
+			if (!strcmp(argv[i],"auto")) {
 				autoThreads = true;
 				vanityThreads = 0;
-			} else {
-				autoThreads = false;
-				vanityThreads = std::max(1U,Utils::strToUInt(argv[5]));
+				continue;
 			}
-		}
-
-		if (vanityBits >= 8) {
-			const uint64_t prefixFirstByte = (vanity >> (vanityBits - 8)) & 0xffULL;
-			if (prefixFirstByte == ZT_ADDRESS_RESERVED_PREFIX) {
-				fprintf(stderr,"error: vanity prefix '%s' can never match: addresses beginning with %02x are reserved\n",argv[4],ZT_ADDRESS_RESERVED_PREFIX);
+			unsigned int parsedThreads = 0U;
+			if (!parseUnsignedIntArg(argv[i],parsedThreads)) {
+				fprintf(stderr,"error: unrecognized generate argument: %s\n",argv[i]);
 				return 1;
 			}
+			autoThreads = false;
+			vanityThreads = parsedThreads;
 		}
-		if ((vanityBits == 40)&&(vanity == 0ULL)) {
-			fprintf(stderr,"error: vanity prefix '%s' can never match: 0000000000 is the null reserved address\n",argv[4]);
+		std::vector<std::string> vanityPrefixes;
+		std::string prefixLoadErr;
+		if (!loadVanityPrefixes(vanityArg,prefixFileArg,vanityPrefixes,prefixLoadErr)) {
+			fprintf(stderr,"error: %s\n",prefixLoadErr.c_str());
 			return 1;
 		}
 
-		Identity id;
-		if (vanityBits <= 0) {
-			id.generate();
-		} else {
-			const double successProbPerTry = std::ldexp(1.0,-vanityBits);
-			const double logFailure = std::log1p(-successProbPerTry);
-			const uint64_t triesFor50pct = (successProbPerTry >= 1.0)
-				? 1ULL
-				: (uint64_t)std::ceil(std::log(0.5) / logFailure);
+		struct VanityGenerateResult {
+			Identity id;
+			std::string matchedPrefix;
+		};
+
+		auto generateVanityIdentity = [&vanityPrefixes,&autoThreads,&vanityThreads]() -> VanityGenerateResult {
 			std::atomic<uint64_t> attempts(0ULL);
 			std::atomic<bool> stopFlag(false);
 			std::atomic<bool> found(false);
 			std::mutex winnerLock;
 			Identity winner;
-			const uint64_t target = vanity << (40 - vanityBits);
+			std::string winnerPrefix;
 			const unsigned int hwThreads = std::max(1U,std::thread::hardware_concurrency());
+			const double successProbPerTry = vanityPrefixHitProbability(vanityPrefixes);
+			const double logFailure = (successProbPerTry > 0.0) ? std::log1p(-successProbPerTry) : 0.0;
+			const uint64_t triesFor50pct = (successProbPerTry >= 1.0)
+				? 1ULL
+				: ((successProbPerTry > 0.0) ? (uint64_t)std::ceil(std::log(0.5) / logFailure) : 0ULL);
 
 			if (autoThreads) {
 				unsigned int bestT = 1U;
@@ -2696,8 +2894,8 @@ static int idtool(int argc,char **argv)
 						probeWorkers.emplace_back([&probeAttempts,&probeStop]() {
 							Identity local;
 							while (!probeStop.load(std::memory_order_relaxed)) {
-								if (!local.generateVanity(0ULL,0,&probeStop,&probeAttempts))
-									return;
+								local.generate();
+								probeAttempts.fetch_add(1ULL,std::memory_order_relaxed);
 							}
 						});
 					}
@@ -2716,26 +2914,44 @@ static int idtool(int argc,char **argv)
 				}
 				vanityThreads = bestT;
 				fprintf(stderr,"vanity address: auto selected %u thread(s)\n",vanityThreads);
+				autoThreads = false;
 			}
 			if (vanityThreads == 0)
 				vanityThreads = 1;
 
-			fprintf(stderr,"vanity address: searching for prefix %s (%d bits) with %u thread(s)\n",argv[4],vanityBits,vanityThreads);
-			fprintf(stderr,"vanity address: 50%% success chance after ~%llu tries\n",(unsigned long long)triesFor50pct);
+			fprintf(stderr,"vanity address: searching for %zu prefix(es) with %u thread(s): ",vanityPrefixes.size(),vanityThreads);
+			for(std::size_t i=0;i<vanityPrefixes.size();++i) {
+				if (i)
+					fprintf(stderr,",");
+				fprintf(stderr,"%s",vanityPrefixes[i].c_str());
+			}
+			fprintf(stderr,"\n");
+			if (triesFor50pct > 0ULL)
+				fprintf(stderr,"vanity address: 50%% success chance after ~%llu tries\n",(unsigned long long)triesFor50pct);
+			else fprintf(stderr,"vanity address: could not estimate 50%% success point (very low/unknown hit probability)\n");
 
 			unsigned int currentThreads = vanityThreads;
-			auto launchWorkers = [&attempts,&stopFlag,&found,&winnerLock,&winner,vanity,vanityBits](unsigned int count,std::vector<std::thread> &workers) {
+			auto launchWorkers = [&attempts,&stopFlag,&found,&winnerLock,&winner,&winnerPrefix,&vanityPrefixes](unsigned int count,std::vector<std::thread> &workers) {
 				workers.clear();
 				workers.reserve(count);
 				for(unsigned int i=0;i<count;++i) {
-					workers.emplace_back([&attempts,&stopFlag,&found,&winnerLock,&winner,vanity,vanityBits]() {
+					workers.emplace_back([&attempts,&stopFlag,&found,&winnerLock,&winner,&winnerPrefix,&vanityPrefixes]() {
 						Identity local;
-						if (local.generateVanity(vanity,vanityBits,&stopFlag,&attempts)) {
-							bool expected = false;
-							if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
-								std::lock_guard<std::mutex> lock(winnerLock);
-								winner = local;
-								stopFlag.store(true,std::memory_order_relaxed);
+						char addrBuf[11];
+						while (!stopFlag.load(std::memory_order_relaxed)) {
+							local.generate();
+							attempts.fetch_add(1ULL,std::memory_order_relaxed);
+							local.address().toString(addrBuf);
+							std::string matched;
+							if (vanityAddressMatchesAny(addrBuf,vanityPrefixes,&matched)) {
+								bool expected = false;
+								if (found.compare_exchange_strong(expected,true,std::memory_order_relaxed)) {
+									std::lock_guard<std::mutex> lock(winnerLock);
+									winner = local;
+									winnerPrefix = matched;
+									stopFlag.store(true,std::memory_order_relaxed);
+								}
+								return;
 							}
 						}
 					});
@@ -2790,11 +3006,11 @@ static int idtool(int argc,char **argv)
 				const double rate15m = boxcarRate(900.0);
 				if (rate > bestWindowRate)
 					bestWindowRate = rate;
-				const double successProb = 1.0 - std::exp(logFailure * (double)t);
+				const double successProb = (successProbPerTry > 0.0) ? (1.0 - std::exp(logFailure * (double)t)) : 0.0;
 				double eta50_1m = 0.0;
 				double eta50_5m = 0.0;
 				double eta50_15m = 0.0;
-				if (t < triesFor50pct) {
+				if ((triesFor50pct > 0ULL) && (t < triesFor50pct)) {
 					if (rate1m > 0.0)
 						eta50_1m = ((double)(triesFor50pct - t) / rate1m);
 					if (rate5m > 0.0)
@@ -2817,9 +3033,9 @@ static int idtool(int argc,char **argv)
 					(unsigned long long)t,
 					rate,
 					std::min(100.0,successProb * 100.0),
-					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50_1m).c_str(),
-					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50_5m).c_str(),
-					(t >= triesFor50pct) ? "reached" : formatDurationSeconds(eta50_15m).c_str());
+					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_1m).c_str(),
+					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_5m).c_str(),
+					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_15m).c_str());
 #ifdef __LINUX__
 				if (thermal.freqValid) {
 					const double freqPct = thermal.freqRatio * 100.0;
@@ -2871,38 +3087,72 @@ static int idtool(int argc,char **argv)
 			for(std::thread &th : workers)
 				th.join();
 
-			{
-				std::lock_guard<std::mutex> lock(winnerLock);
-				id = winner;
-			}
-
 			const uint64_t totalAttempts = attempts.load(std::memory_order_relaxed);
 			const double totalElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 			const double finalRate = (totalElapsed > 0.0) ? ((double)totalAttempts / totalElapsed) : 0.0;
+			char foundAddr[11];
+			winner.address().toString(foundAddr);
 			fprintf(stderr,
-				"vanity address: found %.10llx after %llu tries in %s (%.2f ids/s), target %.10llx\n",
-				(unsigned long long)id.address().toInt(),
+				"vanity address: found %s (prefix %s) after %llu tries in %s (%.2f ids/s)\n",
+				foundAddr,
+				winnerPrefix.c_str(),
 				(unsigned long long)totalAttempts,
 				formatDurationSeconds(totalElapsed).c_str(),
-				finalRate,
-				(unsigned long long)target);
-		}
+				finalRate);
+			VanityGenerateResult r;
+			r.id = winner;
+			r.matchedPrefix = winnerPrefix;
+			return r;
+		};
 
-		char idtmp[1024];
-		std::string idser = id.toString(true,idtmp);
-		if (argc >= 3) {
-			if (!OSUtils::writeFile(argv[2],idser)) {
-				fprintf(stderr,"Error writing to %s" ZT_EOL_S,argv[2]);
-				return 1;
-			} else printf("%s written" ZT_EOL_S,argv[2]);
-			if (argc >= 4) {
-				idser = id.toString(false,idtmp);
-				if (!OSUtils::writeFile(argv[3],idser)) {
-					fprintf(stderr,"Error writing to %s" ZT_EOL_S,argv[3]);
-					return 1;
-				} else printf("%s written" ZT_EOL_S,argv[3]);
+		for(unsigned int n=0;n<generateCount;++n) {
+			Identity id;
+			std::string matchedPrefix;
+			if (vanityPrefixes.empty()) {
+				id.generate();
+			} else {
+				if (generateCount > 1U)
+					fprintf(stderr,"vanity address: generating identity %u/%u\n",n + 1U,generateCount);
+				const VanityGenerateResult r = generateVanityIdentity();
+				id = r.id;
+				matchedPrefix = r.matchedPrefix;
 			}
-		} else printf("%s",idser.c_str());
+
+			char idtmp[1024];
+			std::string idser = id.toString(true,idtmp);
+			if (argc >= 3) {
+				std::string outSecret = argv[2];
+				std::string outPublic;
+				if (argc >= 4)
+					outPublic = argv[3];
+				if (generateCount > 1U) {
+					std::string filePrefix = matchedPrefix;
+					if (filePrefix.empty()) {
+						char addrBuf[11];
+						id.address().toString(addrBuf);
+						filePrefix = addrBuf;
+					}
+					const std::string safePrefix = sanitizePrefixForFilename(filePrefix);
+					outSecret = prependPrefixToFilename(outSecret,safePrefix);
+					if (!outPublic.empty())
+						outPublic = prependPrefixToFilename(outPublic,safePrefix);
+				}
+				if (!OSUtils::writeFile(outSecret.c_str(),idser)) {
+					fprintf(stderr,"Error writing to %s" ZT_EOL_S,outSecret.c_str());
+					return 1;
+				} else printf("%s written" ZT_EOL_S,outSecret.c_str());
+				if (!outPublic.empty()) {
+					idser = id.toString(false,idtmp);
+					if (!OSUtils::writeFile(outPublic.c_str(),idser)) {
+						fprintf(stderr,"Error writing to %s" ZT_EOL_S,outPublic.c_str());
+						return 1;
+					} else printf("%s written" ZT_EOL_S,outPublic.c_str());
+				}
+			} else {
+				if (generateCount == 1U) printf("%s",idser.c_str());
+				else printf("%s" ZT_EOL_S,idser.c_str());
+			}
+		}
 	} else if (!strcmp(argv[1],"validate")) {
 		if (argc < 3) {
 			idtoolPrintHelp(stdout,argv[0]);
