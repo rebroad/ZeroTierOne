@@ -84,9 +84,11 @@
 #include <chrono>	// TODO needed?
 #include <cmath>	// TODO needed?
 #include <deque>	// TODO needed?
+#include <fstream>
 #include <iostream>
 #include <limits>	// TODO needed?
-#include <mutex>	// TODO needed?
+#include <map>
+#include <mutex>   // TODO needed?
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
@@ -2583,7 +2585,7 @@ static void idtoolPrintHelp(FILE* out, const char* pn)
 	fprintf(out, "%s version %d.%d.%d (%s build)" ZT_EOL_S, PROGRAM_NAME, ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION, nativeBuildMode());
 	fprintf(out, COPYRIGHT_NOTICE ZT_EOL_S LICENSE_GRANT ZT_EOL_S);
 	fprintf(out, "Usage: %s <command> [<args>]" ZT_EOL_S "" ZT_EOL_S "Commands:" ZT_EOL_S, pn);
-	fprintf(out, "  generate [<identity.secret>] [<identity.public>] [<vanity[,vanity...]>] [<threads|auto>] [--prefix-file <file>] [--count <n>]" ZT_EOL_S);
+	fprintf(out, "  generate [<identity.secret>] [<identity.public>] [<vanity[,vanity...]>] [<threads|auto>] [--prefix-file <file>] [--count <n>] [--estimate] [--timing-file <file>]" ZT_EOL_S);
 	fprintf(out, "  validate <identity.secret/public>" ZT_EOL_S);
 	fprintf(out, "  getpublic <identity.secret>" ZT_EOL_S);
 	fprintf(out, "  sign <identity.secret> <file>" ZT_EOL_S);
@@ -2839,6 +2841,139 @@ static double vanityPrefixHitProbability(const std::vector<std::string>& prefixe
 	return p;
 }
 
+static std::string formatVanityTimingLogLine(const uint64_t tries, const double elapsedSeconds, const unsigned int threads)
+{
+	time_t now = time((time_t*)0);
+	char ts[64];
+	struct tm tmv;
+#ifdef _WIN32
+	localtime_s(&tmv, &now);
+#else
+	localtime_r(&now, &tmv);
+#endif
+	strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tmv);
+
+	std::ostringstream out;
+	const uint64_t avgNs = (tries > 0ULL) ? (uint64_t)std::llround((elapsedSeconds * 1000000000.0) / (double)tries) : 0ULL;
+	out << ts << " threads=" << threads << " tries=" << tries << " elapsed_s=" << elapsedSeconds << " avg_ns=" << avgNs << " rate_ids_per_sec=" << ((elapsedSeconds > 0.0) ? ((double)tries / elapsedSeconds) : 0.0);
+	return out.str();
+}
+
+static bool parseTimingLineThreadCount(const std::string& line, unsigned int& threadsOut)
+{
+	const std::size_t p = line.find("threads=");
+	if (p == std::string::npos)
+		return false;
+	std::size_t i = p + 8;
+	if ((i >= line.size()) || (line[i] < '0') || (line[i] > '9'))
+		return false;
+	unsigned long v = 0UL;
+	for (; i < line.size(); ++i) {
+		const char c = line[i];
+		if ((c < '0') || (c > '9'))
+			break;
+		v = (v * 10UL) + (unsigned long)(c - '0');
+		if (v > (unsigned long)std::numeric_limits<unsigned int>::max())
+			return false;
+	}
+	threadsOut = (unsigned int)v;
+	return true;
+}
+
+static bool upsertVanityTimingLog(const std::string& filePath, const uint64_t tries, const double elapsedSeconds, const unsigned int threads)
+{
+	std::vector<std::string> kept;
+	std::string existing;
+	if (OSUtils::readFile(filePath.c_str(), existing)) {
+		std::istringstream in(existing);
+		std::string line;
+		while (std::getline(in, line)) {
+			const std::string trimmed = trimAsciiWhitespace(line);
+			if (trimmed.empty())
+				continue;
+			unsigned int t = 0U;
+			if (parseTimingLineThreadCount(trimmed, t) && (t == threads))
+				continue;
+			kept.push_back(trimmed);
+		}
+	}
+	kept.push_back(formatVanityTimingLogLine(tries, elapsedSeconds, threads));
+	std::ostringstream out;
+	for (std::size_t i = 0; i < kept.size(); ++i)
+		out << kept[i] << "\n";
+	return OSUtils::writeFile(filePath.c_str(), out.str());
+}
+
+static std::string defaultVanityTimingLogPath()
+{
+#ifdef __LINUX__
+	const char* home = getenv("HOME");
+	if (home && home[0]) {
+		std::string cacheDir = std::string(home) + "/.cache";
+		if (! OSUtils::fileExists(cacheDir.c_str()))
+			(void)OSUtils::mkdir(cacheDir);
+		std::string ztCacheDir = cacheDir + "/zerotier-idtool";
+		if (! OSUtils::fileExists(ztCacheDir.c_str()))
+			(void)OSUtils::mkdir(ztCacheDir);
+		return ztCacheDir + "/vanity-timing.log";
+	}
+#endif
+	return "idtool-vanity-timing.log";
+}
+
+static bool parseTimingLineAvgNs(const std::string& line, uint64_t& avgNsOut)
+{
+	const std::size_t p = line.find("avg_ns=");
+	if (p == std::string::npos)
+		return false;
+	std::size_t i = p + 7;
+	if ((i >= line.size()) || (line[i] < '0') || (line[i] > '9'))
+		return false;
+	unsigned long long v = 0ULL;
+	for (; i < line.size(); ++i) {
+		const char c = line[i];
+		if ((c < '0') || (c > '9'))
+			break;
+		v = (v * 10ULL) + (unsigned long long)(c - '0');
+	}
+	avgNsOut = (uint64_t)v;
+	return true;
+}
+
+struct TimingProfile {
+	unsigned int threads;
+	uint64_t avgNs;
+};
+
+static std::vector<TimingProfile> loadTimingProfiles(const std::string& filePath)
+{
+	std::vector<TimingProfile> out;
+	std::string existing;
+	if (! OSUtils::readFile(filePath.c_str(), existing))
+		return out;
+	std::map<unsigned int, uint64_t> byThread;
+	std::istringstream in(existing);
+	std::string line;
+	while (std::getline(in, line)) {
+		const std::string trimmed = trimAsciiWhitespace(line);
+		if (trimmed.empty())
+			continue;
+		unsigned int t = 0U;
+		uint64_t avgNs = 0ULL;
+		if ((! parseTimingLineThreadCount(trimmed, t)) || (! parseTimingLineAvgNs(trimmed, avgNs)) || (avgNs == 0ULL))
+			continue;
+		byThread[t] = avgNs;   // later entry replaces older entry for this thread
+	}
+	for (std::map<unsigned int, uint64_t>::const_iterator i(byThread.begin()); i != byThread.end(); ++i)
+		out.push_back({ i->first, i->second });
+	std::sort(out.begin(), out.end(), [](const TimingProfile& a, const TimingProfile& b) {
+		if (a.avgNs != b.avgNs)
+			return a.avgNs < b.avgNs;
+		return a.threads < b.threads;
+	});
+	return out;
+}
+
 #ifdef __WINDOWS__
 static int idtool(int argc, _TCHAR* argv[])
 #else
@@ -2854,6 +2989,8 @@ static int idtool(int argc, char** argv)
 		unsigned int vanityThreads = 0;
 		unsigned int generateCount = 1;
 		bool autoThreads = true;
+		bool estimateOnly = false;
+		std::string timingFileArg(defaultVanityTimingLogPath());
 		std::string outSecretArg;
 		std::string outPublicArg;
 		std::string vanityArg;
@@ -2878,6 +3015,18 @@ static int idtool(int argc, char** argv)
 					return 1;
 				}
 				++i;
+				continue;
+			}
+			if ((! strcmp(argv[i], "--estimate")) || (! strcmp(argv[i], "--estimate-only"))) {
+				estimateOnly = true;
+				continue;
+			}
+			if (! strcmp(argv[i], "--timing-file")) {
+				if ((i + 1) >= argc) {
+					fprintf(stderr, "error: missing value for %s\n", argv[i]);
+					return 1;
+				}
+				timingFileArg = argv[++i];
 				continue;
 			}
 			if ((argv[i][0] == '-') && (argv[i][1] == '-')) {
@@ -2934,9 +3083,12 @@ static int idtool(int argc, char** argv)
 		struct VanityGenerateResult {
 			Identity id;
 			std::string matchedPrefix;
+			uint64_t tries;
+			double elapsedSeconds;
+			unsigned int threads;
 		};
 
-		auto generateVanityIdentity = [&vanityPrefixes, &autoThreads, &vanityThreads]() -> VanityGenerateResult {
+		auto generateVanityIdentity = [&vanityPrefixes, &autoThreads, &vanityThreads, &timingFileArg]() -> VanityGenerateResult {
 			std::atomic<uint64_t> attempts(0ULL);
 			std::atomic<bool> stopFlag(false);
 			std::atomic<bool> found(false);
@@ -2975,6 +3127,8 @@ static int idtool(int argc, char** argv)
 					const double probeElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - probeStart).count();
 					const double probeRate = (probeElapsed > 0.0) ? ((double)probeAttempts.load(std::memory_order_relaxed) / probeElapsed) : 0.0;
 					fprintf(stderr, "vanity address: autotune %u thread(s) => %.2f ids/s\n", t, probeRate);
+					if (! upsertVanityTimingLog(timingFileArg, probeAttempts.load(std::memory_order_relaxed), probeElapsed, t))
+						fprintf(stderr, "warning: unable to update vanity timing stats in %s\n", timingFileArg.c_str());
 					if (probeRate > bestRate) {
 						bestRate = probeRate;
 						bestT = t;
@@ -3164,8 +3318,38 @@ static int idtool(int argc, char** argv)
 			VanityGenerateResult r;
 			r.id = winner;
 			r.matchedPrefix = winnerPrefix;
+			r.tries = totalAttempts;
+			r.elapsedSeconds = totalElapsed;
+			r.threads = currentThreads;
 			return r;
 		};
+
+		if (estimateOnly) {
+			const double pTry = vanityPrefixes.empty() ? 1.0 : vanityPrefixHitProbability(vanityPrefixes);
+			const double logFailure = (pTry > 0.0) ? std::log1p(-pTry) : 0.0;
+			const uint64_t tries50 = (pTry >= 1.0) ? 1ULL : ((pTry > 0.0) ? (uint64_t)std::ceil(std::log(0.5) / logFailure) : 0ULL);
+			const std::vector<TimingProfile> profiles = loadTimingProfiles(timingFileArg);
+			printf("probability_per_try: %.12g" ZT_EOL_S, pTry);
+			printf("tries_for_50pct: %llu" ZT_EOL_S, (unsigned long long)tries50);
+			if (profiles.empty()) {
+				printf("timing_profiles: none (run vanity generation first to collect per-thread timing in %s)" ZT_EOL_S, timingFileArg.c_str());
+				printf("estimated_time_for_50pct: unknown" ZT_EOL_S);
+				return 0;
+			}
+			printf("timing_profiles: %zu" ZT_EOL_S, profiles.size());
+			for (std::size_t i = 0; i < profiles.size(); ++i) {
+				const unsigned int t = profiles[i].threads;
+				const double avgNs = (double)profiles[i].avgNs;
+				const double estRate = (avgNs > 0.0) ? (1000000000.0 / avgNs) : 0.0;
+				printf("profile[%zu]: threads=%u avg_ns=%llu est_rate_ids_per_sec=%.2f", i, t, (unsigned long long)profiles[i].avgNs, estRate);
+				if ((tries50 > 0ULL) && (estRate > 0.0))
+					printf(" est_time_for_50pct=%s", formatDurationSeconds((double)tries50 / estRate).c_str());
+				else
+					printf(" est_time_for_50pct=unknown");
+				printf(ZT_EOL_S);
+			}
+			return 0;
+		}
 
 		for (unsigned int n = 0; n < generateCount; ++n) {
 			Identity id;
@@ -3179,6 +3363,8 @@ static int idtool(int argc, char** argv)
 				const VanityGenerateResult r = generateVanityIdentity();
 				id = r.id;
 				matchedPrefix = r.matchedPrefix;
+				if ((r.tries > 0ULL) && (! upsertVanityTimingLog(timingFileArg, r.tries, r.elapsedSeconds, r.threads)))
+					fprintf(stderr, "warning: unable to update vanity timing stats in %s\n", timingFileArg.c_str());
 			}
 
 			char idtmp[1024];
