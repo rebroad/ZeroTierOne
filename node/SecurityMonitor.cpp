@@ -72,7 +72,7 @@ void SecurityMonitor::recordSecurityEvent(void* tPtr, const InetAddress& sourceI
 
 	// Calculate current threat level
 	ThreatLevel newThreatLevel = _calculateThreatLevel(ipStats, now);
-	bool threatLevelChanged = (newThreatLevel != ipStats.currentThreatLevel);
+	[[maybe_unused]] bool threatLevelChanged = (newThreatLevel != ipStats.currentThreatLevel);
 	ipStats.currentThreatLevel = newThreatLevel;
 
 	// Create security event record and log it immediately
