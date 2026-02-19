@@ -3017,7 +3017,7 @@ static int idtool(int argc, char** argv)
 				++i;
 				continue;
 			}
-			if ((! strcmp(argv[i], "--estimate")) || (! strcmp(argv[i], "--estimate-only"))) {
+			if (! strcmp(argv[i], "--estimate")) {
 				estimateOnly = true;
 				continue;
 			}
@@ -3252,15 +3252,20 @@ static int idtool(int argc, char** argv)
 					packageThrottleDelta = thermal.packageThrottleCount - lastThermal.packageThrottleCount;
 #endif
 
-				fprintf(
-					stderr,
-					"vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA(1m/5m/15m) %s / %s / %s",
-					(unsigned long long)t,
-					rate,
-					std::min(100.0, successProb * 100.0),
-					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_1m).c_str(),
-					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_5m).c_str(),
-					((triesFor50pct > 0ULL) && (t >= triesFor50pct)) ? "reached" : formatDurationSeconds(eta50_15m).c_str());
+				const double runElapsed = std::chrono::duration<double>(now - start).count();
+				const bool reached50 = ((triesFor50pct > 0ULL) && (t >= triesFor50pct));
+				const std::string eta1 = reached50 ? "--:--" : ((eta50_1m > 0.0) ? formatDurationSeconds(eta50_1m) : "??:??");
+				const std::string eta5 = reached50 ? "--:--" : ((eta50_5m > 0.0) ? formatDurationSeconds(eta50_5m) : "??:??");
+				const std::string eta15 = reached50 ? "--:--" : ((eta50_15m > 0.0) ? formatDurationSeconds(eta50_15m) : "??:??");
+				if (runElapsed < 60.0) {
+					fprintf(stderr, "vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA(1m) %s", (unsigned long long)t, rate, std::min(100.0, successProb * 100.0), eta1.c_str());
+				}
+				else if (runElapsed < 300.0) {
+					fprintf(stderr, "vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA(1m/5m) %s / %s", (unsigned long long)t, rate, std::min(100.0, successProb * 100.0), eta1.c_str(), eta5.c_str());
+				}
+				else {
+					fprintf(stderr, "vanity address: %llu tries, %.2f ids/s, success %.2f%%, 50%% ETA(1m/5m/15m) %s / %s / %s", (unsigned long long)t, rate, std::min(100.0, successProb * 100.0), eta1.c_str(), eta5.c_str(), eta15.c_str());
+				}
 #ifdef __LINUX__
 				if (thermal.freqValid) {
 					const double freqPct = thermal.freqRatio * 100.0;
@@ -3341,7 +3346,7 @@ static int idtool(int argc, char** argv)
 				const unsigned int t = profiles[i].threads;
 				const double avgNs = (double)profiles[i].avgNs;
 				const double estRate = (avgNs > 0.0) ? (1000000000.0 / avgNs) : 0.0;
-				printf("profile[%zu]: threads=%u avg_ns=%llu est_rate_ids_per_sec=%.2f", i, t, (unsigned long long)profiles[i].avgNs, estRate);
+				printf("threads=%u avg_ns=%llu est_rate_ids_per_sec=%.2f", t, (unsigned long long)profiles[i].avgNs, estRate);
 				if ((tries50 > 0ULL) && (estRate > 0.0))
 					printf(" est_time_for_50pct=%s", formatDurationSeconds((double)tries50 / estRate).c_str());
 				else
