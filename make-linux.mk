@@ -74,18 +74,18 @@ ifeq ($(ZT_SANITIZE),1)
 	override DEFS+=-fsanitize=address -DASAN_OPTIONS=symbolize=1
 endif
 ifeq ($(ZT_DEBUG),1)
-	override CFLAGS+=-Wall -Wno-deprecated -g -O -pthread $(INCLUDES) $(DEFS)
-	override CXXFLAGS+=-Wall -Wno-deprecated -g -O -std=c++17 -pthread $(INCLUDES) $(DEFS)
+	override CFLAGS+=-Wall -Werror -Wno-deprecated -g -O -pthread $(INCLUDES) $(DEFS)
+	override CXXFLAGS+=-Wall -Werror -Wno-deprecated -g -O -std=c++17 -pthread $(INCLUDES) $(DEFS)
 	ZT_TRACE=1
 	ZT_CARGO_FLAGS=
 	# The following line enables optimization for the crypto code, since
 	# C25519 in particular is almost UNUSABLE in -O0 even on a 3ghz box!
-node/Salsa20.o node/SHA512.o node/C25519.o node/Poly1305.o: CXXFLAGS=-Wall -O2 -g -pthread $(INCLUDES) $(DEFS)
+node/Salsa20.o node/SHA512.o node/C25519.o node/Poly1305.o: CXXFLAGS=-Wall -Werror -O2 -g -pthread $(INCLUDES) $(DEFS)
 else
-	CFLAGS?=-O3 -fstack-protector -g
-	override CFLAGS+=-Wall -Wno-deprecated -pthread $(INCLUDES) -DNDEBUG $(DEFS)
-	CXXFLAGS?=-O3 -fstack-protector -g
-	override CXXFLAGS+=-Wall -Wno-deprecated -std=c++17 -pthread $(INCLUDES) -DNDEBUG $(DEFS)
+    CFLAGS?=-O3 -fstack-protector -g
+	override CFLAGS+=-Wall -Werror -Wno-deprecated -pthread $(INCLUDES) -DNDEBUG $(DEFS)
+    CXXFLAGS?=-O3 -fstack-protector -g
+	override CXXFLAGS+=-Wall -Werror -Wno-deprecated -std=c++17 -pthread $(INCLUDES) -DNDEBUG $(DEFS)
 	LDFLAGS?=-pie -Wl,-z,relro,-z,now
 	ZT_CARGO_FLAGS=--release
 endif
@@ -356,7 +356,7 @@ endif
 #endif
 
 ifeq ($(ZT_CONTROLLER),1)
-	override CXXFLAGS+=-Wall -Wno-deprecated -std=c++17 -pthread $(INCLUDES) -DNDEBUG $(DEFS)
+	override CXXFLAGS+=-Wall -Werror -Wno-deprecated -std=c++17 -pthread $(INCLUDES) -DNDEBUG $(DEFS)
 	override LDLIBS+=-Lext/libpqxx-7.7.3/install/ubuntu22.04/$(EXT_ARCH)/lib -lpqxx -lpq ext/hiredis-1.0.2/lib/ubuntu22.04/$(EXT_ARCH)/libhiredis.a ext/redis-plus-plus-1.3.3/install/ubuntu22.04/$(EXT_ARCH)/lib/libredis++.a -lssl -lcrypto
 	override DEFS+=-DZT_CONTROLLER_USE_LIBPQ -DZT_NO_PEER_METRICS -DZT_OPENTELEMETRY_ENABLED
 	override INCLUDES+=-I/usr/include/postgresql -Iext/libpqxx-7.7.3/install/ubuntu22.04/$(EXT_ARCH)/include -Iext/hiredis-1.0.2/include/ -Iext/redis-plus-plus-1.3.3/install/ubuntu22.04/$(EXT_ARCH)/include/sw/
