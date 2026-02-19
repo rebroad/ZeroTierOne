@@ -55,10 +55,9 @@ class Capability : public Credential {
 		return Credential::CREDENTIAL_TYPE_CAPABILITY;
 	}
 
-	Capability() : _nwid(0), _ts(0), _id(0), _maxCustodyChainLength(0), _ruleCount(0)
+	Capability() : _nwid(0), _ts(0), _id(0), _maxCustodyChainLength(0), _ruleCount(0), _custody()
 	{
 		memset(_rules, 0, sizeof(_rules));
-		memset(_custody, 0, sizeof(_custody));
 	}
 
 	/**

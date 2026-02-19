@@ -1,6 +1,6 @@
 #include "sc25519.h"
 
-void sc25519_window4(signed char r[64], const sc25519 *s)
+void sc25519_window4(signed char r[85], const sc25519 *s)
 {
   char carry;
   int i;

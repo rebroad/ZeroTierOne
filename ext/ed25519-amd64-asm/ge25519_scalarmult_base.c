@@ -16,7 +16,7 @@ static const ge25519_niels ge25519_base_multiples_niels[] = {
 
 void ge25519_scalarmult_base(ge25519_p3 *r, const sc25519 *s)
 {
-  signed char b[64];
+  signed char b[85];
   int i;
   ge25519_niels t;
   fe25519 d;

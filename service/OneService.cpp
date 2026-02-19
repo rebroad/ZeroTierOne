@@ -1152,7 +1152,6 @@ class OneServiceImpl : public OneService {
 		return;
 #endif
 		_node->initMultithreading(_concurrency, _cpuPinningEnabled);
-		bool pinning = _cpuPinningEnabled;
 	}
 
 #ifdef ZT_OPENTELEMETRY_ENABLED
@@ -1908,13 +1907,12 @@ class OneServiceImpl : public OneService {
 					auto match = req.matches[1];
 					if (match.matched) {
 						// fallback
-						char indexHtmlPath[16384];
-						snprintf(indexHtmlPath, sizeof(indexHtmlPath), "%s/%s/%s", appUiDir, match.str().c_str(), "index.html");
+						const std::string indexHtmlPath = std::string(appUiDir) + "/" + match.str() + "/index.html";
 						// fprintf(stderr, "fallback path %s\n", indexHtmlPath);
 
 						std::string indexHtml;
 
-						if (! OSUtils::readFile(indexHtmlPath, indexHtml)) {
+						if (! OSUtils::readFile(indexHtmlPath.c_str(), indexHtml)) {
 							res.status = 500;
 							return;
 						}
@@ -1932,10 +1930,9 @@ class OneServiceImpl : public OneService {
 
 					// add .html
 					std::string htmlFile;
-					char htmlPath[16384];
-					snprintf(htmlPath, sizeof(htmlPath), "%s%s%s", appUiDir, (req.path).substr(appUiPath.length()).c_str(), ".html");
+					const std::string htmlPath = std::string(appUiDir) + (req.path).substr(appUiPath.length()) + ".html";
 					// fprintf(stderr, "path: %s\n", htmlPath);
-					if (OSUtils::readFile(htmlPath, htmlFile)) {
+					if (OSUtils::readFile(htmlPath.c_str(), htmlFile)) {
 						res.set_content(htmlFile.c_str(), "text/html");
 						return;
 					}
@@ -2565,7 +2562,7 @@ class OneServiceImpl : public OneService {
 			// Enumerate all local address/port pairs that this node is listening on
 			std::vector<InetAddress> boundAddrs(_binder.allBoundLocalInterfaceAddresses());
 			auto boundAddrArray = json::array();
-			for (int i = 0; i < boundAddrs.size(); i++) {
+			for (std::vector<InetAddress>::size_type i = 0; i < boundAddrs.size(); ++i) {
 				char ipBuf[64] = { 0 };
 				boundAddrs[i].toString(ipBuf);
 				boundAddrArray.push_back(ipBuf);
@@ -2574,7 +2571,7 @@ class OneServiceImpl : public OneService {
 			// Enumerate all external address/port pairs that are reported for this node
 			std::vector<InetAddress> surfaceAddrs = _node->SurfaceAddresses();
 			auto surfaceAddrArray = json::array();
-			for (int i = 0; i < surfaceAddrs.size(); i++) {
+			for (std::vector<InetAddress>::size_type i = 0; i < surfaceAddrs.size(); ++i) {
 				char ipBuf[64] = { 0 };
 				surfaceAddrs[i].toString(ipBuf);
 				surfaceAddrArray.push_back(ipBuf);
@@ -3538,8 +3535,6 @@ class OneServiceImpl : public OneService {
 		// Track wire packet metrics for all packets (successful and failed) from identified peers
 		if (localAddr && from) {
 			const InetAddress fromAddress(from);
-			const bool isSuccessful = (rc == ZT_RESULT_OK);
-
 			// TIER 1: Track basic wire-level metrics using authenticated ZT address from Tier 2
 			// originPeerZTAddr now contains the authenticated ZT address from processWirePacket
 			/*if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {

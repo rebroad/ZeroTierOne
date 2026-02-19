@@ -6,7 +6,7 @@
  * https://www.zerotier.com/
  */
 
-#ifdef __GNUC__
+#if defined(__GNUC__) && ! defined(__clang__)
 #pragma GCC diagnostic ignored "-Wrestrict"
 #endif
 
@@ -216,7 +216,10 @@ LinuxEthernetTap::LinuxEthernetTap(
 	_dev = ifr.ifr_name;
 	::fcntl(_fd, F_SETFD, fcntl(_fd, F_GETFD) | FD_CLOEXEC);
 
-	(void)::pipe(_shutdownSignalPipe);
+	if (::pipe(_shutdownSignalPipe) != 0) {
+		::close(_fd);
+		throw std::runtime_error("unable to create shutdown signal pipe for Linux tap");
+	}
 
 	for (unsigned int i = 0; i < concurrency; ++i) {
 		_rxThreads.push_back(std::thread([this, i, concurrency, pinning] {
@@ -358,7 +361,7 @@ LinuxEthernetTap::LinuxEthernetTap(
 LinuxEthernetTap::~LinuxEthernetTap()
 {
 	_run = false;
-	(void)::write(_shutdownSignalPipe[1], "\0", 1);
+	if (::write(_shutdownSignalPipe[1], "\0", 1) < 0) {}
 	::close(_fd);
 	::close(_shutdownSignalPipe[0]);
 	::close(_shutdownSignalPipe[1]);
@@ -509,7 +512,7 @@ void LinuxEthernetTap::put(const MAC& from, const MAC& to, unsigned int etherTyp
 		*((uint16_t*)(putBuf + 12)) = htons((uint16_t)etherType);
 		memcpy(putBuf + 14, data, len);
 		len += 14;
-		(void)::write(_fd, putBuf, len);
+		if (::write(_fd, putBuf, len) < 0) {}
 	}
 }
 

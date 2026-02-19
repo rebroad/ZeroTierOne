@@ -133,8 +133,9 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 	};
 
 	struct PhySocketImpl {
-		PhySocketImpl()
+		PhySocketImpl() : type(ZT_PHY_SOCKET_CLOSED), sock(ZT_PHY_SOCKFD_NULL), uptr((void*)0), localPort(0)
 		{
+			memset(&saddr, 0, sizeof(saddr));
 		}
 		PhySocketType type;
 		ZT_PHY_SOCKFD_TYPE sock;
@@ -260,7 +261,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 #if defined(_WIN32) || defined(_WIN64)
 		::send(_whackSendSocket, (const char*)this, 1, 0);
 #else
-		(void)(::write(_whackSendSocket, (PhySocket*)this, 1));
+		const ssize_t n = ::write(_whackSendSocket, (PhySocket*)this, 1);
+		(void)n;
 #endif
 	}
 
@@ -938,7 +940,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 #if defined(_WIN32) || defined(_WIN64)
 			::recv(_whackReceiveSocket, tmp, 16, 0);
 #else
-			::read(_whackReceiveSocket, tmp, 16);
+			const ssize_t n = ::read(_whackReceiveSocket, tmp, 16);
+			(void)n;
 #endif
 		}
 

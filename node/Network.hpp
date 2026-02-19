@@ -479,9 +479,8 @@ class Network {
 	int64_t _lastConfigUpdate;
 
 	struct _IncomingConfigChunk {
-		_IncomingConfigChunk()
+		_IncomingConfigChunk() : ts(0), updateId(0), haveChunkIds(), haveChunks(0), haveBytes(0), data()
 		{
-			memset(this, 0, sizeof(_IncomingConfigChunk));
 		}
 		uint64_t ts;
 		uint64_t updateId;

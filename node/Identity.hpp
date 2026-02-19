@@ -36,7 +36,7 @@ namespace ZeroTier {
  */
 class Identity {
   public:
-	Identity() : _privateKey((ECC::Private*)0)
+	Identity() : _address(), _publicKey(), _privateKey((ECC::Private*)0)
 	{
 	}
 
@@ -44,14 +44,14 @@ class Identity {
 	{
 	}
 
-	Identity(const char* str) : _privateKey((ECC::Private*)0)
+	Identity(const char* str) : _address(), _publicKey(), _privateKey((ECC::Private*)0)
 	{
 		if (! fromString(str)) {
 			throw ZT_EXCEPTION_INVALID_SERIALIZED_DATA_INVALID_TYPE;
 		}
 	}
 
-	template <unsigned int C> Identity(const Buffer<C>& b, unsigned int startAt = 0) : _privateKey((ECC::Private*)0)
+	template <unsigned int C> Identity(const Buffer<C>& b, unsigned int startAt = 0) : _address(), _publicKey(), _privateKey((ECC::Private*)0)
 	{
 		deserialize(b, startAt);
 	}

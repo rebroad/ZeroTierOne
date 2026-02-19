@@ -754,10 +754,10 @@ static int cli(int argc, char** argv)
 								printf("-");
 							}
 							printf("\n");
-							for (int i = 0; i < p.size(); i++) {
+							for (nlohmann::json::size_type i = 0; i < p.size(); ++i) {
 								printf(
 									"%2d: %26s %51s %.16llx %12d\n",
-									i,
+									(int)i,
 									OSUtils::jsonString(p[i]["ifname"], "-").c_str(),
 									OSUtils::jsonString(p[i]["address"], "-").c_str(),
 									(unsigned long long)OSUtils::jsonInt(p[i]["localSocket"], 0),
@@ -771,10 +771,10 @@ static int cli(int argc, char** argv)
 								printf("-");
 							}
 							printf("\n");
-							for (int i = 0; i < p.size(); i++) {
+							for (nlohmann::json::size_type i = 0; i < p.size(); ++i) {
 								printf(
 									"%2d: %8.2f %8.2f %10d %7.4f %11d %11d %9d %7d %7d\n",
-									i,
+									(int)i,
 									OSUtils::jsonDouble(p[i]["latencyMean"], 0),
 									OSUtils::jsonDouble(p[i]["latencyVariance"], 0),
 									(int)OSUtils::jsonInt(p[i]["givenLinkSpeed"], 0),
@@ -920,7 +920,7 @@ static int cli(int argc, char** argv)
 								else if (status == "OK") {
 									int64_t expiresIn = ((int64_t)authenticationExpiryTime - OSUtils::now()) / 1000LL;
 									if (expiresIn >= 0) {
-										printf("    AUTH OK, expires in: %lld seconds" ZT_EOL_S, expiresIn);
+										printf("    AUTH OK, expires in: %lld seconds" ZT_EOL_S, (long long)expiresIn);
 									}
 								}
 							}
@@ -1305,7 +1305,11 @@ static int cli(int argc, char** argv)
 			perror("Error creating file");
 			return 1;
 		}
-		write(fd, dump.str().c_str(), dump.str().size());
+		const std::string dumpOutput = dump.str();
+		const ssize_t written = ::write(fd, dumpOutput.c_str(), dumpOutput.size());
+		if (written < 0) {
+			perror("Error writing file");
+		}
 		close(fd);
 #elif defined(_WIN32)
 		ULONG buffLen = 16384;
@@ -1458,7 +1462,11 @@ static int cli(int argc, char** argv)
 			perror("Error creating file");
 			return 1;
 		}
-		write(fd, dump.str().c_str(), dump.str().size());
+		const std::string dumpOutput = dump.str();
+		const ssize_t written = ::write(fd, dumpOutput.c_str(), dumpOutput.size());
+		if (written < 0) {
+			perror("Error writing file");
+		}
 		close(fd);
 #else
 		fprintf(stderr, "%s", dump.str().c_str());
@@ -1597,7 +1605,6 @@ static int cli(int argc, char** argv)
 						uint64_t suspiciousPackets = peerData.value("SuspiciousPacketCount", 0ULL);
 						uint64_t attackEvents = peerData.value("AttackEventCount", 0ULL);
 						double maxDivergenceRatio = peerData.value("MaxDivergenceRatio", 0.0);
-						uint64_t lastAttackDetected = peerData.value("LastAttackDetected", 0ULL);
 
 						// Get last seen timestamps (use authenticated packets for accuracy)
 						uint64_t lastSeen = peerData.value("lastIncomingSeen", 0ULL);
@@ -2049,7 +2056,8 @@ static int cli(int argc, char** argv)
 		// Trigger ARP resolution by sending a ping
 		printf("Triggering ARP resolution..." ZT_EOL_S);
 		std::string pingCmd = "ping -c 1 -W 1 " + targetIp + " >/dev/null 2>&1";
-		(void)system(pingCmd.c_str());
+		const int pingRc = ::system(pingCmd.c_str());
+		(void)pingRc;
 
 		// Small delay to allow ARP cache to populate
 		usleep(100000);	  // 100ms
@@ -2486,7 +2494,8 @@ static int cli(int argc, char** argv)
 									// Use a more reliable approach with seq instead of bash ranges
 									std::string pingCmd = "seq 1 254 | xargs -I {} -P 50 ping -c 1 -W 1 " + baseNetwork + ".{} >/dev/null 2>&1";
 									printf("Running: %s" ZT_EOL_S, pingCmd.c_str());
-									(void)system(pingCmd.c_str());
+									const int sweepRc = ::system(pingCmd.c_str());
+									(void)sweepRc;
 
 									// Small delay to let ARP cache populate
 									usleep(500000);	  // 500ms
@@ -3697,16 +3706,14 @@ static int _setCapabilities(int flags)
 
 static void _recursiveChown(const char* path, uid_t uid, gid_t gid)
 {
-	struct dirent de;
 	struct dirent* dptr;
-	lchown(path, uid, gid);
+	if (lchown(path, uid, gid) != 0) {}
 	DIR* d = opendir(path);
 	if (! d)
 		return;
-	dptr = (struct dirent*)0;
 	for (;;) {
-		if (readdir_r(d, &de, &dptr) != 0)
-			break;
+		errno = 0;
+		dptr = readdir(d);
 		if (! dptr)
 			break;
 		if ((strcmp(dptr->d_name, ".") != 0) && (strcmp(dptr->d_name, "..") != 0) && (strlen(dptr->d_name) > 0)) {
