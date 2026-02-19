@@ -2813,6 +2813,18 @@ static std::string prependPrefixToFilename(const std::string& path, const std::s
 	return path.substr(0, slash + 1) + prefix + "-" + path.substr(slash + 1);
 }
 
+static std::string makeUniqueOutputPath(const std::string& path, const std::string& uniqueTag)
+{
+	if (! OSUtils::fileExists(path.c_str()))
+		return path;
+	const std::size_t slash = path.find_last_of("/\\");
+	const std::size_t dot = path.find_last_of('.');
+	const bool dotInBase = (dot != std::string::npos) && ((slash == std::string::npos) || (dot > slash));
+	if (dotInBase)
+		return path.substr(0, dot) + "-" + uniqueTag + path.substr(dot);
+	return path + "-" + uniqueTag;
+}
+
 static double vanityPrefixHitProbability(const std::vector<std::string>& prefixes)
 {
 	double p = 0.0;
@@ -2842,9 +2854,12 @@ static int idtool(int argc, char** argv)
 		unsigned int vanityThreads = 0;
 		unsigned int generateCount = 1;
 		bool autoThreads = true;
+		std::string outSecretArg;
+		std::string outPublicArg;
 		std::string vanityArg;
 		std::string prefixFileArg;
-		for (int i = 4; i < argc; ++i) {
+		std::vector<std::string> positional;
+		for (int i = 2; i < argc; ++i) {
 			if ((! strcmp(argv[i], "--prefix-file")) || (! strcmp(argv[i], "-f"))) {
 				if ((i + 1) >= argc) {
 					fprintf(stderr, "error: missing value for %s\n", argv[i]);
@@ -2865,22 +2880,49 @@ static int idtool(int argc, char** argv)
 				++i;
 				continue;
 			}
-			if (vanityArg.empty()) {
-				vanityArg = argv[i];
-				continue;
-			}
-			if (! strcmp(argv[i], "auto")) {
-				autoThreads = true;
-				vanityThreads = 0;
-				continue;
-			}
-			unsigned int parsedThreads = 0U;
-			if (! parseUnsignedIntArg(argv[i], parsedThreads)) {
-				fprintf(stderr, "error: unrecognized generate argument: %s\n", argv[i]);
+			if ((argv[i][0] == '-') && (argv[i][1] == '-')) {
+				fprintf(stderr, "error: unrecognized generate option: %s\n", argv[i]);
 				return 1;
 			}
-			autoThreads = false;
-			vanityThreads = parsedThreads;
+			positional.push_back(argv[i]);
+		}
+		if (positional.size() > 4) {
+			fprintf(stderr, "error: too many positional generate arguments\n");
+			return 1;
+		}
+		if (positional.size() > 0)
+			outSecretArg = positional[0];
+		if (positional.size() > 1)
+			outPublicArg = positional[1];
+		if (positional.size() == 3) {
+			unsigned int parsedThreads = 0U;
+			if ((! strcmp(positional[2].c_str(), "auto")) || parseUnsignedIntArg(positional[2].c_str(), parsedThreads)) {
+				autoThreads = true;
+				vanityThreads = 0;
+				if (strcmp(positional[2].c_str(), "auto")) {
+					autoThreads = false;
+					vanityThreads = parsedThreads;
+				}
+			}
+			else {
+				vanityArg = positional[2];
+			}
+		}
+		else if (positional.size() > 3) {
+			vanityArg = positional[2];
+			if (! strcmp(positional[3].c_str(), "auto")) {
+				autoThreads = true;
+				vanityThreads = 0;
+			}
+			else {
+				unsigned int parsedThreads = 0U;
+				if (! parseUnsignedIntArg(positional[3].c_str(), parsedThreads)) {
+					fprintf(stderr, "error: invalid thread count: %s\n", positional[3].c_str());
+					return 1;
+				}
+				autoThreads = false;
+				vanityThreads = parsedThreads;
+			}
 		}
 		std::vector<std::string> vanityPrefixes;
 		std::string prefixLoadErr;
@@ -3141,11 +3183,9 @@ static int idtool(int argc, char** argv)
 
 			char idtmp[1024];
 			std::string idser = id.toString(true, idtmp);
-			if (argc >= 3) {
-				std::string outSecret = argv[2];
-				std::string outPublic;
-				if (argc >= 4)
-					outPublic = argv[3];
+			if (! outSecretArg.empty()) {
+				std::string outSecret = outSecretArg;
+				std::string outPublic = outPublicArg;
 				if (generateCount > 1U) {
 					std::string filePrefix = matchedPrefix;
 					if (filePrefix.empty()) {
@@ -3158,6 +3198,11 @@ static int idtool(int argc, char** argv)
 					if (! outPublic.empty())
 						outPublic = prependPrefixToFilename(outPublic, safePrefix);
 				}
+				char addrBuf[11];
+				id.address().toString(addrBuf);
+				outSecret = makeUniqueOutputPath(outSecret, addrBuf);
+				if (! outPublic.empty())
+					outPublic = makeUniqueOutputPath(outPublic, addrBuf);
 				if (! OSUtils::writeFile(outSecret.c_str(), idser)) {
 					fprintf(stderr, "Error writing to %s" ZT_EOL_S, outSecret.c_str());
 					return 1;
@@ -3173,6 +3218,8 @@ static int idtool(int argc, char** argv)
 					else
 						printf("%s written" ZT_EOL_S, outPublic.c_str());
 				}
+				if (! vanityPrefixes.empty())
+					printf("%s" ZT_EOL_S, id.toString(true, idtmp));
 			}
 			else {
 				if (generateCount == 1U)
