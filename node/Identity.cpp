@@ -157,6 +157,7 @@ bool Identity::generateVanity(uint64_t vanityPrefix, int vanityBits, const std::
 		_privateKey = new ECC::Private();
 	}
 	*_privateKey = kp.priv;
+	delete[] genmem;
 
 	return true;
 }

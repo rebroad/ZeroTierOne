@@ -2746,6 +2746,8 @@ static bool addVanityPrefixesFromCsv(const std::string& csv, std::set<std::strin
 static bool loadVanityPrefixes(const std::string& csvArg, const std::string& prefixFile, std::vector<std::string>& prefixes, std::string& err)
 {
 	std::set<std::string> unique;
+	unsigned int fileValidCount = 0U;
+	unsigned int fileInvalidCount = 0U;
 	if (! csvArg.empty()) {
 		if (! addVanityPrefixesFromCsv(csvArg, unique, err))
 			return false;
@@ -2768,11 +2770,20 @@ static bool loadVanityPrefixes(const std::string& csvArg, const std::string& pre
 			std::string token;
 			while (lineIn >> token) {
 				std::string normalized;
-				if (! normalizeVanityPrefix(token, normalized, err))
-					return false;
+				std::string ignoredErr;
+				if (! normalizeVanityPrefix(token, normalized, ignoredErr)) {
+					++fileInvalidCount;
+					continue;
+				}
+				++fileValidCount;
 				unique.insert(normalized);
 			}
 		}
+		fprintf(stderr, "vanity prefix file: %u valid, %u invalid token(s) (invalid entries ignored)\n", fileValidCount, fileInvalidCount);
+	}
+	if (unique.empty() && (! csvArg.empty() || ! prefixFile.empty())) {
+		err = "no valid vanity prefixes were provided";
+		return false;
 	}
 	prefixes.assign(unique.begin(), unique.end());
 	return true;
@@ -2820,8 +2831,8 @@ static std::string prependPrefixToFilename(const std::string& path, const std::s
 {
 	const std::size_t slash = path.find_last_of("/\\");
 	if (slash == std::string::npos)
-		return prefix + "-" + path;
-	return path.substr(0, slash + 1) + prefix + "-" + path.substr(slash + 1);
+		return prefix + path;
+	return path.substr(0, slash + 1) + prefix + path.substr(slash + 1);
 }
 
 static std::string makeUniqueOutputPath(const std::string& path, const std::string& uniqueTag)
@@ -3097,7 +3108,8 @@ static int idtool(int argc, char** argv)
 			unsigned int threads;
 		};
 
-		auto generateVanityIdentity = [&vanityPrefixes, &autoThreads, &vanityThreads, &timingFileArg]() -> VanityGenerateResult {
+		bool printedSearchBanner = false;
+		auto generateVanityIdentity = [&vanityPrefixes, &autoThreads, &vanityThreads, &timingFileArg, &printedSearchBanner]() -> VanityGenerateResult {
 			std::atomic<uint64_t> attempts(0ULL);
 			std::atomic<bool> stopFlag(false);
 			std::atomic<bool> found(false);
@@ -3109,60 +3121,6 @@ static int idtool(int argc, char** argv)
 			const double logFailure = (successProbPerTry > 0.0) ? std::log1p(-successProbPerTry) : 0.0;
 			const uint64_t triesFor50pct = (successProbPerTry >= 1.0) ? 1ULL : ((successProbPerTry > 0.0) ? (uint64_t)std::ceil(std::log(0.5) / logFailure) : 0ULL);
 
-			if (autoThreads) {
-				unsigned int bestT = 1U;
-				double bestRate = 0.0;
-				const unsigned int maxProbe = std::min(12U, hwThreads);
-				fprintf(stderr, "vanity address: auto-tuning threads (1..%u, 3s each)\n", maxProbe);
-				for (unsigned int t = 1; t <= maxProbe; ++t) {
-					std::atomic<uint64_t> probeAttempts(0ULL);
-					std::atomic<bool> probeStop(false);
-					std::vector<std::thread> probeWorkers;
-					probeWorkers.reserve(t);
-					for (unsigned int i = 0; i < t; ++i) {
-						probeWorkers.emplace_back([&probeAttempts, &probeStop]() {
-							Identity local;
-							while (! probeStop.load(std::memory_order_relaxed)) {
-								local.generate();
-								probeAttempts.fetch_add(1ULL, std::memory_order_relaxed);
-							}
-						});
-					}
-					const auto probeStart = std::chrono::steady_clock::now();
-					std::this_thread::sleep_for(std::chrono::seconds(3));
-					probeStop.store(true, std::memory_order_relaxed);
-					for (std::thread& th : probeWorkers)
-						th.join();
-					const double probeElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - probeStart).count();
-					const double probeRate = (probeElapsed > 0.0) ? ((double)probeAttempts.load(std::memory_order_relaxed) / probeElapsed) : 0.0;
-					fprintf(stderr, "vanity address: autotune %u thread(s) => %.2f ids/s\n", t, probeRate);
-					if (! upsertVanityTimingLog(timingFileArg, probeAttempts.load(std::memory_order_relaxed), probeElapsed, t))
-						fprintf(stderr, "warning: unable to update vanity timing stats in %s\n", timingFileArg.c_str());
-					if (probeRate > bestRate) {
-						bestRate = probeRate;
-						bestT = t;
-					}
-				}
-				vanityThreads = bestT;
-				fprintf(stderr, "vanity address: auto selected %u thread(s)\n", vanityThreads);
-				autoThreads = false;
-			}
-			if (vanityThreads == 0)
-				vanityThreads = 1;
-
-			fprintf(stderr, "vanity address: searching for %zu prefix(es) with %u thread(s): ", vanityPrefixes.size(), vanityThreads);
-			for (std::size_t i = 0; i < vanityPrefixes.size(); ++i) {
-				if (i)
-					fprintf(stderr, ",");
-				fprintf(stderr, "%s", vanityPrefixes[i].c_str());
-			}
-			fprintf(stderr, "\n");
-			if (triesFor50pct > 0ULL)
-				fprintf(stderr, "vanity address: 50%% success chance after ~%llu tries\n", (unsigned long long)triesFor50pct);
-			else
-				fprintf(stderr, "vanity address: could not estimate 50%% success point (very low/unknown hit probability)\n");
-
-			unsigned int currentThreads = vanityThreads;
 			auto launchWorkers = [&attempts, &stopFlag, &found, &winnerLock, &winner, &winnerPrefix, &vanityPrefixes](unsigned int count, std::vector<std::thread>& workers) {
 				workers.clear();
 				workers.reserve(count);
@@ -3190,12 +3148,89 @@ static int idtool(int argc, char** argv)
 				}
 			};
 
-			std::vector<std::thread> workers;
-			launchWorkers(currentThreads, workers);
 			const auto start = std::chrono::steady_clock::now();
+
+			if (autoThreads) {
+				unsigned int bestT = 1U;
+				double bestRate = 0.0;
+				const unsigned int maxProbe = std::min(12U, hwThreads);
+				double prevRate = -1.0;
+				unsigned int dropsInRow = 0U;
+				fprintf(stderr, "vanity address: auto-tuning threads (%u..1, 3s each)\n", maxProbe);
+				for (unsigned int t = maxProbe; t >= 1; --t) {
+					stopFlag.store(false, std::memory_order_relaxed);
+					const uint64_t probeStartAttempts = attempts.load(std::memory_order_relaxed);
+					std::vector<std::thread> probeWorkers;
+					launchWorkers(t, probeWorkers);
+					const auto probeStart = std::chrono::steady_clock::now();
+					for (int i = 0; i < 30; ++i) {
+						if (found.load(std::memory_order_relaxed))
+							break;
+						std::this_thread::sleep_for(std::chrono::milliseconds(100));
+					}
+					stopFlag.store(true, std::memory_order_relaxed);
+					for (std::thread& th : probeWorkers)
+						th.join();
+					const double probeElapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - probeStart).count();
+					const uint64_t probeAttempts = attempts.load(std::memory_order_relaxed) - probeStartAttempts;
+					const double probeRate = (probeElapsed > 0.0) ? ((double)probeAttempts / probeElapsed) : 0.0;
+					fprintf(stderr, "vanity address: autotune %u thread(s) => %.2f ids/s\n", t, probeRate);
+					if (! upsertVanityTimingLog(timingFileArg, probeAttempts, probeElapsed, t))
+						fprintf(stderr, "warning: unable to update vanity timing stats in %s\n", timingFileArg.c_str());
+					if (probeRate > bestRate) {
+						bestRate = probeRate;
+						bestT = t;
+					}
+					if (found.load(std::memory_order_relaxed)) {
+						vanityThreads = t;
+						break;
+					}
+					if (prevRate >= 0.0) {
+						if (probeRate < prevRate)
+							++dropsInRow;
+						else
+							dropsInRow = 0U;
+						if (dropsInRow >= 2U) {
+							fprintf(stderr, "vanity address: autotune stopping early after consecutive throughput drops\n");
+							break;
+						}
+					}
+					prevRate = probeRate;
+					if (t == 1U)
+						break;
+				}
+				if (! found.load(std::memory_order_relaxed))
+					vanityThreads = bestT;
+				fprintf(stderr, "vanity address: auto selected %u thread(s)\n", vanityThreads);
+				autoThreads = false;
+			}
+			if (vanityThreads == 0)
+				vanityThreads = 1;
+
+			if (! printedSearchBanner) {
+				fprintf(stderr, "vanity address: searching for %zu prefix(es) with %u thread(s): ", vanityPrefixes.size(), vanityThreads);
+				for (std::size_t i = 0; i < vanityPrefixes.size(); ++i) {
+					if (i)
+						fprintf(stderr, ",");
+					fprintf(stderr, "%s", vanityPrefixes[i].c_str());
+				}
+				fprintf(stderr, "\n");
+				if (triesFor50pct > 0ULL)
+					fprintf(stderr, "vanity address: 50%% success chance after ~%llu tries\n", (unsigned long long)triesFor50pct);
+				else
+					fprintf(stderr, "vanity address: could not estimate 50%% success point (very low/unknown hit probability)\n");
+				printedSearchBanner = true;
+			}
+
+			unsigned int currentThreads = vanityThreads;
+			std::vector<std::thread> workers;
+			if (! found.load(std::memory_order_relaxed)) {
+				stopFlag.store(false, std::memory_order_relaxed);
+				launchWorkers(currentThreads, workers);
+			}
 			const double statusIntervalSeconds = 5.0;
-			auto lastStatus = start;
-			uint64_t lastAttempts = 0ULL;
+			auto lastStatus = std::chrono::steady_clock::now();
+			uint64_t lastAttempts = attempts.load(std::memory_order_relaxed);
 			double bestWindowRate = 0.0;
 			struct RateSample {
 				std::chrono::steady_clock::time_point ts;
@@ -3367,7 +3402,6 @@ static int idtool(int argc, char** argv)
 
 		for (unsigned int n = 0; n < generateCount; ++n) {
 			Identity id;
-			std::string matchedPrefix;
 			if (vanityPrefixes.empty()) {
 				id.generate();
 			}
@@ -3376,7 +3410,6 @@ static int idtool(int argc, char** argv)
 					fprintf(stderr, "vanity address: generating identity %u/%u\n", n + 1U, generateCount);
 				const VanityGenerateResult r = generateVanityIdentity();
 				id = r.id;
-				matchedPrefix = r.matchedPrefix;
 				if ((r.tries > 0ULL) && (! upsertVanityTimingLog(timingFileArg, r.tries, r.elapsedSeconds, r.threads)))
 					fprintf(stderr, "warning: unable to update vanity timing stats in %s\n", timingFileArg.c_str());
 			}
@@ -3386,20 +3419,14 @@ static int idtool(int argc, char** argv)
 			if (! outSecretArg.empty()) {
 				std::string outSecret = outSecretArg;
 				std::string outPublic = outPublicArg;
+				char addrBuf[11];
+				id.address().toString(addrBuf);
 				if (generateCount > 1U) {
-					std::string filePrefix = matchedPrefix;
-					if (filePrefix.empty()) {
-						char addrBuf[11];
-						id.address().toString(addrBuf);
-						filePrefix = addrBuf;
-					}
-					const std::string safePrefix = sanitizePrefixForFilename(filePrefix);
+					const std::string safePrefix = sanitizePrefixForFilename(std::string(addrBuf));
 					outSecret = prependPrefixToFilename(outSecret, safePrefix);
 					if (! outPublic.empty())
 						outPublic = prependPrefixToFilename(outPublic, safePrefix);
 				}
-				char addrBuf[11];
-				id.address().toString(addrBuf);
 				outSecret = makeUniqueOutputPath(outSecret, addrBuf);
 				if (! outPublic.empty())
 					outPublic = makeUniqueOutputPath(outPublic, addrBuf);
