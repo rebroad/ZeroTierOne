@@ -36,6 +36,34 @@
 
 namespace ZeroTier {
 
+static inline bool _isPrivatePathScope(const InetAddress& a)
+{
+	const InetAddress::IpScope s = a.ipScope();
+	return (s == InetAddress::IP_SCOPE_PRIVATE) || (s == InetAddress::IP_SCOPE_PSEUDOPRIVATE) || (s == InetAddress::IP_SCOPE_SHARED);
+}
+
+static inline void _logPrivatePathCandidate(const RuntimeEnvironment* RR, void* tPtr, const char* context, const Address& peer, const Address& introducer, const InetAddress& candidate, const bool allowed)
+{
+	if (! _isPrivatePathScope(candidate)) {
+		return;
+	}
+
+	char ip[128];
+	char msg[384];
+	snprintf(
+		msg,
+		sizeof(msg),
+		"ZT private path candidate: ctx=%s peer=%.10llx introducer=%.10llx addr=%s scope=%d action=%s",
+		context,
+		(unsigned long long)peer.toInt(),
+		(unsigned long long)introducer.toInt(),
+		candidate.toString(ip),
+		(int)candidate.ipScope(),
+		allowed ? "allow-probe" : "reject");
+	msg[sizeof(msg) - 1] = (char)0;
+	RR->node->postEvent(tPtr, ZT_EVENT_TRACE, msg);
+}
+
 bool IncomingPacket::tryDecode(const RuntimeEnvironment* RR, void* tPtr, int32_t flowId)
 {
 	const Address sourceAddress(source());
@@ -734,7 +762,9 @@ bool IncomingPacket::_doRENDEZVOUS(const RuntimeEnvironment* RR, void* tPtr, con
 			const unsigned int addrlen = (*this)[ZT_PROTO_VERB_RENDEZVOUS_IDX_ADDRLEN];
 			if ((port > 0) && ((addrlen == 4) || (addrlen == 16))) {
 				InetAddress atAddr(field(ZT_PROTO_VERB_RENDEZVOUS_IDX_ADDRESS, addrlen), addrlen, port);
-				if (RR->node->shouldUsePathForZeroTierTraffic(tPtr, with, _path->localSocket(), atAddr)) {
+				const bool allowPath = RR->node->shouldUsePathForZeroTierTraffic(tPtr, with, _path->localSocket(), atAddr);
+				_logPrivatePathCandidate(RR, tPtr, "RENDEZVOUS", with, peer->address(), atAddr, allowPath);
+				if (allowPath) {
 					// Track peer introduction for misbehavior detection
 					if (RR->peerEventCallback) {
 						RR->peerEventCallback(RR->peerEventCallbackUserPtr, RuntimeEnvironment::PEER_EVENT_INTRODUCTION, atAddr, with, peer->address(), false, 0);
@@ -1471,9 +1501,11 @@ bool IncomingPacket::_doPUSH_DIRECT_PATHS(const RuntimeEnvironment* RR, void* tP
 		switch (addrType) {
 			case 4: {
 				const InetAddress a(field(ptr, 4), 4, at<uint16_t>(ptr + 4));
+				const bool allowPath = RR->node->shouldUsePathForZeroTierTraffic(tPtr, peer->address(), _path->localSocket(), a);
+				_logPrivatePathCandidate(RR, tPtr, "PUSH_DIRECT_PATHS", peer->address(), peer->address(), a, allowPath);
 				if (((flags & ZT_PUSH_DIRECT_PATHS_FLAG_FORGET_PATH) == 0) &&												  // not being told to forget
 					(! (((flags & ZT_PUSH_DIRECT_PATHS_FLAG_CLUSTER_REDIRECT) == 0) && (peer->hasActivePathTo(now, a)))) &&	  // not already known
-					(RR->node->shouldUsePathForZeroTierTraffic(tPtr, peer->address(), _path->localSocket(), a)))			  // should use path
+					(allowPath))																							  // should use path
 				{
 					if ((flags & ZT_PUSH_DIRECT_PATHS_FLAG_CLUSTER_REDIRECT) != 0) {
 						peer->clusterRedirect(tPtr, _path, a, now);
@@ -1485,9 +1517,11 @@ bool IncomingPacket::_doPUSH_DIRECT_PATHS(const RuntimeEnvironment* RR, void* tP
 			} break;
 			case 6: {
 				const InetAddress a(field(ptr, 16), 16, at<uint16_t>(ptr + 16));
+				const bool allowPath = RR->node->shouldUsePathForZeroTierTraffic(tPtr, peer->address(), _path->localSocket(), a);
+				_logPrivatePathCandidate(RR, tPtr, "PUSH_DIRECT_PATHS", peer->address(), peer->address(), a, allowPath);
 				if (((flags & ZT_PUSH_DIRECT_PATHS_FLAG_FORGET_PATH) == 0) &&												  // not being told to forget
 					(! (((flags & ZT_PUSH_DIRECT_PATHS_FLAG_CLUSTER_REDIRECT) == 0) && (peer->hasActivePathTo(now, a)))) &&	  // not already known
-					(RR->node->shouldUsePathForZeroTierTraffic(tPtr, peer->address(), _path->localSocket(), a)))			  // should use path
+					(allowPath))																							  // should use path
 				{
 					if ((flags & ZT_PUSH_DIRECT_PATHS_FLAG_CLUSTER_REDIRECT) != 0) {
 						peer->clusterRedirect(tPtr, _path, a, now);
