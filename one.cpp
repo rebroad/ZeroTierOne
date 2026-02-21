@@ -1944,7 +1944,7 @@ static int cli(int argc, char** argv)
 		// First try ZeroTier Central API if we have an API token
 		std::string apiToken;
 		char tokenPath[1024];
-		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
+		snprintf(tokenPath, sizeof(tokenPath), "%s/.config/zerotier/central-api-token", homeDir.c_str());
 		std::string tokenData;
 		if (OSUtils::readFile(tokenPath, tokenData)) {
 			// Remove any whitespace/newlines
@@ -2300,7 +2300,7 @@ static int cli(int argc, char** argv)
 		// First try ZeroTier Central API if we have an API token
 		std::string apiToken;
 		char tokenPath[1024];
-		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
+		snprintf(tokenPath, sizeof(tokenPath), "%s/.config/zerotier/central-api-token", homeDir.c_str());
 		std::string tokenData;
 		if (OSUtils::readFile(tokenPath, tokenData)) {
 			// Remove any whitespace/newlines
@@ -2563,7 +2563,13 @@ static int cli(int argc, char** argv)
 
 		// Save API token to a secure file
 		char tokenPath[1024];
-		snprintf(tokenPath, sizeof(tokenPath), "%s/central-api-token", homeDir.c_str());
+		char configDir[1024];
+		char tokenDir[1024];
+		snprintf(configDir, sizeof(configDir), "%s/.config", homeDir.c_str());
+		snprintf(tokenDir, sizeof(tokenDir), "%s/.config/zerotier", homeDir.c_str());
+		snprintf(tokenPath, sizeof(tokenPath), "%s/.config/zerotier/central-api-token", homeDir.c_str());
+		(void)OSUtils::mkdir(configDir);
+		(void)OSUtils::mkdir(tokenDir);
 
 		if (OSUtils::writeFile(tokenPath, arg1.c_str(), arg1.length())) {
 			// Set restrictive permissions (owner read/write only)
