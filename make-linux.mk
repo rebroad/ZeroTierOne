@@ -17,6 +17,10 @@ EXTRA_DEPS?=
 
 include objects.mk
 
+# Auto dependency tracking for incremental correctness:
+# regenerate object files when included headers change.
+DEPFLAGS?=-MMD -MP
+
 ifeq ($(ZT_CONTROLLER),1)
 	ZT_NONFREE=1
 endif
@@ -401,6 +405,11 @@ endif
 # Position Independence
 override CFLAGS+=-fPIC -fPIE
 override CXXFLAGS+=-fPIC -fPIE
+override CFLAGS+=$(DEPFLAGS)
+override CXXFLAGS+=$(DEPFLAGS)
+
+DEP_FILES=$(CORE_OBJS:.o=.d) $(ONE_OBJS:.o=.d) one.d selftest.d
+-include $(DEP_FILES)
 
 # Non-executable stack
 override LDFLAGS+=-Wl,-z,noexecstack
@@ -457,7 +466,7 @@ endif
 ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h: otel
 
 clean: FORCE
-	rm -rf *.a *.so *.o node/*.o nonfree/controller/*.o osdep/*.o service/*.o ext/http-parser/*.o ext/miniupnpc/*.o ext/libnatpmp/*.o $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
+	rm -rf *.a *.so *.o *.d node/*.o node/*.d nonfree/controller/*.o nonfree/controller/*.d osdep/*.o osdep/*.d service/*.o service/*.d ext/http-parser/*.o ext/http-parser/*.d ext/miniupnpc/*.o ext/miniupnpc/*.d ext/libnatpmp/*.o ext/libnatpmp/*.d $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
 
 distclean:	clean
 
