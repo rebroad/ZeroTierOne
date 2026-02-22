@@ -409,7 +409,26 @@ override CFLAGS+=$(DEPFLAGS)
 override CXXFLAGS+=$(DEPFLAGS)
 
 DEP_FILES=$(CORE_OBJS:.o=.d) $(ONE_OBJS:.o=.d) one.d selftest.d
+
+# Keep default goal stable even when included .d files contain targets.
+.DEFAULT_GOAL := all
+
 -include $(DEP_FILES)
+
+# Build signature tracking:
+# Rebuild objects automatically when git HEAD, compiler, or build flags change.
+BUILD_SIGNATURE_FILE=.build-signature
+BUILD_GIT_HEAD=$(shell git rev-parse HEAD 2>/dev/null || echo nogit)
+BUILD_SIGNATURE=$(shell printf "%s\n%s\n%s\n%s\n%s\n%s\n" "$(BUILD_GIT_HEAD)" "$(CC)" "$(CXX)" "$(CFLAGS)" "$(CXXFLAGS)" "$(DEFS) $(INCLUDES)" | sha256sum | awk '{print $$1}')
+
+$(BUILD_SIGNATURE_FILE): FORCE
+	@sig='$(BUILD_SIGNATURE)'; \
+	if [ -f $@ ] && [ "$$(cat $@)" = "$$sig" ]; then :; else \
+		echo "$$sig" > $@; \
+		echo "Build signature changed; scheduling object rebuild."; \
+	fi
+
+$(CORE_OBJS) $(ONE_OBJS) one.o selftest.o: $(BUILD_SIGNATURE_FILE)
 
 # Non-executable stack
 override LDFLAGS+=-Wl,-z,noexecstack
@@ -466,7 +485,7 @@ endif
 ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h: otel
 
 clean: FORCE
-	rm -rf *.a *.so *.o *.d node/*.o node/*.d nonfree/controller/*.o nonfree/controller/*.d osdep/*.o osdep/*.d service/*.o service/*.d ext/http-parser/*.o ext/http-parser/*.d ext/miniupnpc/*.o ext/miniupnpc/*.d ext/libnatpmp/*.o ext/libnatpmp/*.d $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
+	rm -rf *.a *.so *.o *.d $(BUILD_SIGNATURE_FILE) node/*.o node/*.d nonfree/controller/*.o nonfree/controller/*.d osdep/*.o osdep/*.d service/*.o service/*.d ext/http-parser/*.o ext/http-parser/*.d ext/miniupnpc/*.o ext/miniupnpc/*.d ext/libnatpmp/*.o ext/libnatpmp/*.d $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
 
 distclean:	clean
 
