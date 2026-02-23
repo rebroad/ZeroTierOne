@@ -949,13 +949,13 @@ class OneServiceImpl : public OneService {
 	double _exporterSampleRate;
 #endif
 
-	// Peer-port usage tracking (now per ZT address + IP address combination)
+	// Peer-port usage tracking (per ZT address + IP address combination)
 	struct PeerStats {
-		// TIER 1: Wire-level port usage (UNTRUSTED - all packets at wire level)
+		// Wire-level port usage (untrusted; all observed packets)
 		std::map<unsigned int, uint64_t> wireIncomingPortCounts;   // port -> wire incoming count
 		std::map<unsigned int, uint64_t> wireOutgoingPortCounts;   // port -> wire outgoing count
 
-		// TIER 2: Authenticated port usage (TRUSTED - cryptographically verified packets only)
+		// Authenticated protocol port usage (trusted; cryptographically verified only)
 		std::map<unsigned int, uint64_t> incomingPortCounts;   // port -> auth incoming count
 		std::map<unsigned int, uint64_t> outgoingPortCounts;   // port -> auth outgoing count
 
@@ -970,13 +970,13 @@ class OneServiceImpl : public OneService {
 		uint64_t lastIncomingSeen;
 		uint64_t lastOutgoingSeen;
 
-		// TIER 1: Wire-level stats (UNTRUSTED - includes spoofed/malicious packets)
+		// Wire-level stats (untrusted; includes spoofed/malicious packets)
 		uint64_t WireBytesIncoming;		// All incoming wire packet bytes (including attacks)
 		uint64_t WireBytesOutgoing;		// All outgoing wire packet bytes
 		uint64_t WireBytesIncomingOK;	// Wire packet bytes that passed initial parsing
 		uint64_t WireBytesOutgoingOK;	// Wire packet bytes successfully sent
 
-		// TIER 2: Protocol-level stats (TRUSTED - cryptographically verified only)
+		// Authenticated protocol-level stats (trusted; cryptographically verified only)
 		uint64_t AuthBytesIncoming;	  // Only authenticated incoming bytes
 		uint64_t AuthBytesOutgoing;	  // Only authenticated outgoing bytes
 
@@ -2705,8 +2705,7 @@ class OneServiceImpl : public OneService {
 
 			// Note: Total peer count is included in diagnostics section below
 
-			// Get peer statistics - implement steps 6 & 7: compare IP vs ZT stats, use higher values
-			// Step 1: Aggregate stats by IP address and by ZT address separately
+			// Get peer statistics by aggregating both IP-level and ZT-level totals.
 			std::map<InetAddress, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
 			std::map<Address, uint64_t> ztIncomingBytes, ztOutgoingBytes, ztLastSeen;
 			std::vector<std::pair<std::pair<Address, InetAddress>, PeerStats> > sortedPeers;
@@ -2720,25 +2719,25 @@ class OneServiceImpl : public OneService {
 					const InetAddress& ipAddr = peerEntry.first.second;
 					const PeerStats& peerStats = peerEntry.second;
 
-					// Aggregate by IP address (use wire-level stats as they include all traffic)
-					// BUT exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
+					const uint64_t lastAuthSeen = std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen);
+
+					// Aggregate by IP address (wire-level includes all traffic)
+					// Exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
 					if (! _isInfrastructureIP(ipAddr)) {
 						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
-						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
-						// TODO - above set a flag to indicate which was greater, IP or ZT - if ZT, stats CLI should show "(i)" or "(z)"
+						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], lastAuthSeen);
 					}
 
-					// Aggregate by ZT address (combine wire-level + authenticated stats for complete picture)
-					// Only aggregate bytes for valid (non-null) ZT addresses to avoid inflated stats from TIER 1 tracking
+					// Aggregate by ZT address using higher of wire/auth for each direction.
+					// Only aggregate non-null ZT addresses.
 					if (ztAddr) {
-						// Use higher of wire-level vs authenticated bytes (since wire-level may miss some traffic due to filtering)
 						uint64_t totalIncoming = std::max(peerStats.WireBytesIncoming, peerStats.AuthBytesIncoming);
 						uint64_t totalOutgoing = std::max(peerStats.WireBytesOutgoing, peerStats.AuthBytesOutgoing);
 
 						ztIncomingBytes[ztAddr] += totalIncoming;
 						ztOutgoingBytes[ztAddr] += totalOutgoing;
-						ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr], peerStats.lastAuthIncomingSeen);
+						ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr], lastAuthSeen);
 					}
 				}
 			}
@@ -3538,10 +3537,9 @@ class OneServiceImpl : public OneService {
 		// This block only does local receive-port diagnostics.
 		if (localAddr && from) {
 			const InetAddress remoteIpAddr(from);
-			// Authenticated ZT address when available; zero if not authenticated.
-			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && ! _isInfrastructureNode(authenticatedZtAddr)) {
-				_recordPacketObservation(authenticatedZtAddr, remoteIpAddr, localPort, len, true, isSuccessful);   // true = incoming packet
-			}
+			// Record incoming wire observation for all packets; mark authenticated subset.
+			const bool authenticated = (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && ! _isInfrastructureNode(authenticatedZtAddr));
+			_recordPacketObservation(authenticated ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, authenticated);	  // true = incoming packet
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
@@ -4400,11 +4398,11 @@ class OneServiceImpl : public OneService {
 			if ((ttl) && (addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket*)((uintptr_t)localSocket), 255);
 			}
-			_recordPacketObservation(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r);
+			_recordPacketObservation(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r, (bool)ztAddr);
 			return ((r) ? 0 : -1);
 		}
 		else {
-			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _recordPacketObservation(ztAddr, ipAddr, sentLocalPort, len, false, sentOk); });
+			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _recordPacketObservation(ztAddr, ipAddr, sentLocalPort, len, false, sentOk, (bool)ztAddr); });
 			return (r ? 0 : -1);
 		}
 	}
@@ -4871,7 +4869,7 @@ class OneServiceImpl : public OneService {
 	}
 
 	// Unified packet observation function: statistics + first-seen logging
-	void _recordPacketObservation(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful)
+	void _recordPacketObservation(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful, bool authenticated)
 	{
 		// Skip processing during early initialization
 		if (! _node)
@@ -4887,21 +4885,60 @@ class OneServiceImpl : public OneService {
 				Mutex::Lock _l(_peerStats_m);
 				PeerStats& stats = _peerStats[peerKey];
 
-				// Update port usage statistics
-				stats.incomingPortCounts[localPort]++;
+				// Always track wire-level (pre-auth) port/byte observations.
+				const uint64_t now = OSUtils::now();
+				if (incoming) {
+					stats.wireIncomingPortCounts[localPort]++;
+					stats.WireBytesIncoming += packetSize;
+					if (successful) {
+						stats.WireBytesIncomingOK += packetSize;
+					}
+				}
+				else {
+					stats.wireOutgoingPortCounts[localPort]++;
+					stats.WireBytesOutgoing += packetSize;
+					if (successful) {
+						stats.WireBytesOutgoingOK += packetSize;
+					}
+				}
+
+				// Track authenticated counters only when identity is trusted.
+				if (authenticated && ztAddr) {
+					if (incoming) {
+						stats.incomingPortCounts[localPort]++;
+						stats.AuthBytesIncoming += packetSize;
+						stats.lastAuthIncomingSeen = now;
+					}
+					else {
+						stats.outgoingPortCounts[localPort]++;
+						stats.AuthBytesOutgoing += packetSize;
+						stats.lastAuthOutgoingSeen = now;
+					}
+				}
+				else if (incoming && ! successful) {
+					// Rough signal for unauthenticated/failed inbound attempts.
+					stats.suspiciousPacketCount++;
+				}
+
 				if (incoming) {
 					stats.totalIncoming++;
-					stats.lastIncomingSeen = OSUtils::now();
+					stats.lastIncomingSeen = now;
+					if (stats.firstIncomingSeen == 0) {
+						stats.firstIncomingSeen = now;
+					}
 				}
 				else {
 					stats.totalOutgoing++;
-					stats.lastOutgoingSeen = OSUtils::now();
+					stats.lastOutgoingSeen = now;
+					if (stats.firstOutgoingSeen == 0) {
+						stats.firstOutgoingSeen = now;
+					}
 				}
 				stats.ipAddr = ipAddr;	 // Store the full InetAddress
+				stats.ztAddr = ztAddr;
 
 				// Track first packet for infrastructure detection
-				if (stats.totalIncoming == 1) {
-					stats.firstIncomingSeen = OSUtils::now();
+				if (incoming && stats.totalIncoming == 1) {
 					if (_isInfrastructureNode(ztAddr)) {
 						_addInfrastructureIP(keyIP);
 					}
@@ -4925,7 +4962,8 @@ class OneServiceImpl : public OneService {
 				}
 			}
 
-			if (shouldLog) {
+			// Keep first-seen logs focused on authenticated peer identities.
+			if (shouldLog && ztAddr) {
 				char ztBuf[16], ipBuf[64];
 				ztAddr.toString(ztBuf);
 				ipAddr.ipOnly().toIpString(ipBuf);
