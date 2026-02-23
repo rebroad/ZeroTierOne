@@ -4869,7 +4869,9 @@ class OneServiceImpl : public OneService {
 	// Safe port lookup that won't crash if socket info isn't available
 	unsigned int _getLocalPortSafely(int64_t localSocket)
 	{
-		if (localSocket == -1)
+		// localSocket is an opaque PhySocket pointer encoded as int64_t.
+		// 0/-1 both mean "no socket selected", so never dereference them.
+		if (localSocket <= 0)
 			return 0;
 
 		try {
@@ -4939,13 +4941,14 @@ class OneServiceImpl : public OneService {
 			if (shouldLog) {
 				char ztBuf[16], ipBuf[64];
 				ztAddr.toString(ztBuf);
-				ipAddr.toIpString(ipBuf);
+				ipAddr.ipOnly().toIpString(ipBuf);
+				const unsigned int remotePort = ipAddr.port();
 
 				if (incoming) {
-					fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S, packetSize, ipBuf, ztBuf, localPort);
+					fprintf(stderr, "PACKET_FROM: size=%lu remote_ip=%s remote_port=%u peer=%s local_port=%u" ZT_EOL_S, packetSize, ipBuf, remotePort, ztBuf, localPort);
 				}
 				else {
-					fprintf(stderr, "PACKET_TO: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S, packetSize, ipBuf, ztBuf, localPort);
+					fprintf(stderr, "PACKET_TO: size=%lu remote_ip=%s remote_port=%u peer=%s local_port=%u" ZT_EOL_S, packetSize, ipBuf, remotePort, ztBuf, localPort);
 				}
 			}
 		}
