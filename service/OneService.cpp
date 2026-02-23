@@ -3525,20 +3525,20 @@ class OneServiceImpl : public OneService {
 			_lastDirectReceiveFromGlobal = now;
 		}
 
-		Address originPeerZTAddr;
+		Address authenticatedZtAddr;
 		// Get local port from localAddr
-		const InetAddress localAddress(localAddr);
-		const unsigned int localPort = localAddress.port();
+		const InetAddress localIpAddr(localAddr);
+		const unsigned int localPort = localIpAddr.port();
 
-		const ZT_ResultCode rc = _node->processWirePacket(nullptr, now, reinterpret_cast<int64_t>(sock), reinterpret_cast<const struct sockaddr_storage*>(from), data, len, &_nextBackgroundTaskDeadline, &originPeerZTAddr, localPort);
+		const ZT_ResultCode rc = _node->processWirePacket(nullptr, now, reinterpret_cast<int64_t>(sock), reinterpret_cast<const struct sockaddr_storage*>(from), data, len, &_nextBackgroundTaskDeadline, &authenticatedZtAddr, localPort);
 
 		// Track wire packet metrics for all packets (successful and failed) from identified peers
 		if (localAddr && from) {
-			const InetAddress fromAddress(from);
+			const InetAddress remoteIpAddr(from);
 			// TIER 1: Track basic wire-level metrics using authenticated ZT address from Tier 2
-			// originPeerZTAddr now contains the authenticated ZT address from processWirePacket
-			/*if (len >= ZT_PROTO_MIN_PACKET_LENGTH && originPeerZTAddr && !_isInfrastructureNode(originPeerZTAddr)) {
-				_handlePacketAtLayer7(originPeerZTAddr, fromAddress, localPort, len, true, isSuccessful); // true = incoming packet
+			// authenticatedZtAddr now contains the authenticated ZT address from processWirePacket
+			/*if (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && !_isInfrastructureNode(authenticatedZtAddr)) {
+				_handlePacketAtLayer7(authenticatedZtAddr, remoteIpAddr, localPort, len, true, isSuccessful); // true = incoming packet
 			}*/
 
 			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
@@ -3548,8 +3548,8 @@ class OneServiceImpl : public OneService {
 
 			if (! isKnownPort) {
 				char ztAddrBuf[16], ipBuf[64];
-				originPeerZTAddr.toString(ztAddrBuf);
-				fromAddress.toIpString(ipBuf);
+				authenticatedZtAddr.toString(ztAddrBuf);
+				remoteIpAddr.toIpString(ipBuf);
 				fprintf(
 					stderr,
 					"UNEXPECTED_PORT: Received packet from %s (%s) on port %u (Primary: %u, Secondary: %s%u, Tertiary: %u)" ZT_EOL_S,
