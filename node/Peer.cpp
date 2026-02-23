@@ -695,19 +695,6 @@ void Peer::recordOutgoingPacket(const SharedPtr<Path>& path, const uint64_t pack
 	if (_localMultipathSupported && _bond) {   // TODO - what is multipath support? when is it useful? Is it like onecast?
 		_bond->recordOutgoingPacket(path, packetId, payloadLength, verb, flowId, now);
 	}
-
-	// Track outgoing packet for port usage statistics (only for established peers)
-	if (RR->peerEventCallback && path) {
-		RR->peerEventCallback(
-			RR->peerEventCallbackUserPtr,
-			RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET,
-			// Args are: peerInetAddress, peerZtAddr, introducerZtAddr, success, packetSize
-			path->address(),
-			_id.address(),
-			Address(),
-			true,
-			payloadLength);
-	}	// TODO - document other ways we might do this (compare with how we track incoming packets)
 }
 
 void Peer::recordIncomingInvalidPacket(const SharedPtr<Path>& path)

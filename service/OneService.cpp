@@ -5098,10 +5098,6 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 	OneServiceImpl* service = reinterpret_cast<OneServiceImpl*>(userPtr);
 
 	switch (eventType) {
-		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
-			// No-op for packet logs/stats: these callbacks do not carry local socket/port.
-			// We now rely on direct send/receive paths for accurate local_port reporting.
-			break;
 		case RuntimeEnvironment::PEER_EVENT_INTRODUCTION:
 			// Track peer introductions for misbehavior detection
 			service->_trackPeerIntroduction(peerAddress, peerZtAddr, introducerZtAddr, OSUtils::now());
