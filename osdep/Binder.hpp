@@ -492,26 +492,7 @@ class Binder {
 	/**
 	 * Send from all bound UDP sockets
 	 */
-	template <typename PHY_HANDLER_TYPE> inline bool udpSendAll(Phy<PHY_HANDLER_TYPE>& phy, const struct sockaddr_storage* addr, const void* data, unsigned int len, unsigned int ttl)
-	{
-		bool r = false;
-		Mutex::Lock _l(_lock);
-		for (unsigned int b = 0, c = _bindingCount; b < c; ++b) {
-			if (ttl)
-				phy.setIp4UdpTtl(_bindings[b].udpSock, ttl);
-			if (phy.udpSend(_bindings[b].udpSock, (const struct sockaddr*)addr, data, len))
-				r = true;
-			if (ttl)
-				phy.setIp4UdpTtl(_bindings[b].udpSock, 255);
-		}
-		return r;
-	}
-
-	/**
-	 * Send from all bound UDP sockets and report each local source port used.
-	 */
-	template <typename PHY_HANDLER_TYPE, typename SEND_OBSERVER>
-	inline bool udpSendAllWithDetails(Phy<PHY_HANDLER_TYPE>& phy, const struct sockaddr_storage* addr, const void* data, unsigned int len, unsigned int ttl, SEND_OBSERVER observer)
+	template <typename PHY_HANDLER_TYPE, typename SEND_OBSERVER> inline bool udpSendAll(Phy<PHY_HANDLER_TYPE>& phy, const struct sockaddr_storage* addr, const void* data, unsigned int len, unsigned int ttl, SEND_OBSERVER observer)
 	{
 		bool r = false;
 		Mutex::Lock _l(_lock);
@@ -526,6 +507,11 @@ class Binder {
 			observer(_bindings[b].address.port(), sent);
 		}
 		return r;
+	}
+
+	template <typename PHY_HANDLER_TYPE> inline bool udpSendAll(Phy<PHY_HANDLER_TYPE>& phy, const struct sockaddr_storage* addr, const void* data, unsigned int len, unsigned int ttl)
+	{
+		return udpSendAll(phy, addr, data, len, ttl, [](unsigned int, bool) {});
 	}
 
 	/**

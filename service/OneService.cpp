@@ -4319,13 +4319,11 @@ class OneServiceImpl : public OneService {
 		const InetAddress ipAddr(addr);
 		const uint8_t* packetData = reinterpret_cast<const uint8_t*>(data);
 
-		// Extract peer ZT address directly from packet bytes.
-		// This is transport-level metadata only (untrusted until protocol validation).
+		// Outgoing bytes are generated locally; use embedded source/dest metadata as a hint.
 		if (len > 12) {
 			ztAddr.setTo(packetData + 8, 5);
 		}
 		else {
-			// No address field available at this length; use zero address for wire-level accounting.
 			ztAddr.zero();
 		}
 #ifdef ZT_TCP_FALLBACK_RELAY
@@ -4406,7 +4404,7 @@ class OneServiceImpl : public OneService {
 			return ((r) ? 0 : -1);
 		}
 		else {
-			const bool r = _binder.udpSendAllWithDetails(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _handlePacketAtLayer7(ztAddr, ipAddr, sentLocalPort, len, false, sentOk); });
+			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _handlePacketAtLayer7(ztAddr, ipAddr, sentLocalPort, len, false, sentOk); });
 			return (r ? 0 : -1);
 		}
 	}
@@ -5101,7 +5099,6 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 
 	switch (eventType) {
 		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
-		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
 			// No-op for packet logs/stats: these callbacks do not carry local socket/port.
 			// We now rely on direct send/receive paths for accurate local_port reporting.
 			break;
