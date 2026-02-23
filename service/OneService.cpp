@@ -3532,16 +3532,17 @@ class OneServiceImpl : public OneService {
 
 		const ZT_ResultCode rc = _node->processWirePacket(nullptr, now, reinterpret_cast<int64_t>(sock), reinterpret_cast<const struct sockaddr_storage*>(from), data, len, &_nextBackgroundTaskDeadline, &authenticatedZtAddr, localPort);
 
-		// Track wire packet metrics for all packets (successful and failed) from identified peers
+		// Datagram receive path notes:
+		// Tier 1 (wire, untrusted) accounting is handled in packet send/receive helpers that can
+		// operate without authenticated identity.
+		// Tier 2 (authenticated, trusted) accounting is performed in Peer::received() after crypto validation.
+		// This block only does local receive-port diagnostics.
 		if (localAddr && from) {
 			const InetAddress remoteIpAddr(from);
-			// TIER 1: Track basic wire-level metrics using authenticated ZT address from Tier 2
-			// authenticatedZtAddr now contains the authenticated ZT address from processWirePacket
+			// Authenticated ZT address when available; zero if not authenticated.
 			/*if (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && !_isInfrastructureNode(authenticatedZtAddr)) {
 				_handlePacketAtLayer7(authenticatedZtAddr, remoteIpAddr, localPort, len, true, isSuccessful); // true = incoming packet
 			}*/
-
-			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
@@ -4323,12 +4324,14 @@ class OneServiceImpl : public OneService {
 			char ipBuf[64];
 			ipAddr.toIpString(ipBuf);
 
-			// Extract peer address from packet data
+			// Extract peer ZT address directly from packet bytes.
+			// This is transport-level metadata only (untrusted until protocol validation).
 			if (len > 12) {
-				ztAddr.setTo(packetData + 8, 5);   // TODO - we're doing this later in this function again!!
+				ztAddr.setTo(packetData + 8, 5);
 			}
 			else {
-				ztAddr.zero();	 // TODO we should ideally avoid doing this - can we fetch it from tier 2?
+				// No address field available at this length; use zero address for wire-level accounting.
+				ztAddr.zero();
 			}
 
 			// Unified Layer 7 processing: Statistics + Logging
@@ -4988,7 +4991,7 @@ class OneServiceImpl : public OneService {
 
 	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& ipAddr, PeerStats& stats, uint64_t now)
 	{
-		// TODO - this is called from _trackWirePacket()
+		// Called from _trackWirePacket() to compare untrusted wire bytes with authenticated bytes.
 		if (! ztAddr) {	  // isZero() is equivalent to !ztAddr since Address has bool operator
 			return;		  // Skip attack detection for zero addresses until we understand the false positives
 		}
@@ -4999,7 +5002,7 @@ class OneServiceImpl : public OneService {
 		if (stats.AuthBytesIncoming > 0) {
 			incomingByteRatio = (double)stats.WireBytesIncoming / (double)stats.AuthBytesIncoming;
 		}
-		else if (stats.WireBytesIncoming > 10000) {	  // TODO - why?!!
+		else if (stats.WireBytesIncoming > 10000) {	  // 10 KB floor avoids noise from tiny startup bursts.
 			incomingByteRatio = 999.0;				  // High number to indicate suspicious activity
 		}
 

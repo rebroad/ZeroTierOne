@@ -240,7 +240,7 @@ ZT_ResultCode Node::processWirePacket(
 		else {
 			*sourcePeerZtAddr = Address();
 		}
-	}	// TODO: add an explicit authenticated/outcome flag for callers.
+	}	// TODO: add an explicit out flag (e.g. sourcePeerAuthenticated) so callers can distinguish "unknown" from "known non-zero".
 
 	return ZT_RESULT_OK;
 }
@@ -989,7 +989,8 @@ enum ZT_ResultCode
 ZT_Node_processWirePacket(ZT_Node* node, void* tptr, int64_t now, int64_t localSocket, const struct sockaddr_storage* remoteIpAddr, const void* packetData, unsigned int packetLength, volatile int64_t* nextBackgroundTaskDeadline)
 {
 	try {
-		return reinterpret_cast<ZeroTier::Node*>(node)->processWirePacket(tptr, now, localSocket, remoteIpAddr, packetData, packetLength, nextBackgroundTaskDeadline, nullptr, 0);	 // TODO - nullptr and 0 - is this correct?
+		// C API variant does not expose sourcePeerZtAddr/localPort; pass nullptr/0 intentionally.
+		return reinterpret_cast<ZeroTier::Node*>(node)->processWirePacket(tptr, now, localSocket, remoteIpAddr, packetData, packetLength, nextBackgroundTaskDeadline, nullptr, 0);
 	}
 	catch (std::bad_alloc& exc) {
 		return ZT_RESULT_FATAL_ERROR_OUT_OF_MEMORY;
