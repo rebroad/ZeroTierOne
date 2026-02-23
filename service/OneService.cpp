@@ -3540,7 +3540,7 @@ class OneServiceImpl : public OneService {
 			const InetAddress remoteIpAddr(from);
 			// Authenticated ZT address when available; zero if not authenticated.
 			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && ! _isInfrastructureNode(authenticatedZtAddr)) {
-				_handlePacketAtLayer7(authenticatedZtAddr, remoteIpAddr, localPort, len, true, isSuccessful);	// true = incoming packet
+				_recordPacketObservation(authenticatedZtAddr, remoteIpAddr, localPort, len, true, isSuccessful);   // true = incoming packet
 			}
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
@@ -4400,11 +4400,11 @@ class OneServiceImpl : public OneService {
 			if ((ttl) && (addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket*)((uintptr_t)localSocket), 255);
 			}
-			_handlePacketAtLayer7(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r);
+			_recordPacketObservation(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r);
 			return ((r) ? 0 : -1);
 		}
 		else {
-			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _handlePacketAtLayer7(ztAddr, ipAddr, sentLocalPort, len, false, sentOk); });
+			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _recordPacketObservation(ztAddr, ipAddr, sentLocalPort, len, false, sentOk); });
 			return (r ? 0 : -1);
 		}
 	}
@@ -4870,8 +4870,8 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
-	// Unified Layer 7 function: Statistics + Logging
-	void _handlePacketAtLayer7(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful)
+	// Unified packet observation function: statistics + first-seen logging
+	void _recordPacketObservation(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful)
 	{
 		// Skip processing during early initialization
 		if (! _node)
