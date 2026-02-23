@@ -1584,6 +1584,49 @@ static int cli(int argc, char** argv)
 				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S, "ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Security", "Last Seen", "Port Usage");
 				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S, "----------", "---------------", "---------", "---------", "--------", "----------", "----------");
 
+				auto formatBytesCompact = [](uint64_t bytes) -> std::string {
+					char buf[32];
+					if (bytes >= (1024ULL * 1024ULL * 1024ULL)) {
+						double v = bytes / (1024.0 * 1024.0 * 1024.0);
+						snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fg" : "%.1fg", v);
+					}
+					else if (bytes >= (1024ULL * 1024ULL)) {
+						double v = bytes / (1024.0 * 1024.0);
+						snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fm" : "%.1fm", v);
+					}
+					else if (bytes >= 1024ULL) {
+						double v = bytes / 1024.0;
+						snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fk" : "%.1fk", v);
+					}
+					else {
+						snprintf(buf, sizeof(buf), "%llu", (unsigned long long)bytes);
+					}
+					return std::string(buf);
+				};
+
+				auto formatAge = [](uint64_t lastSeenMs) -> std::string {
+					if (lastSeenMs == 0)
+						return "never";
+					uint64_t now = OSUtils::now();
+					if (now <= lastSeenMs)
+						return "0s";
+					uint64_t secondsAgo = (now - lastSeenMs) / 1000;
+					char buf[32];
+					if (secondsAgo < 60) {
+						snprintf(buf, sizeof(buf), "%lus", (unsigned long)secondsAgo);
+					}
+					else if (secondsAgo < 3600) {
+						snprintf(buf, sizeof(buf), "%lum%lus", (unsigned long)(secondsAgo / 60), (unsigned long)(secondsAgo % 60));
+					}
+					else if (secondsAgo < 86400) {
+						snprintf(buf, sizeof(buf), "%luh%lum", (unsigned long)(secondsAgo / 3600), (unsigned long)((secondsAgo % 3600) / 60));
+					}
+					else {
+						snprintf(buf, sizeof(buf), "%lud%luh", (unsigned long)(secondsAgo / 86400), (unsigned long)((secondsAgo % 86400) / 3600));
+					}
+					return std::string(buf);
+				};
+
 				// Process per-IP peer data from the /stats endpoint (already sorted by server)
 				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_array()) {
 					for (auto& peerData : j["peersByZtAddressAndIP"]) {
@@ -1595,7 +1638,9 @@ static int cli(int argc, char** argv)
 							ipAddress = ipAddress.substr(0, 15);
 						}
 
-						// Get display statistics (higher of IP vs ZT address stats) - these are for enforcement
+						// Pair bytes and chosen aggregate bytes
+						uint64_t pairBytesIncoming = peerData.value("pairBytesIncoming", 0ULL);
+						uint64_t pairBytesOutgoing = peerData.value("pairBytesOutgoing", 0ULL);
 						uint64_t displayBytesIncoming = peerData.value("displayBytesIncoming", 0ULL);
 						uint64_t displayBytesOutgoing = peerData.value("displayBytesOutgoing", 0ULL);
 						std::string rxSource = peerData.value("rxSource", "?");
@@ -1606,39 +1651,13 @@ static int cli(int argc, char** argv)
 						uint64_t attackEvents = peerData.value("AttackEventCount", 0ULL);
 						double maxDivergenceRatio = peerData.value("MaxDivergenceRatio", 0.0);
 
-						// Get last seen timestamps (use authenticated packets for accuracy)
-						uint64_t lastSeen = peerData.value("lastIncomingSeen", 0ULL);
+						// Last seen timestamps
+						uint64_t lastSeen = peerData.value("lastSeen", 0ULL);
 
 						// Format statistics for display
-						char rxBytesStr[32], txBytesStr[32], securityStr[16], lastSeenStr[16];
-
-						// Format RX bytes with source indicator ("i" = IP stats, "z" = ZT address stats)
-						if (displayBytesIncoming > 1024 * 1024 * 1024) {
-							snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fG%s", displayBytesIncoming / (1024.0 * 1024.0 * 1024.0), rxSource.c_str());
-						}
-						else if (displayBytesIncoming > 1024 * 1024) {
-							snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fM%s", displayBytesIncoming / (1024.0 * 1024.0), rxSource.c_str());
-						}
-						else if (displayBytesIncoming > 1024) {
-							snprintf(rxBytesStr, sizeof(rxBytesStr), "%.1fK%s", displayBytesIncoming / 1024.0, rxSource.c_str());
-						}
-						else {
-							snprintf(rxBytesStr, sizeof(rxBytesStr), "%llu%s", (unsigned long long)displayBytesIncoming, rxSource.c_str());
-						}
-
-						// Format TX bytes with source indicator ("i" = IP stats, "z" = ZT address stats)
-						if (displayBytesOutgoing > 1024 * 1024 * 1024) {
-							snprintf(txBytesStr, sizeof(txBytesStr), "%.1fG%s", displayBytesOutgoing / (1024.0 * 1024.0 * 1024.0), txSource.c_str());
-						}
-						else if (displayBytesOutgoing > 1024 * 1024) {
-							snprintf(txBytesStr, sizeof(txBytesStr), "%.1fM%s", displayBytesOutgoing / (1024.0 * 1024.0), txSource.c_str());
-						}
-						else if (displayBytesOutgoing > 1024) {
-							snprintf(txBytesStr, sizeof(txBytesStr), "%.1fK%s", displayBytesOutgoing / 1024.0, txSource.c_str());
-						}
-						else {
-							snprintf(txBytesStr, sizeof(txBytesStr), "%llu%s", (unsigned long long)displayBytesOutgoing, txSource.c_str());
-						}
+						char securityStr[16];
+						std::string rxBytesStr = formatBytesCompact(pairBytesIncoming) + "/" + formatBytesCompact(displayBytesIncoming) + rxSource;
+						std::string txBytesStr = formatBytesCompact(pairBytesOutgoing) + "/" + formatBytesCompact(displayBytesOutgoing) + txSource;
 
 						// Format security status based on attack detection
 						if (attackEvents > 0) {
@@ -1659,179 +1678,35 @@ static int cli(int argc, char** argv)
 							strcpy(securityStr, "OK");
 						}
 
-						// Format last seen time
-						if (lastSeen == 0) {
-							strcpy(lastSeenStr, "never");
-						}
-						else {
-							uint64_t now = OSUtils::now();
-							uint64_t secondsAgo = (now - lastSeen) / 1000;
-							if (secondsAgo < 60) {
-								snprintf(lastSeenStr, sizeof(lastSeenStr), "%lus", (unsigned long)secondsAgo);
-							}
-							else if (secondsAgo < 3600) {
-								snprintf(lastSeenStr, sizeof(lastSeenStr), "%lum", (unsigned long)(secondsAgo / 60));
-							}
-							else if (secondsAgo < 86400) {
-								snprintf(lastSeenStr, sizeof(lastSeenStr), "%luh", (unsigned long)(secondsAgo / 3600));
-							}
-							else {
-								snprintf(lastSeenStr, sizeof(lastSeenStr), "%lud", (unsigned long)(secondsAgo / 86400));
-							}
-						}
+						std::string lastSeenStr = formatAge(lastSeen);
 
-						// Build port usage string in correct order
-						std::string portUsage;
-						bool hasAnyTraffic = false;
-
-						// Get port configuration to determine correct order
-						uint32_t primaryPort = 9993;   // Default
 						uint32_t secondaryPort = 0;
-						uint32_t tertiaryPort = 0;
 
 						if (j.contains("portConfiguration")) {
 							auto& portConfig = j["portConfiguration"];
-							primaryPort = portConfig.value("primaryPort", 9993U);
 							secondaryPort = portConfig.value("secondaryPort", 0U);
-							tertiaryPort = portConfig.value("tertiaryPort", 0U);
 						}
 
-						// Get port data for both tiers
-						// TIER 1: Wire-level port usage (all packets at wire level)
-						auto wireIncomingPorts = peerData.value("wireIncomingPorts", nlohmann::json::object());
-						auto wireOutgoingPorts = peerData.value("wireOutgoingPorts", nlohmann::json::object());
+						uint64_t primaryIn = peerData.value("primaryIncoming", 0ULL);
+						uint64_t primaryOut = peerData.value("primaryOutgoing", 0ULL);
+						uint64_t secondaryIn = (secondaryPort > 0) ? peerData.value("secondaryIncoming", 0ULL) : 0ULL;
+						uint64_t secondaryOut = (secondaryPort > 0) ? peerData.value("secondaryOutgoing", 0ULL) : 0ULL;
+						uint64_t tertiaryIn = peerData.value("tertiaryIncoming", 0ULL);
+						uint64_t tertiaryOut = peerData.value("tertiaryOutgoing", 0ULL);
 
-						// TIER 2: Authenticated port usage (cryptographically verified packets only)
-						auto authIncomingPorts = peerData.value("authIncomingPorts", nlohmann::json::object());
-						auto authOutgoingPorts = peerData.value("authOutgoingPorts", nlohmann::json::object());
+						char portUsage[96];
+						snprintf(
+							portUsage,
+							sizeof(portUsage),
+							"%llu:%llu,%llu:%llu,%llu:%llu",
+							(unsigned long long)primaryIn,
+							(unsigned long long)primaryOut,
+							(unsigned long long)secondaryIn,
+							(unsigned long long)secondaryOut,
+							(unsigned long long)tertiaryIn,
+							(unsigned long long)tertiaryOut);
 
-						// Fallback to legacy field names for backward compatibility
-						if (authIncomingPorts.empty()) {
-							authIncomingPorts = peerData.value("incomingPorts", nlohmann::json::object());
-						}
-						if (authOutgoingPorts.empty()) {
-							authOutgoingPorts = peerData.value("outgoingPorts", nlohmann::json::object());
-						}
-
-						// Order ports: primary, secondary, tertiary, then any others
-						std::vector<std::string> orderedPorts;
-						std::set<std::string> usedPorts;
-
-						// Add primary port first (check both tiers)
-						std::string primaryStr = std::to_string(primaryPort);
-						if (wireIncomingPorts.contains(primaryStr) || wireOutgoingPorts.contains(primaryStr) || authIncomingPorts.contains(primaryStr) || authOutgoingPorts.contains(primaryStr)) {
-							orderedPorts.push_back(primaryStr);
-							usedPorts.insert(primaryStr);
-						}
-
-						// Add secondary port if enabled (check both tiers)
-						if (secondaryPort > 0) {
-							std::string secondaryStr = std::to_string(secondaryPort);
-							if (wireIncomingPorts.contains(secondaryStr) || wireOutgoingPorts.contains(secondaryStr) || authIncomingPorts.contains(secondaryStr) || authOutgoingPorts.contains(secondaryStr)) {
-								orderedPorts.push_back(secondaryStr);
-								usedPorts.insert(secondaryStr);
-							}
-						}
-
-						// Add tertiary port (check both tiers)
-						if (tertiaryPort > 0) {
-							std::string tertiaryStr = std::to_string(tertiaryPort);
-							if (wireIncomingPorts.contains(tertiaryStr) || wireOutgoingPorts.contains(tertiaryStr) || authIncomingPorts.contains(tertiaryStr) || authOutgoingPorts.contains(tertiaryStr)) {
-								orderedPorts.push_back(tertiaryStr);
-								usedPorts.insert(tertiaryStr);
-							}
-						}
-
-						// Collect other ports (not primary/secondary/tertiary) from both tiers
-						std::set<std::string> otherPorts;
-						uint64_t otherWireIncoming = 0, otherWireOutgoing = 0;
-						uint64_t otherAuthIncoming = 0, otherAuthOutgoing = 0;
-
-						// Wire-level other ports
-						for (auto& [port, count] : wireIncomingPorts.items()) {
-							if (usedPorts.find(port) == usedPorts.end()) {
-								otherPorts.insert(port);
-								otherWireIncoming += count.get<uint64_t>();
-							}
-						}
-						for (auto& [port, count] : wireOutgoingPorts.items()) {
-							if (usedPorts.find(port) == usedPorts.end()) {
-								otherPorts.insert(port);
-								otherWireOutgoing += wireOutgoingPorts.value(port, 0ULL);
-							}
-						}
-
-						// Authenticated other ports
-						for (auto& [port, count] : authIncomingPorts.items()) {
-							if (usedPorts.find(port) == usedPorts.end()) {
-								otherPorts.insert(port);
-								otherAuthIncoming += count.get<uint64_t>();
-							}
-						}
-						for (auto& [port, count] : authOutgoingPorts.items()) {
-							if (usedPorts.find(port) == usedPorts.end()) {
-								otherPorts.insert(port);
-								otherAuthOutgoing += authOutgoingPorts.value(port, 0ULL);
-							}
-						}
-
-						// Add summary for other ports if any exist
-						if (! otherPorts.empty()) {
-							if (otherPorts.size() == 1) {
-								// If only one "other" port, show it explicitly
-								orderedPorts.push_back(*otherPorts.begin());
-							}
-							else {
-								// If multiple "other" ports, show them as a summary
-								orderedPorts.push_back("other");
-							}
-						}
-
-						// Build the display string with two-tier format: port:wire_in/wire_out(auth_in/auth_out)
-						bool first = true;
-						for (const auto& port : orderedPorts) {
-							if (! first)
-								portUsage += ", ";
-
-							if (port == "other") {
-								// Special handling for summarized other ports
-								uint64_t totalWireIn = otherWireIncoming;
-								uint64_t totalWireOut = otherWireOutgoing;
-								uint64_t totalAuthIn = otherAuthIncoming;
-								uint64_t totalAuthOut = otherAuthOutgoing;
-
-								if (totalAuthIn > 0 || totalAuthOut > 0) {
-									portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut) + "," + std::to_string(totalAuthIn) + "/" + std::to_string(totalAuthOut);
-								}
-								else {
-									portUsage += "other:" + std::to_string(totalWireIn) + "/" + std::to_string(totalWireOut);
-								}
-							}
-							else {
-								// Normal port display with two-tier format
-								uint64_t wireInCount = wireIncomingPorts.value(port, 0ULL);
-								uint64_t wireOutCount = wireOutgoingPorts.value(port, 0ULL);
-								uint64_t authInCount = authIncomingPorts.value(port, 0ULL);
-								uint64_t authOutCount = authOutgoingPorts.value(port, 0ULL);
-
-								if (authInCount > 0 || authOutCount > 0) {
-									// Show both wire and auth counts: port:wire_in/wire_out,auth_in/auth_out
-									portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount) + "," + std::to_string(authInCount) + "/" + std::to_string(authOutCount);
-								}
-								else {
-									// Show only wire counts when no auth traffic: port:wire_in/wire_out
-									portUsage += port + ":" + std::to_string(wireInCount) + "/" + std::to_string(wireOutCount);
-								}
-							}
-
-							first = false;
-							hasAnyTraffic = true;
-						}	// loop through orderedPorts
-
-						if (! hasAnyTraffic)
-							portUsage = "none";
-
-						printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), rxBytesStr, txBytesStr, securityStr, lastSeenStr, portUsage.c_str());
+						printf("%-10s %-15s %-10s %-10s %-8s %-10s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), rxBytesStr.c_str(), txBytesStr.c_str(), securityStr, lastSeenStr.c_str(), portUsage);
 					}	// loop through peersByZtAddressAndIP
 				}	// if j.contains("peersByZtAddressAndIP
 			}	// else if json

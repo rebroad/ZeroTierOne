@@ -2705,9 +2705,14 @@ class OneServiceImpl : public OneService {
 
 			// Note: Total peer count is included in diagnostics section below
 
-			// Get peer statistics by aggregating both IP-level and ZT-level totals.
+			const uint32_t primaryPort = _primaryPort;
+			const uint32_t secondaryPort = (_allowSecondaryPort && _ports[1] != 0) ? _ports[1] : 0;
+			const uint32_t tertiaryPort = _tertiaryPort;
+
+			// Get peer statistics by aggregating pair-, IP-, and ZT-level totals.
 			std::map<InetAddress, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
 			std::map<Address, uint64_t> ztIncomingBytes, ztOutgoingBytes, ztLastSeen;
+			std::map<std::pair<Address, InetAddress>, uint64_t> pairIncomingBytes, pairOutgoingBytes, pairLastSeen;
 			std::vector<std::pair<std::pair<Address, InetAddress>, PeerStats> > sortedPeers;
 
 			{
@@ -2720,6 +2725,12 @@ class OneServiceImpl : public OneService {
 					const PeerStats& peerStats = peerEntry.second;
 
 					const uint64_t lastAuthSeen = std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen);
+					const uint64_t pairIncoming = std::max(peerStats.WireBytesIncoming, peerStats.AuthBytesIncoming);
+					const uint64_t pairOutgoing = std::max(peerStats.WireBytesOutgoing, peerStats.AuthBytesOutgoing);
+
+					pairIncomingBytes[peerEntry.first] = pairIncoming;
+					pairOutgoingBytes[peerEntry.first] = pairOutgoing;
+					pairLastSeen[peerEntry.first] = lastAuthSeen;
 
 					// Aggregate by IP address (wire-level includes all traffic)
 					// Exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
@@ -2732,11 +2743,8 @@ class OneServiceImpl : public OneService {
 					// Aggregate by ZT address using higher of wire/auth for each direction.
 					// Only aggregate non-null ZT addresses.
 					if (ztAddr) {
-						uint64_t totalIncoming = std::max(peerStats.WireBytesIncoming, peerStats.AuthBytesIncoming);
-						uint64_t totalOutgoing = std::max(peerStats.WireBytesOutgoing, peerStats.AuthBytesOutgoing);
-
-						ztIncomingBytes[ztAddr] += totalIncoming;
-						ztOutgoingBytes[ztAddr] += totalOutgoing;
+						ztIncomingBytes[ztAddr] += pairIncoming;
+						ztOutgoingBytes[ztAddr] += pairOutgoing;
 						ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr], lastAuthSeen);
 					}
 				}
@@ -2804,14 +2812,67 @@ class OneServiceImpl : public OneService {
 				uint64_t displayTx = std::get<1>(displayData);
 				const std::string& rxSource = std::get<2>(displayData);
 				const std::string& txSource = std::get<3>(displayData);
+				const PeerStats& pairStats = peerEntry.second;
+
+				const auto mapCount = [](const std::map<unsigned int, uint64_t>& m, uint32_t p) -> uint64_t {
+					if (p == 0)
+						return 0;
+					std::map<unsigned int, uint64_t>::const_iterator it = m.find(p);
+					return (it != m.end()) ? it->second : 0;
+				};
+
+				json wireIncomingPorts = json::object();
+				json wireOutgoingPorts = json::object();
+				json authIncomingPorts = json::object();
+				json authOutgoingPorts = json::object();
+
+				for (std::map<unsigned int, uint64_t>::const_iterator it = pairStats.wireIncomingPortCounts.begin(); it != pairStats.wireIncomingPortCounts.end(); ++it) {
+					wireIncomingPorts[std::to_string(it->first)] = it->second;
+				}
+				for (std::map<unsigned int, uint64_t>::const_iterator it = pairStats.wireOutgoingPortCounts.begin(); it != pairStats.wireOutgoingPortCounts.end(); ++it) {
+					wireOutgoingPorts[std::to_string(it->first)] = it->second;
+				}
+				for (std::map<unsigned int, uint64_t>::const_iterator it = pairStats.incomingPortCounts.begin(); it != pairStats.incomingPortCounts.end(); ++it) {
+					authIncomingPorts[std::to_string(it->first)] = it->second;
+				}
+				for (std::map<unsigned int, uint64_t>::const_iterator it = pairStats.outgoingPortCounts.begin(); it != pairStats.outgoingPortCounts.end(); ++it) {
+					authOutgoingPorts[std::to_string(it->first)] = it->second;
+				}
 
 				json peerStat = json::object();
 				peerStat["ztAddress"] = std::string(ztAddrStr);
 				peerStat["ipAddress"] = std::string(ipAddrStr);
+				peerStat["pairBytesIncoming"] = pairIncomingBytes[peerKey];
+				peerStat["pairBytesOutgoing"] = pairOutgoingBytes[peerKey];
+				peerStat["ipBytesIncoming"] = ipIncomingBytes[ipAddr];
+				peerStat["ipBytesOutgoing"] = ipOutgoingBytes[ipAddr];
+				peerStat["ztBytesIncoming"] = ztIncomingBytes[ztAddr];
+				peerStat["ztBytesOutgoing"] = ztOutgoingBytes[ztAddr];
 				peerStat["displayBytesIncoming"] = displayRx;
 				peerStat["displayBytesOutgoing"] = displayTx;
 				peerStat["rxSource"] = rxSource;   // "i" = from IP stats, "z" = from ZT address stats
 				peerStat["txSource"] = txSource;   // "i" = from IP stats, "z" = from ZT address stats
+				peerStat["lastSeen"] = pairLastSeen[peerKey];
+
+				peerStat["wireIncomingPorts"] = wireIncomingPorts;
+				peerStat["wireOutgoingPorts"] = wireOutgoingPorts;
+				peerStat["authIncomingPorts"] = authIncomingPorts;
+				peerStat["authOutgoingPorts"] = authOutgoingPorts;
+
+				peerStat["primaryIncoming"] = mapCount(pairStats.wireIncomingPortCounts, primaryPort);
+				peerStat["primaryOutgoing"] = mapCount(pairStats.wireOutgoingPortCounts, primaryPort);
+				peerStat["secondaryIncoming"] = mapCount(pairStats.wireIncomingPortCounts, secondaryPort);
+				peerStat["secondaryOutgoing"] = mapCount(pairStats.wireOutgoingPortCounts, secondaryPort);
+				peerStat["tertiaryIncoming"] = mapCount(pairStats.wireIncomingPortCounts, tertiaryPort);
+				peerStat["tertiaryOutgoing"] = mapCount(pairStats.wireOutgoingPortCounts, tertiaryPort);
+
+				peerStat["WireBytesIncoming"] = pairStats.WireBytesIncoming;
+				peerStat["WireBytesOutgoing"] = pairStats.WireBytesOutgoing;
+				peerStat["AuthBytesIncoming"] = pairStats.AuthBytesIncoming;
+				peerStat["AuthBytesOutgoing"] = pairStats.AuthBytesOutgoing;
+				peerStat["SuspiciousPacketCount"] = pairStats.suspiciousPacketCount;
+				peerStat["AttackEventCount"] = pairStats.attackEventCount;
+				peerStat["MaxDivergenceRatio"] = pairStats.maxDivergenceRatio;
 
 				// Only include entries with valid ZT address (filter out null ZT addresses)
 				if (ztAddr) {
@@ -3539,7 +3600,7 @@ class OneServiceImpl : public OneService {
 			const InetAddress remoteIpAddr(from);
 			// Record incoming wire observation for all packets; mark authenticated subset.
 			const bool authenticated = (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && ! _isInfrastructureNode(authenticatedZtAddr));
-			_recordPacketObservation(authenticated ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, authenticated);	  // true = incoming packet
+			observePacket(authenticated ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, authenticated);   // true = incoming packet
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
@@ -4398,11 +4459,11 @@ class OneServiceImpl : public OneService {
 			if ((ttl) && (addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket*)((uintptr_t)localSocket), 255);
 			}
-			_recordPacketObservation(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r, (bool)ztAddr);
+			observePacket(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r, (bool)ztAddr);
 			return ((r) ? 0 : -1);
 		}
 		else {
-			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _recordPacketObservation(ztAddr, ipAddr, sentLocalPort, len, false, sentOk, (bool)ztAddr); });
+			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { observePacket(ztAddr, ipAddr, sentLocalPort, len, false, sentOk, (bool)ztAddr); });
 			return (r ? 0 : -1);
 		}
 	}
@@ -4869,7 +4930,7 @@ class OneServiceImpl : public OneService {
 	}
 
 	// Unified packet observation function: statistics + first-seen logging
-	void _recordPacketObservation(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful, bool authenticated)
+	void observePacket(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful, bool authenticated)
 	{
 		// Skip processing during early initialization
 		if (! _node)
