@@ -1037,9 +1037,7 @@ class OneServiceImpl : public OneService {
 	Mutex _peerIntroductions_m;
 
 	// Track first-time events for debugging
-	std::set<Address> _seenPeerFileAccess;							  // Track first peer file access per ZT address
-	std::set<std::pair<Address, InetAddress> > _seenPacketSent;		  // Track first packet sent per ZT address + IP
-	std::set<std::pair<Address, InetAddress> > _seenPacketReceived;	  // Track first packet received per ZT address + IP
+	std::set<Address> _seenPeerFileAccess;	 // Track first peer file access per ZT address
 	Mutex _firstTimeEvents_m;
 
 	// Fast lookup table for infrastructure node IP addresses (planets/moons)
@@ -3531,6 +3529,7 @@ class OneServiceImpl : public OneService {
 		const unsigned int localPort = localIpAddr.port();
 
 		const ZT_ResultCode rc = _node->processWirePacket(nullptr, now, reinterpret_cast<int64_t>(sock), reinterpret_cast<const struct sockaddr_storage*>(from), data, len, &_nextBackgroundTaskDeadline, &authenticatedZtAddr, localPort);
+		const bool isSuccessful = (rc == ZT_RESULT_OK);
 
 		// Datagram receive path notes:
 		// Tier 1 (wire, untrusted) accounting is handled in packet send/receive helpers that can
@@ -3540,9 +3539,9 @@ class OneServiceImpl : public OneService {
 		if (localAddr && from) {
 			const InetAddress remoteIpAddr(from);
 			// Authenticated ZT address when available; zero if not authenticated.
-			/*if (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && !_isInfrastructureNode(authenticatedZtAddr)) {
-				_handlePacketAtLayer7(authenticatedZtAddr, remoteIpAddr, localPort, len, true, isSuccessful); // true = incoming packet
-			}*/
+			if (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && ! _isInfrastructureNode(authenticatedZtAddr)) {
+				_handlePacketAtLayer7(authenticatedZtAddr, remoteIpAddr, localPort, len, true, isSuccessful);	// true = incoming packet
+			}
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
@@ -4311,35 +4310,23 @@ class OneServiceImpl : public OneService {
 
 	inline int nodeWirePacketSendFunction(const int64_t localSocket, const struct sockaddr_storage* addr, const void* data, unsigned int len, unsigned int ttl)
 	{
-		// Log initial outgoing packet attempts and track wire packet metrics
-		try {
-			// Check for null pointer to prevent crashes
-			if (! addr) {
-				return -1;
-			}
-
-			const uint8_t* packetData = reinterpret_cast<const uint8_t*>(data);
-			Address ztAddr;
-			const InetAddress ipAddr(addr);
-			char ipBuf[64];
-			ipAddr.toIpString(ipBuf);
-
-			// Extract peer ZT address directly from packet bytes.
-			// This is transport-level metadata only (untrusted until protocol validation).
-			if (len > 12) {
-				ztAddr.setTo(packetData + 8, 5);
-			}
-			else {
-				// No address field available at this length; use zero address for wire-level accounting.
-				ztAddr.zero();
-			}
-
-			// Unified Layer 7 processing: Statistics + Logging
-			unsigned int localPort = _getLocalPortSafely(localSocket);
-			_handlePacketAtLayer7(ztAddr, ipAddr, localPort, len, false, true);	  // false = outgoing packet
+		// Check for null pointer to prevent crashes
+		if (! addr) {
+			return -1;
 		}
-		catch (...) {
-			// Ignore errors in logging
+
+		Address ztAddr;
+		const InetAddress ipAddr(addr);
+		const uint8_t* packetData = reinterpret_cast<const uint8_t*>(data);
+
+		// Extract peer ZT address directly from packet bytes.
+		// This is transport-level metadata only (untrusted until protocol validation).
+		if (len > 12) {
+			ztAddr.setTo(packetData + 8, 5);
+		}
+		else {
+			// No address field available at this length; use zero address for wire-level accounting.
+			ztAddr.zero();
 		}
 #ifdef ZT_TCP_FALLBACK_RELAY
 		if (_allowTcpFallbackRelay) {
@@ -4415,10 +4402,12 @@ class OneServiceImpl : public OneService {
 			if ((ttl) && (addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket*)((uintptr_t)localSocket), 255);
 			}
+			_handlePacketAtLayer7(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r);
 			return ((r) ? 0 : -1);
 		}
 		else {
-			return ((_binder.udpSendAll(_phy, addr, data, len, ttl)) ? 0 : -1);
+			const bool r = _binder.udpSendAllWithDetails(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { _handlePacketAtLayer7(ztAddr, ipAddr, sentLocalPort, len, false, sentOk); });
+			return (r ? 0 : -1);
 		}
 	}
 
@@ -4922,18 +4911,18 @@ class OneServiceImpl : public OneService {
 			}
 
 			// 2. LOGGING (first packet only to avoid spam)
-			auto packetKey = std::make_pair(ztAddr, ipAddr);
+			auto packetKey = std::make_pair(std::make_pair(ztAddr, ipAddr), localPort);
 			bool shouldLog = false;
 
 			if (incoming) {
-				if (_seenPacketReceived.find(packetKey) == _seenPacketReceived.end()) {
-					_seenPacketReceived.insert(packetKey);
+				if (_seenIncomingPeerPorts.find(packetKey) == _seenIncomingPeerPorts.end()) {
+					_seenIncomingPeerPorts.insert(packetKey);
 					shouldLog = true;
 				}
 			}
 			else {
-				if (_seenPacketSent.find(packetKey) == _seenPacketSent.end()) {
-					_seenPacketSent.insert(packetKey);
+				if (_seenOutgoingPeerPorts.find(packetKey) == _seenOutgoingPeerPorts.end()) {
+					_seenOutgoingPeerPorts.insert(packetKey);
 					shouldLog = true;
 				}
 			}
@@ -5113,7 +5102,8 @@ static void SpeerEventCallback(void* userPtr, RuntimeEnvironment::PeerEventType 
 	switch (eventType) {
 		case RuntimeEnvironment::PEER_EVENT_OUTGOING_PACKET:
 		case RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET:
-			service->_handlePacketAtLayer7(peerZtAddr, peerAddress, 0, packetSize, (eventType == RuntimeEnvironment::PEER_EVENT_AUTHENTICATED_PACKET), successful);
+			// No-op for packet logs/stats: these callbacks do not carry local socket/port.
+			// We now rely on direct send/receive paths for accurate local_port reporting.
 			break;
 		case RuntimeEnvironment::PEER_EVENT_INTRODUCTION:
 			// Track peer introductions for misbehavior detection
