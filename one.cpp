@@ -1581,8 +1581,8 @@ static int cli(int argc, char** argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S, "ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Security", "Last Seen", "Port Usage");
-				printf("%-10s %-15s %-9s %-9s %-8s %-10s %s" ZT_EOL_S, "----------", "---------------", "---------", "---------", "--------", "----------", "----------");
+				printf("%-10s %-15s %-9s %-9s %-10s %s" ZT_EOL_S, "ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Last Seen", "Port Usage");
+				printf("%-10s %-15s %-9s %-9s %-10s %s" ZT_EOL_S, "----------", "---------------", "---------", "---------", "----------", "----------");
 
 				auto formatBytesCompact = [](uint64_t bytes) -> std::string {
 					char buf[32];
@@ -1646,37 +1646,12 @@ static int cli(int argc, char** argv)
 						std::string rxSource = peerData.value("rxSource", "?");
 						std::string txSource = peerData.value("txSource", "?");
 
-						// Get attack detection metrics
-						uint64_t suspiciousPackets = peerData.value("SuspiciousPacketCount", 0ULL);
-						uint64_t attackEvents = peerData.value("AttackEventCount", 0ULL);
-						double maxDivergenceRatio = peerData.value("MaxDivergenceRatio", 0.0);
-
 						// Last seen timestamps
 						uint64_t lastSeen = peerData.value("lastSeen", 0ULL);
 
 						// Format statistics for display
-						char securityStr[16];
 						std::string rxBytesStr = formatBytesCompact(pairBytesIncoming) + "/" + formatBytesCompact(displayBytesIncoming) + rxSource;
 						std::string txBytesStr = formatBytesCompact(pairBytesOutgoing) + "/" + formatBytesCompact(displayBytesOutgoing) + txSource;
-
-						// Format security status based on attack detection
-						if (attackEvents > 0) {
-							if (maxDivergenceRatio >= 20.0) {
-								strcpy(securityStr, "DANGER");
-							}
-							else if (maxDivergenceRatio >= 5.0) {
-								strcpy(securityStr, "WARNING");
-							}
-							else {
-								strcpy(securityStr, "MINOR");
-							}
-						}
-						else if (suspiciousPackets > 100) {
-							strcpy(securityStr, "SUSPECT");
-						}
-						else {
-							strcpy(securityStr, "OK");
-						}
 
 						std::string lastSeenStr = formatAge(lastSeen);
 
@@ -1706,7 +1681,7 @@ static int cli(int argc, char** argv)
 							(unsigned long long)tertiaryIn,
 							(unsigned long long)tertiaryOut);
 
-						printf("%-10s %-15s %-10s %-10s %-8s %-10s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), rxBytesStr.c_str(), txBytesStr.c_str(), securityStr, lastSeenStr.c_str(), portUsage);
+						printf("%-10s %-15s %-10s %-10s %-10s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), rxBytesStr.c_str(), txBytesStr.c_str(), lastSeenStr.c_str(), portUsage);
 					}	// loop through peersByZtAddressAndIP
 				}	// if j.contains("peersByZtAddressAndIP
 			}	// else if json

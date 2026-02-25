@@ -2724,20 +2724,20 @@ class OneServiceImpl : public OneService {
 					const InetAddress& ipAddr = peerEntry.first.second;
 					const PeerStats& peerStats = peerEntry.second;
 
-					const uint64_t lastAuthSeen = std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen);
+					const uint64_t lastSeen = std::max(std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen), std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen));
 					const uint64_t pairIncoming = std::max(peerStats.WireBytesIncoming, peerStats.AuthBytesIncoming);
 					const uint64_t pairOutgoing = std::max(peerStats.WireBytesOutgoing, peerStats.AuthBytesOutgoing);
 
 					pairIncomingBytes[peerEntry.first] = pairIncoming;
 					pairOutgoingBytes[peerEntry.first] = pairOutgoing;
-					pairLastSeen[peerEntry.first] = lastAuthSeen;
+					pairLastSeen[peerEntry.first] = lastSeen;
 
 					// Aggregate by IP address (wire-level includes all traffic)
 					// Exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
 					if (! _isInfrastructureIP(ipAddr)) {
 						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
-						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], lastAuthSeen);
+						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], lastSeen);
 					}
 
 					// Aggregate by ZT address using higher of wire/auth for each direction.
@@ -2745,7 +2745,7 @@ class OneServiceImpl : public OneService {
 					if (ztAddr) {
 						ztIncomingBytes[ztAddr] += pairIncoming;
 						ztOutgoingBytes[ztAddr] += pairOutgoing;
-						ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr], lastAuthSeen);
+						ztLastSeen[ztAddr] = std::max(ztLastSeen[ztAddr], lastSeen);
 					}
 				}
 			}
@@ -2874,10 +2874,7 @@ class OneServiceImpl : public OneService {
 				peerStat["AttackEventCount"] = pairStats.attackEventCount;
 				peerStat["MaxDivergenceRatio"] = pairStats.maxDivergenceRatio;
 
-				// Only include entries with valid ZT address (filter out null ZT addresses)
-				if (ztAddr) {
-					peerStats.push_back(peerStat);
-				}
+				peerStats.push_back(peerStat);
 			}
 			stats["peersByZtAddressAndIP"] = peerStats;
 
