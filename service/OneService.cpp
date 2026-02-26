@@ -976,6 +976,10 @@ class OneServiceImpl : public OneService {
 		uint64_t WireBytesIncomingOK;	// Wire packet bytes that passed initial parsing
 		uint64_t WireBytesOutgoingOK;	// Wire packet bytes successfully sent
 
+		// Logical stats (deduplicated per logical send/receive operation)
+		uint64_t LogicalBytesIncoming;	 // Incoming bytes, counted once per received datagram
+		uint64_t LogicalBytesOutgoing;	 // Outgoing bytes, counted once per logical send operation
+
 		// Authenticated protocol-level stats (trusted; cryptographically verified only)
 		uint64_t AuthBytesIncoming;	  // Only authenticated incoming bytes
 		uint64_t AuthBytesOutgoing;	  // Only authenticated outgoing bytes
@@ -1002,6 +1006,8 @@ class OneServiceImpl : public OneService {
 			, WireBytesOutgoing(0)
 			, WireBytesIncomingOK(0)
 			, WireBytesOutgoingOK(0)
+			, LogicalBytesIncoming(0)
+			, LogicalBytesOutgoing(0)
 			, AuthBytesIncoming(0)
 			, AuthBytesOutgoing(0)
 			, lastAttackDetected(0)
@@ -2725,8 +2731,9 @@ class OneServiceImpl : public OneService {
 					const PeerStats& peerStats = peerEntry.second;
 
 					const uint64_t lastSeen = std::max(std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen), std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen));
-					const uint64_t pairIncoming = std::max(peerStats.WireBytesIncoming, peerStats.AuthBytesIncoming);
-					const uint64_t pairOutgoing = std::max(peerStats.WireBytesOutgoing, peerStats.AuthBytesOutgoing);
+					// Logical bytes are deduplicated per logical send/receive operation.
+					const uint64_t pairIncoming = peerStats.LogicalBytesIncoming;
+					const uint64_t pairOutgoing = peerStats.LogicalBytesOutgoing;
 
 					pairIncomingBytes[peerEntry.first] = pairIncoming;
 					pairOutgoingBytes[peerEntry.first] = pairOutgoing;
@@ -2735,8 +2742,8 @@ class OneServiceImpl : public OneService {
 					// Aggregate by IP address (wire-level includes all traffic)
 					// Exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
 					if (! _isInfrastructureIP(ipAddr)) {
-						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
-						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
+						ipIncomingBytes[ipAddr] += peerStats.LogicalBytesIncoming;
+						ipOutgoingBytes[ipAddr] += peerStats.LogicalBytesOutgoing;
 						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], lastSeen);
 					}
 
@@ -2869,6 +2876,8 @@ class OneServiceImpl : public OneService {
 
 				peerStat["WireBytesIncoming"] = pairStats.WireBytesIncoming;
 				peerStat["WireBytesOutgoing"] = pairStats.WireBytesOutgoing;
+				peerStat["LogicalBytesIncoming"] = pairStats.LogicalBytesIncoming;
+				peerStat["LogicalBytesOutgoing"] = pairStats.LogicalBytesOutgoing;
 				peerStat["AuthBytesIncoming"] = pairStats.AuthBytesIncoming;
 				peerStat["AuthBytesOutgoing"] = pairStats.AuthBytesOutgoing;
 				peerStat["SuspiciousPacketCount"] = pairStats.suspiciousPacketCount;
@@ -3598,7 +3607,7 @@ class OneServiceImpl : public OneService {
 			const InetAddress remoteIpAddr(from);
 			// Record incoming wire observation for all packets; mark authenticated subset.
 			const bool authenticated = (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && ! _isInfrastructureNode(authenticatedZtAddr));
-			observePacket(authenticated ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, authenticated);   // true = incoming packet
+			observePacket(authenticated ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, authenticated, true);	 // true = incoming packet
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
@@ -4457,11 +4466,17 @@ class OneServiceImpl : public OneService {
 			if ((ttl) && (addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket*)((uintptr_t)localSocket), 255);
 			}
-			observePacket(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r, (bool)ztAddr);
+			observePacket(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r, (bool)ztAddr, true);
 			return ((r) ? 0 : -1);
 		}
 		else {
-			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) { observePacket(ztAddr, ipAddr, sentLocalPort, len, false, sentOk, (bool)ztAddr); });
+			bool logicalObserved = false;
+			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) {
+				// udpSendAll emits once per bound socket; count logical bytes/packets only once.
+				const bool countLogical = ! logicalObserved;
+				observePacket(ztAddr, ipAddr, sentLocalPort, len, false, sentOk, (bool)ztAddr, countLogical);
+				logicalObserved = true;
+			});
 			return (r ? 0 : -1);
 		}
 	}
@@ -4960,7 +4975,7 @@ class OneServiceImpl : public OneService {
 	}
 
 	// Unified packet observation function: statistics + first-seen logging
-	void observePacket(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful, bool authenticated)
+	void observePacket(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful, bool authenticated, bool countLogical)
 	{
 		// Skip processing during early initialization
 		if (! _node)
@@ -5011,18 +5026,22 @@ class OneServiceImpl : public OneService {
 					stats.suspiciousPacketCount++;
 				}
 
-				if (incoming) {
-					stats.totalIncoming++;
-					stats.lastIncomingSeen = now;
-					if (stats.firstIncomingSeen == 0) {
-						stats.firstIncomingSeen = now;
+				if (countLogical) {
+					if (incoming) {
+						stats.LogicalBytesIncoming += packetSize;
+						stats.totalIncoming++;
+						stats.lastIncomingSeen = now;
+						if (stats.firstIncomingSeen == 0) {
+							stats.firstIncomingSeen = now;
+						}
 					}
-				}
-				else {
-					stats.totalOutgoing++;
-					stats.lastOutgoingSeen = now;
-					if (stats.firstOutgoingSeen == 0) {
-						stats.firstOutgoingSeen = now;
+					else {
+						stats.LogicalBytesOutgoing += packetSize;
+						stats.totalOutgoing++;
+						stats.lastOutgoingSeen = now;
+						if (stats.firstOutgoingSeen == 0) {
+							stats.firstOutgoingSeen = now;
+						}
 					}
 				}
 				stats.ipAddr = ipAddr;	 // Store the full InetAddress
