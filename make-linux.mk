@@ -61,6 +61,12 @@ else
 	override DEFS+=-DZT_USE_SYSTEM_NATPMP
 endif
 
+# Optional in-process GeoIP (used by zerotier-cli stats country flags)
+MMDB_HEADER:=$(firstword $(wildcard /usr/include/maxminddb.h /usr/include/x86_64-linux-gnu/maxminddb.h))
+ifneq ($(MMDB_HEADER),)
+	LDLIBS+=-lmaxminddb
+endif
+
 # Use bundled http-parser since distribution versions are NOT API-stable or compatible!
 # Trying to use dynamically linked libhttp-parser causes tons of compatibility problems.
 ONE_OBJS+=ext/http-parser/http_parser.o
@@ -416,10 +422,10 @@ DEP_FILES=$(CORE_OBJS:.o=.d) $(ONE_OBJS:.o=.d) one.d selftest.d
 -include $(DEP_FILES)
 
 # Build signature tracking:
-# Rebuild objects automatically when git HEAD, compiler, or build flags change.
+# Rebuild objects automatically when compiler or build flags change.
+# Do not include git HEAD; otherwise every commit forces a full object rebuild.
 BUILD_SIGNATURE_FILE=.build-signature
-BUILD_GIT_HEAD=$(shell git rev-parse HEAD 2>/dev/null || echo nogit)
-BUILD_SIGNATURE=$(shell printf "%s\n%s\n%s\n%s\n%s\n%s\n" "$(BUILD_GIT_HEAD)" "$(CC)" "$(CXX)" "$(CFLAGS)" "$(CXXFLAGS)" "$(DEFS) $(INCLUDES)" | sha256sum | awk '{print $$1}')
+BUILD_SIGNATURE=$(shell printf "%s\n%s\n%s\n%s\n%s\n" "$(CC)" "$(CXX)" "$(CFLAGS)" "$(CXXFLAGS)" "$(DEFS) $(INCLUDES)" | sha256sum | awk '{print $$1}')
 
 $(BUILD_SIGNATURE_FILE): FORCE
 	@sig='$(BUILD_SIGNATURE)'; \

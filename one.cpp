@@ -96,6 +96,16 @@
 #include <thread>	// TODO needed?
 #include <vector>	// TODO needed?
 
+#if defined(__has_include)
+#if __has_include(<maxminddb.h>)
+#include <maxminddb.h>
+#define ZT_HAVE_MAXMINDDB 1
+#elif __has_include(<x86_64-linux-gnu/maxminddb.h>)
+#include <x86_64-linux-gnu/maxminddb.h>
+#define ZT_HAVE_MAXMINDDB 1
+#endif
+#endif
+
 using json = nlohmann::json;
 
 #ifdef __APPLE__
@@ -1581,9 +1591,6 @@ static int cli(int argc, char** argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-15s %-14s %-10s %-10s %-9s %s" ZT_EOL_S, "IP Address", "ZT Address", "RX Bytes", "TX Bytes", "Last Seen", "Port Usage");
-				printf("%-15s %-14s %-10s %-10s %-9s %s" ZT_EOL_S, "---------------", "--------------", "----------", "----------", "---------", "----------");
-
 				auto formatBytesCompact = [](uint64_t bytes) -> std::string {
 					char buf[32];
 					if (bytes >= (1024ULL * 1024ULL * 1024ULL)) {
@@ -1654,6 +1661,7 @@ static int cli(int argc, char** argv)
 						return true;
 					};
 
+#ifdef ZT_HAVE_MAXMINDDB
 					auto appendUtf8 = [](std::string& out, uint32_t cp) {
 						if (cp <= 0x7F) {
 							out.push_back((char)cp);
@@ -1688,11 +1696,68 @@ static int cli(int argc, char** argv)
 						return out;
 					};
 
-					std::map<std::string, std::string> countryFlagCache;
-					bool checkedMmdbLookup = false;
-					bool haveMmdbLookup = false;
-					std::string mmdbPath;
+					struct GeoIpResolver {
+						bool initialized = false;
+						bool available = false;
+						MMDB_s mmdb;
 
+						GeoIpResolver()
+						{
+							memset(&mmdb, 0, sizeof(mmdb));
+						}
+						~GeoIpResolver()
+						{
+							if (available)
+								MMDB_close(&mmdb);
+						}
+
+						void initOnce()
+						{
+							if (initialized)
+								return;
+							initialized = true;
+							const char* paths[] = { "/var/lib/geoip/GeoLite2-City.mmdb", "/var/lib/geoip/GeoLite2-Country.mmdb" };
+							for (unsigned int i = 0; i < 2; ++i) {
+								if (::access(paths[i], R_OK) != 0)
+									continue;
+								const int rc = MMDB_open(paths[i], MMDB_MODE_MMAP, &mmdb);
+								if (rc == MMDB_SUCCESS) {
+									available = true;
+									return;
+								}
+							}
+						}
+
+						std::string countryIso(const std::string& ip)
+						{
+							initOnce();
+							if (! available)
+								return std::string();
+							int gaiError = 0;
+							int mmdbError = 0;
+							MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gaiError, &mmdbError);
+							if (gaiError != 0 || mmdbError != MMDB_SUCCESS || ! result.found_entry) {
+								return std::string();
+							}
+							MMDB_entry_data_s data;
+							int status = MMDB_get_value(&result.entry, &data, "country", "iso_code", nullptr);
+							if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+								return std::string(data.utf8_string, data.data_size);
+							}
+							status = MMDB_get_value(&result.entry, &data, "registered_country", "iso_code", nullptr);
+							if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+								return std::string(data.utf8_string, data.data_size);
+							}
+							status = MMDB_get_value(&result.entry, &data, "represented_country", "iso_code", nullptr);
+							if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+								return std::string(data.utf8_string, data.data_size);
+							}
+							return std::string();
+						}
+					};
+					GeoIpResolver geo;
+#endif
+					std::map<std::string, std::string> countryFlagCache;
 					auto lookupCountryFlag = [&](const std::string& ip) -> std::string {
 						std::map<std::string, std::string>::const_iterator cached = countryFlagCache.find(ip);
 						if (cached != countryFlagCache.end()) {
@@ -1701,48 +1766,75 @@ static int cli(int argc, char** argv)
 
 						std::string flag;
 						if (isLikelyIpLiteral(ip)) {
-#ifndef __WINDOWS__
-							if (! checkedMmdbLookup) {
-								checkedMmdbLookup = true;
-								if (::access("/var/lib/geoip/GeoLite2-City.mmdb", R_OK) == 0) {
-									mmdbPath = "/var/lib/geoip/GeoLite2-City.mmdb";
-								}
-								else if (::access("/var/lib/geoip/GeoLite2-Country.mmdb", R_OK) == 0) {
-									mmdbPath = "/var/lib/geoip/GeoLite2-Country.mmdb";
-								}
-								FILE* whichPipe = popen("command -v mmdblookup 2>/dev/null", "r");
-								if (whichPipe) {
-									char whichBuf[128];
-									if (fgets(whichBuf, sizeof(whichBuf), whichPipe) != nullptr) {
-										haveMmdbLookup = true;
-									}
-									pclose(whichPipe);
-								}
-							}
-							if (haveMmdbLookup && ! mmdbPath.empty()) {
-								std::string cmd = "mmdblookup --file " + mmdbPath + " --ip " + ip + " country iso_code 2>/dev/null";
-								FILE* pipe = popen(cmd.c_str(), "r");
-								if (pipe) {
-									std::string out;
-									char buf[256];
-									while (fgets(buf, sizeof(buf), pipe) != nullptr) {
-										out += buf;
-									}
-									pclose(pipe);
-
-									for (std::size_t i = 0; i + 3 < out.size(); ++i) {
-										if (out[i] == '"' && std::isupper((unsigned char)out[i + 1]) && std::isupper((unsigned char)out[i + 2]) && out[i + 3] == '"') {
-											flag = isoToFlag(out.substr(i + 1, 2));
-											break;
-										}
-									}
-								}
+#ifdef ZT_HAVE_MAXMINDDB
+							const std::string iso = geo.countryIso(ip);
+							if (! iso.empty()) {
+								flag = isoToFlag(iso);
 							}
 #endif
 						}
 
 						countryFlagCache[ip] = flag;
 						return flag;
+					};
+
+					auto nextCodepoint = [](const std::string& s, std::size_t& i) -> uint32_t {
+						unsigned char c = (unsigned char)s[i];
+						if (c < 0x80) {
+							++i;
+							return (uint32_t)c;
+						}
+						if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) {
+							uint32_t cp = ((uint32_t)(c & 0x1F) << 6) | (uint32_t)(s[i + 1] & 0x3F);
+							i += 2;
+							return cp;
+						}
+						if ((c & 0xF0) == 0xE0 && i + 2 < s.size()) {
+							uint32_t cp = ((uint32_t)(c & 0x0F) << 12) | ((uint32_t)(s[i + 1] & 0x3F) << 6) | (uint32_t)(s[i + 2] & 0x3F);
+							i += 3;
+							return cp;
+						}
+						if ((c & 0xF8) == 0xF0 && i + 3 < s.size()) {
+							uint32_t cp = ((uint32_t)(c & 0x07) << 18) | ((uint32_t)(s[i + 1] & 0x3F) << 12) | ((uint32_t)(s[i + 2] & 0x3F) << 6) | (uint32_t)(s[i + 3] & 0x3F);
+							i += 4;
+							return cp;
+						}
+						++i;
+						return (uint32_t)c;
+					};
+
+					auto displayWidth = [&](const std::string& s) -> int {
+						int w = 0;
+						std::vector<uint32_t> cps;
+						for (std::size_t i = 0; i < s.size();) {
+							cps.push_back(nextCodepoint(s, i));
+						}
+						for (std::size_t i = 0; i < cps.size(); ++i) {
+							const uint32_t cp = cps[i];
+							// Regional indicator pair (country flag) renders as one 2-cell glyph.
+							if (cp >= 0x1F1E6 && cp <= 0x1F1FF && i + 1 < cps.size() && cps[i + 1] >= 0x1F1E6 && cps[i + 1] <= 0x1F1FF) {
+								w += 2;
+								++i;
+								continue;
+							}
+							if (cp < 0x80) {
+								w += 1;
+							}
+							else if (cp >= 0x1100) {
+								w += 2;
+							}
+							else {
+								w += 1;
+							}
+						}
+						return w;
+					};
+
+					auto padRightDisplay = [&](const std::string& s, int width) -> std::string {
+						const int w = displayWidth(s);
+						if (w >= width)
+							return s;
+						return s + std::string((std::size_t)(width - w), ' ');
 					};
 
 					for (auto& peerData : j["peersByZtAddressAndIP"]) {
@@ -1826,6 +1918,23 @@ static int cli(int argc, char** argv)
 						return "";
 					};
 
+					struct RenderedRow {
+						std::string ipCol;
+						std::string ztCol;
+						std::string rxCol;
+						std::string txCol;
+						std::string lastSeenCol;
+						std::string portUsageCol;
+					};
+					std::vector<RenderedRow> renderedRows;
+					renderedRows.reserve(rows.size());
+
+					int ipColWidth = displayWidth("IP Address");
+					int ztColWidth = displayWidth("ZT Address");
+					int rxColWidth = displayWidth("RX Bytes");
+					int txColWidth = displayWidth("TX Bytes");
+					int lastSeenColWidth = displayWidth("Last Seen");
+
 					for (const auto& row : rows) {
 						const char* icon = roleEmoji(row.peerRole);
 						std::string ipCol = row.ipAddress;
@@ -1834,10 +1943,51 @@ static int cli(int argc, char** argv)
 						}
 						std::string ztCol = row.ztaddr;
 						if (row.ztaddr.length() > 0 && icon[0] != '\0') {
-							ztCol = std::string(icon) + " " + row.ztaddr;
+							ztCol = std::string(icon) + row.ztaddr;
 						}
 
-						printf("%-15s %-14s %-10s %-10s %-9s %s" ZT_EOL_S, ipCol.c_str(), ztCol.c_str(), row.rxBytesStr.c_str(), row.txBytesStr.c_str(), row.lastSeenStr.c_str(), row.portUsage.c_str());
+						RenderedRow rr;
+						rr.ipCol = ipCol;
+						rr.ztCol = ztCol;
+						rr.rxCol = row.rxBytesStr;
+						rr.txCol = row.txBytesStr;
+						rr.lastSeenCol = row.lastSeenStr;
+						rr.portUsageCol = row.portUsage;
+						renderedRows.push_back(rr);
+
+						ipColWidth = std::max(ipColWidth, displayWidth(rr.ipCol));
+						ztColWidth = std::max(ztColWidth, displayWidth(rr.ztCol));
+						rxColWidth = std::max(rxColWidth, displayWidth(rr.rxCol));
+						txColWidth = std::max(txColWidth, displayWidth(rr.txCol));
+						lastSeenColWidth = std::max(lastSeenColWidth, displayWidth(rr.lastSeenCol));
+					}
+
+					printf(
+						"%s %s %s %s %s %s" ZT_EOL_S,
+						padRightDisplay("IP Address", ipColWidth).c_str(),
+						padRightDisplay("ZT Address", ztColWidth).c_str(),
+						padRightDisplay("RX Bytes", rxColWidth).c_str(),
+						padRightDisplay("TX Bytes", txColWidth).c_str(),
+						padRightDisplay("Last Seen", lastSeenColWidth).c_str(),
+						"Port Usage");
+					printf(
+						"%s %s %s %s %s %s" ZT_EOL_S,
+						std::string((std::size_t)ipColWidth, '-').c_str(),
+						std::string((std::size_t)ztColWidth, '-').c_str(),
+						std::string((std::size_t)rxColWidth, '-').c_str(),
+						std::string((std::size_t)txColWidth, '-').c_str(),
+						std::string((std::size_t)lastSeenColWidth, '-').c_str(),
+						"----------");
+
+					for (const auto& rr : renderedRows) {
+						printf(
+							"%s %s %s %s %s %s" ZT_EOL_S,
+							padRightDisplay(rr.ipCol, ipColWidth).c_str(),
+							padRightDisplay(rr.ztCol, ztColWidth).c_str(),
+							padRightDisplay(rr.rxCol, rxColWidth).c_str(),
+							padRightDisplay(rr.txCol, txColWidth).c_str(),
+							padRightDisplay(rr.lastSeenCol, lastSeenColWidth).c_str(),
+							rr.portUsageCol.c_str());
 					}	// loop through peersByZtAddressAndIP
 				}	// if j.contains("peersByZtAddressAndIP
 			}	// else if json
