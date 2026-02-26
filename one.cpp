@@ -1581,8 +1581,8 @@ static int cli(int argc, char** argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-10s %-15s %-9s %-9s %-10s %s" ZT_EOL_S, "ZT Address", "IP Address", "RX Bytes", "TX Bytes", "Last Seen", "Port Usage");
-				printf("%-10s %-15s %-9s %-9s %-10s %s" ZT_EOL_S, "----------", "---------------", "---------", "---------", "----------", "----------");
+				printf("%-15s %-10s %-10s %-10s %-10s %s" ZT_EOL_S, "IP Address", "ZT Address", "RX Bytes", "TX Bytes", "Last Seen", "Port Usage");
+				printf("%-15s %-10s %-10s %-10s %-10s %s" ZT_EOL_S, "---------------", "----------", "----------", "----------", "----------", "----------");
 
 				auto formatBytesCompact = [](uint64_t bytes) -> std::string {
 					char buf[32];
@@ -1627,8 +1627,20 @@ static int cli(int argc, char** argv)
 					return std::string(buf);
 				};
 
-				// Process per-IP peer data from the /stats endpoint (already sorted by server)
+				// Process per-IP peer data from the /stats endpoint, then sort by pair RX+TX descending.
 				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_array()) {
+					struct StatsRow {
+						uint64_t pairTotal;
+						std::string ipAddress;
+						std::string ztaddr;
+						std::string rxBytesStr;
+						std::string txBytesStr;
+						std::string lastSeenStr;
+						std::string portUsage;
+					};
+					std::vector<StatsRow> rows;
+					rows.reserve(j["peersByZtAddressAndIP"].size());
+
 					for (auto& peerData : j["peersByZtAddressAndIP"]) {
 						std::string ztaddr = peerData.value("ztAddress", "unknown");
 						std::string ipAddress = peerData.value("ipAddress", "-");
@@ -1673,7 +1685,7 @@ static int cli(int argc, char** argv)
 						snprintf(
 							portUsage,
 							sizeof(portUsage),
-							"%llu:%llu,%llu:%llu,%llu:%llu",
+							"%llu:%llu, %llu:%llu, %llu:%llu",
 							(unsigned long long)primaryIn,
 							(unsigned long long)primaryOut,
 							(unsigned long long)secondaryIn,
@@ -1681,7 +1693,21 @@ static int cli(int argc, char** argv)
 							(unsigned long long)tertiaryIn,
 							(unsigned long long)tertiaryOut);
 
-						printf("%-10s %-15s %-10s %-10s %-10s %s" ZT_EOL_S, ztaddr.c_str(), ipAddress.c_str(), rxBytesStr.c_str(), txBytesStr.c_str(), lastSeenStr.c_str(), portUsage);
+						StatsRow row;
+						row.pairTotal = pairBytesIncoming + pairBytesOutgoing;
+						row.ipAddress = ipAddress;
+						row.ztaddr = ztaddr;
+						row.rxBytesStr = rxBytesStr;
+						row.txBytesStr = txBytesStr;
+						row.lastSeenStr = lastSeenStr;
+						row.portUsage = portUsage;
+						rows.push_back(row);
+					}
+
+					std::sort(rows.begin(), rows.end(), [](const StatsRow& a, const StatsRow& b) { return a.pairTotal > b.pairTotal; });
+
+					for (const auto& row : rows) {
+						printf("%-15s %-10s %-10s %-10s %-10s %s" ZT_EOL_S, row.ipAddress.c_str(), row.ztaddr.c_str(), row.rxBytesStr.c_str(), row.txBytesStr.c_str(), row.lastSeenStr.c_str(), row.portUsage.c_str());
 					}	// loop through peersByZtAddressAndIP
 				}	// if j.contains("peersByZtAddressAndIP
 			}	// else if json
