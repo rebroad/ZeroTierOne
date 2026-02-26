@@ -1581,8 +1581,8 @@ static int cli(int argc, char** argv)
 					printf(ZT_EOL_S);
 				}
 
-				printf("%-15s %-10s %-10s %-10s %-10s %s" ZT_EOL_S, "IP Address", "ZT Address", "RX Bytes", "TX Bytes", "Last Seen", "Port Usage");
-				printf("%-15s %-10s %-10s %-10s %-10s %s" ZT_EOL_S, "---------------", "----------", "----------", "----------", "----------", "----------");
+				printf("%-15s %-14s %-10s %-10s %-9s %s" ZT_EOL_S, "IP Address", "ZT Address", "RX Bytes", "TX Bytes", "Last Seen", "Port Usage");
+				printf("%-15s %-14s %-10s %-10s %-9s %s" ZT_EOL_S, "---------------", "--------------", "----------", "----------", "---------", "----------");
 
 				auto formatBytesCompact = [](uint64_t bytes) -> std::string {
 					char buf[32];
@@ -1633,6 +1633,8 @@ static int cli(int argc, char** argv)
 						uint64_t pairTotal;
 						std::string ipAddress;
 						std::string ztaddr;
+						std::string peerRole;
+						std::string countryFlag;
 						std::string rxBytesStr;
 						std::string txBytesStr;
 						std::string lastSeenStr;
@@ -1641,9 +1643,117 @@ static int cli(int argc, char** argv)
 					std::vector<StatsRow> rows;
 					rows.reserve(j["peersByZtAddressAndIP"].size());
 
+					auto isLikelyIpLiteral = [](const std::string& ip) -> bool {
+						if (ip.empty())
+							return false;
+						for (char c : ip) {
+							if (! std::isxdigit((unsigned char)c) && c != '.' && c != ':') {
+								return false;
+							}
+						}
+						return true;
+					};
+
+					auto appendUtf8 = [](std::string& out, uint32_t cp) {
+						if (cp <= 0x7F) {
+							out.push_back((char)cp);
+						}
+						else if (cp <= 0x7FF) {
+							out.push_back((char)(0xC0 | ((cp >> 6) & 0x1F)));
+							out.push_back((char)(0x80 | (cp & 0x3F)));
+						}
+						else if (cp <= 0xFFFF) {
+							out.push_back((char)(0xE0 | ((cp >> 12) & 0x0F)));
+							out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+							out.push_back((char)(0x80 | (cp & 0x3F)));
+						}
+						else {
+							out.push_back((char)(0xF0 | ((cp >> 18) & 0x07)));
+							out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
+							out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+							out.push_back((char)(0x80 | (cp & 0x3F)));
+						}
+					};
+
+					auto isoToFlag = [&appendUtf8](const std::string& iso) -> std::string {
+						if (iso.size() != 2)
+							return std::string();
+						char a = (char)std::toupper((unsigned char)iso[0]);
+						char b = (char)std::toupper((unsigned char)iso[1]);
+						if (a < 'A' || a > 'Z' || b < 'A' || b > 'Z')
+							return std::string();
+						std::string out;
+						appendUtf8(out, 0x1F1E6 + (uint32_t)(a - 'A'));
+						appendUtf8(out, 0x1F1E6 + (uint32_t)(b - 'A'));
+						return out;
+					};
+
+					std::map<std::string, std::string> countryFlagCache;
+					bool checkedMmdbLookup = false;
+					bool haveMmdbLookup = false;
+					std::string mmdbPath;
+
+					auto lookupCountryFlag = [&](const std::string& ip) -> std::string {
+						std::map<std::string, std::string>::const_iterator cached = countryFlagCache.find(ip);
+						if (cached != countryFlagCache.end()) {
+							return cached->second;
+						}
+
+						std::string flag;
+						if (isLikelyIpLiteral(ip)) {
+#ifndef __WINDOWS__
+							if (! checkedMmdbLookup) {
+								checkedMmdbLookup = true;
+								if (::access("/var/lib/geoip/GeoLite2-City.mmdb", R_OK) == 0) {
+									mmdbPath = "/var/lib/geoip/GeoLite2-City.mmdb";
+								}
+								else if (::access("/var/lib/geoip/GeoLite2-Country.mmdb", R_OK) == 0) {
+									mmdbPath = "/var/lib/geoip/GeoLite2-Country.mmdb";
+								}
+								FILE* whichPipe = popen("command -v mmdblookup 2>/dev/null", "r");
+								if (whichPipe) {
+									char whichBuf[128];
+									if (fgets(whichBuf, sizeof(whichBuf), whichPipe) != nullptr) {
+										haveMmdbLookup = true;
+									}
+									pclose(whichPipe);
+								}
+							}
+							if (haveMmdbLookup && ! mmdbPath.empty()) {
+								std::string cmd = "mmdblookup --file " + mmdbPath + " --ip " + ip + " country iso_code 2>/dev/null";
+								FILE* pipe = popen(cmd.c_str(), "r");
+								if (pipe) {
+									std::string out;
+									char buf[256];
+									while (fgets(buf, sizeof(buf), pipe) != nullptr) {
+										out += buf;
+									}
+									pclose(pipe);
+
+									for (std::size_t i = 0; i + 3 < out.size(); ++i) {
+										if (out[i] == '"' && std::isupper((unsigned char)out[i + 1]) && std::isupper((unsigned char)out[i + 2]) && out[i + 3] == '"') {
+											flag = isoToFlag(out.substr(i + 1, 2));
+											break;
+										}
+									}
+								}
+							}
+#endif
+						}
+
+						countryFlagCache[ip] = flag;
+						return flag;
+					};
+
 					for (auto& peerData : j["peersByZtAddressAndIP"]) {
-						std::string ztaddr = peerData.value("ztAddress", "unknown");
-						std::string ipAddress = peerData.value("ipAddress", "-");
+						std::string ztaddr = peerData.value("ztAddress", "");
+						if (ztaddr == "0000000000") {
+							ztaddr.clear();
+						}
+						std::string ipAddressRaw = peerData.value("ipAddress", "-");
+						std::string ipAddress = ipAddressRaw;
+						std::string peerRole = peerData.value("peerRole", "unknown");
+						std::string countryFlag = lookupCountryFlag(ipAddressRaw);
 
 						// Truncate IPv6 addresses to 15 characters
 						if (ipAddress.length() > 15) {
@@ -1697,6 +1807,8 @@ static int cli(int argc, char** argv)
 						row.pairTotal = pairBytesIncoming + pairBytesOutgoing;
 						row.ipAddress = ipAddress;
 						row.ztaddr = ztaddr;
+						row.peerRole = peerRole;
+						row.countryFlag = countryFlag;
 						row.rxBytesStr = rxBytesStr;
 						row.txBytesStr = txBytesStr;
 						row.lastSeenStr = lastSeenStr;
@@ -1706,8 +1818,26 @@ static int cli(int argc, char** argv)
 
 					std::sort(rows.begin(), rows.end(), [](const StatsRow& a, const StatsRow& b) { return a.pairTotal > b.pairTotal; });
 
+					auto roleEmoji = [](const std::string& role) -> const char* {
+						if (role == "planet")
+							return "🪐";
+						if (role == "moon")
+							return "🌙";
+						return "";
+					};
+
 					for (const auto& row : rows) {
-						printf("%-15s %-10s %-10s %-10s %-10s %s" ZT_EOL_S, row.ipAddress.c_str(), row.ztaddr.c_str(), row.rxBytesStr.c_str(), row.txBytesStr.c_str(), row.lastSeenStr.c_str(), row.portUsage.c_str());
+						const char* icon = roleEmoji(row.peerRole);
+						std::string ipCol = row.ipAddress;
+						if (! row.countryFlag.empty()) {
+							ipCol = row.countryFlag + " " + row.ipAddress;
+						}
+						std::string ztCol = row.ztaddr;
+						if (row.ztaddr.length() > 0 && icon[0] != '\0') {
+							ztCol = std::string(icon) + " " + row.ztaddr;
+						}
+
+						printf("%-15s %-14s %-10s %-10s %-9s %s" ZT_EOL_S, ipCol.c_str(), ztCol.c_str(), row.rxBytesStr.c_str(), row.txBytesStr.c_str(), row.lastSeenStr.c_str(), row.portUsage.c_str());
 					}	// loop through peersByZtAddressAndIP
 				}	// if j.contains("peersByZtAddressAndIP
 			}	// else if json

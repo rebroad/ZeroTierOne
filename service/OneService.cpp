@@ -2842,6 +2842,7 @@ class OneServiceImpl : public OneService {
 				json peerStat = json::object();
 				peerStat["ztAddress"] = std::string(ztAddrStr);
 				peerStat["ipAddress"] = std::string(ipAddrStr);
+				peerStat["peerRole"] = _peerRoleString(ztAddr);
 				peerStat["pairBytesIncoming"] = pairIncomingBytes[peerKey];
 				peerStat["pairBytesOutgoing"] = pairOutgoingBytes[peerKey];
 				peerStat["ipBytesIncoming"] = ipIncomingBytes[ipAddr];
@@ -4892,6 +4893,38 @@ class OneServiceImpl : public OneService {
 		catch (...) {
 			// Ignore errors during node initialization
 			return false;
+		}
+	}
+
+	std::string _peerRoleString(const Address& ztAddr)
+	{
+		if (! ztAddr || ! _node)
+			return "unknown";
+
+		try {
+			const Node* node = reinterpret_cast<const Node*>(_node);
+			if (! node || ! node->online()) {
+				return "unknown";
+			}
+
+			const RuntimeEnvironment* RR = &(node->_RR);
+			if (! RR || ! RR->topology) {
+				return "unknown";
+			}
+
+			switch (RR->topology->role(ztAddr)) {
+				case ZT_PEER_ROLE_PLANET:
+					return "planet";
+				case ZT_PEER_ROLE_MOON:
+					return "moon";
+				case ZT_PEER_ROLE_LEAF:
+					return "leaf";
+				default:
+					return "unknown";
+			}
+		}
+		catch (...) {
+			return "unknown";
 		}
 	}
 
