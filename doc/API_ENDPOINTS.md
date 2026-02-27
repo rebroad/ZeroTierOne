@@ -288,11 +288,6 @@ Invoke-RestMethod -Headers @{'X-ZT1-Auth' = "$(Get-Content C:\ProgramData\ZeroTi
 **Description**: Single Sign-On endpoint for SSO-enabled networks (build-conditional: `ZT_SSO_ENABLED`)
 **CLI Command**: Not directly accessible
 
-### `/iptables`
-**Methods**: `POST`
-**Description**: Not registered in current `startHTTPControlPlane()` implementation
-**CLI Command**: Not available in current build
-
 ### `/debug/peer`
 **Methods**: `GET`
 **Description**: Not registered in current `startHTTPControlPlane()` implementation

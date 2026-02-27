@@ -5072,14 +5072,6 @@ class OneServiceImpl : public OneService {
 		if (_ports[2] != 0)
 			udpPorts.push_back(_ports[2]);	 // Tertiary port (UPnP/NAT-PMP)
 
-		// If no ports are available yet, use the configured primary port
-		if (udpPorts.empty()) {
-			unsigned int configuredPort = (unsigned int)OSUtils::jsonInt(_localConfig["settings"]["iptablesUdpPort"], _primaryPort);
-			if (configuredPort != 0) {
-				udpPorts.push_back(configuredPort);
-			}
-		}
-
 		return udpPorts;
 	}
 
@@ -5660,7 +5652,7 @@ class OneServiceImpl : public OneService {
 			// For major attacks, consider additional defensive measures
 			if (incomingByteRatio >= MAJOR_ATTACK_THRESHOLD) {
 				// TODO: Implement rate limiting, temporary blocks, or other defensive measures
-				// This could integrate with iptables or other firewall systems
+				// This could integrate with local firewall systems
 			}
 		}
 	}

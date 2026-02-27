@@ -1,16 +1,7 @@
 = Change findip to not use /network CLI
 = Log why PEER_FILE_ACCESS happening (e.g. happens when a node is removed from ZT Central)
-= Allow local subnet iptables
-= Add iptable rule (after allow rule) to log dropped packets to our ZT ports
-= Port Usage - show "1st", "2nd", "3rd" instead
 = When we remove a peer we should remove it from the stats too
-=We need to gracefully deal with ipset not being found - do we really need to depend on it?
 = Create local firewall functionality that mimicks the ZT Central firewall
 = if findip finds no result, then at least show which peer recommended the ztaddr
-= Experiment with disabling conntrack for ZeroTier traffic - improve performance?
 = See if zerotier offers bandwidth management/quotas - we want quotes for ztaddrs and IP addrs (and ensure traffic via PLANETS/MOONS is logged against the ztaddr and its IP addresses)
-= Expand peers CLI (arg=extra) to show networks for each leaf
-= Explain what we're sending in the PACKET_TO logs (see if we can combined PACKET_TO1 and PACKET_TO2 logging)
-= Explain what we're sending in the PACKET_SEND_ATTEMPT logs
-= Explain what we're receiving in the PACKET_FROM log messages
 = Create a way to assign friendly names to ztaddrs (for use in logging and in CLI outputs)
