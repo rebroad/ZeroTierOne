@@ -3605,9 +3605,10 @@ class OneServiceImpl : public OneService {
 		// This block only does local receive-port diagnostics.
 		if (localAddr && from) {
 			const InetAddress remoteIpAddr(from);
-			// Record incoming wire observation for all packets; mark authenticated subset.
-			const bool authenticated = (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr && ! _isInfrastructureNode(authenticatedZtAddr));
-			observePacket(authenticated ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, authenticated, true);	 // true = incoming packet
+			// Record incoming wire observation for all packets.
+			// Use null ZT address only when identity attribution is unavailable.
+			const bool hasIdentityAttribution = (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr);
+			observePacket(hasIdentityAttribution ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, hasIdentityAttribution, true);   // true = incoming packet
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
