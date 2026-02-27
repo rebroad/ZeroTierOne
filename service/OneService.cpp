@@ -1056,6 +1056,10 @@ class OneServiceImpl : public OneService {
 	std::set<InetAddress> _monitoredIPAddresses;
 	Mutex _monitorTargets_m;
 
+	// Observed overlay (inside ZT network) IP associations by (nwid, ztAddr).
+	std::map<std::pair<uint64_t, Address>, std::set<InetAddress> > _observedOverlayIPs;
+	Mutex _observedOverlayIPs_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char* hp, unsigned int port)
@@ -2759,8 +2763,8 @@ class OneServiceImpl : public OneService {
 			out["logFile"] = logPath;
 			setContent(req, res, out.dump(2));
 		};
-		auto monitorAdd = [&](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, true); };
-		auto monitorRemove = [&](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, false); };
+		auto monitorAdd = [monitorUpdate](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, true); };
+		auto monitorRemove = [monitorUpdate](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, false); };
 		_controlPlane.Post("/monitor/add", monitorAdd);
 		_controlPlaneV6.Post("/monitor/add", monitorAdd);
 		_controlPlane.Post("/monitor/remove", monitorRemove);
@@ -4566,6 +4570,7 @@ class OneServiceImpl : public OneService {
 		if ((! n) || (! n->tap())) {
 			return;
 		}
+		observeVirtualFrame(nwid, MAC(sourceMac), MAC(destMac), etherType, data, len, false);
 		n->tap()->put(MAC(sourceMac), MAC(destMac), etherType, data, len);
 	}
 
@@ -4644,6 +4649,7 @@ class OneServiceImpl : public OneService {
 
 	inline void tapFrameHandler(uint64_t nwid, const MAC& from, const MAC& to, unsigned int etherType, unsigned int vlanId, const void* data, unsigned int len)
 	{
+		observeVirtualFrame(nwid, from, to, etherType, data, len, true);
 		_node->processVirtualNetworkFrame((void*)0, OSUtils::now(), nwid, from.toInt(), to.toInt(), etherType, vlanId, data, len, &_nextBackgroundTaskDeadline);
 	}
 
@@ -5225,46 +5231,149 @@ class OneServiceImpl : public OneService {
 					fprintf(stderr, "PACKET_TO: size=%lu remote_ip=%s remote_port=%u peer=%s local_port=%u" ZT_EOL_S, packetSize, ipBuf, remotePort, ztBuf, localPort);
 				}
 			}
-
-			std::set<std::string> monitorLogPaths;
-			{
-				Mutex::Lock _l(_monitorTargets_m);
-				if (ztAddr && (_monitoredZtAddresses.find(ztAddr) != _monitoredZtAddresses.end())) {
-					monitorLogPaths.insert(_monitorLogPathForZt(ztAddr));
-				}
-				if (_monitoredIPAddresses.find(keyIP) != _monitoredIPAddresses.end()) {
-					monitorLogPaths.insert(_monitorLogPathForIP(keyIP));
-				}
-			}
-			if (! monitorLogPaths.empty()) {
-				char ztBuf[16], ipBuf[64], line[512];
-				ztAddr.toString(ztBuf);
-				ipAddr.ipOnly().toIpString(ipBuf);
-				snprintf(
-					line,
-					sizeof(line),
-					"ts=%llu dir=%s zt=%s ip=%s remote_port=%u local_port=%u size=%lu ok=%d auth=%d logical=%d\n",
-					(unsigned long long)OSUtils::now(),
-					incoming ? "in" : "out",
-					ztBuf,
-					ipBuf,
-					ipAddr.port(),
-					localPort,
-					packetSize,
-					successful ? 1 : 0,
-					authenticated ? 1 : 0,
-					countLogical ? 1 : 0);
-				for (std::set<std::string>::const_iterator p = monitorLogPaths.begin(); p != monitorLogPaths.end(); ++p) {
-					FILE* f = fopen(p->c_str(), "a");
-					if (f) {
-						fputs(line, f);
-						fclose(f);
-					}
-				}
-			}
 		}
 		catch (...) {
 			// Ignore errors in packet processing - not critical
+		}
+	}
+
+	void _appendMonitorLine(const std::set<std::string>& monitorLogPaths, const char* line)
+	{
+		for (std::set<std::string>::const_iterator p = monitorLogPaths.begin(); p != monitorLogPaths.end(); ++p) {
+			FILE* f = fopen(p->c_str(), "a");
+			if (f) {
+				fputs(line, f);
+				fclose(f);
+			}
+		}
+	}
+
+	bool _recordObservedOverlayIP(uint64_t nwid, const Address& ztAddr, const InetAddress& ipAddr)
+	{
+		if ((! ztAddr) || (! ipAddr)) {
+			return false;
+		}
+		const InetAddress ipOnly = ipAddr.ipOnly();
+		Mutex::Lock _l(_observedOverlayIPs_m);
+		std::set<InetAddress>& ips = _observedOverlayIPs[std::make_pair(nwid, ztAddr)];
+		return ips.insert(ipOnly).second;
+	}
+
+	void _addMonitorPathsForAssociatedUnderlayIp(const Address& ztAddr, std::set<std::string>& monitorLogPaths)
+	{
+		if (! ztAddr) {
+			return;
+		}
+
+		std::set<InetAddress> associatedUnderlayIps;
+		{
+			Mutex::Lock _l(_peerStats_m);
+			for (std::map<std::pair<Address, InetAddress>, PeerStats>::const_iterator it = _peerStats.begin(); it != _peerStats.end(); ++it) {
+				if (it->first.first == ztAddr) {
+					associatedUnderlayIps.insert(it->first.second.ipOnly());
+				}
+			}
+		}
+
+		if (associatedUnderlayIps.empty()) {
+			return;
+		}
+
+		Mutex::Lock _l(_monitorTargets_m);
+		for (std::set<InetAddress>::const_iterator ip = associatedUnderlayIps.begin(); ip != associatedUnderlayIps.end(); ++ip) {
+			if (_monitoredIPAddresses.find(*ip) != _monitoredIPAddresses.end()) {
+				monitorLogPaths.insert(_monitorLogPathForIP(*ip));
+			}
+		}
+	}
+
+	void observeVirtualFrame(uint64_t nwid, const MAC& from, const MAC& to, unsigned int etherType, const void* data, unsigned int len, bool outgoing)
+	{
+		Address srcZt = from.toAddress(nwid);
+		Address dstZt = to.toAddress(nwid);
+
+		InetAddress srcIp;
+		InetAddress dstIp;
+		if ((etherType == 0x0800) && (len >= 20)) {	  // IPv4 payload
+			srcIp.set(((const unsigned char*)data) + 12, 4, 0);
+			dstIp.set(((const unsigned char*)data) + 16, 4, 0);
+		}
+		else if ((etherType == 0x86dd) && (len >= 40)) {   // IPv6 payload
+			srcIp.set(((const unsigned char*)data) + 8, 16, 0);
+			dstIp.set(((const unsigned char*)data) + 24, 16, 0);
+		}
+		else if ((etherType == 0x0806) && (len >= 28)) {   // ARP
+			const unsigned char* arp = (const unsigned char*)data;
+			const unsigned short htype = (unsigned short)((((unsigned int)arp[0]) << 8) | ((unsigned int)arp[1]));
+			const unsigned short ptype = (unsigned short)((((unsigned int)arp[2]) << 8) | ((unsigned int)arp[3]));
+			const unsigned int hlen = (unsigned int)arp[4];
+			const unsigned int plen = (unsigned int)arp[5];
+			if ((htype == 1) && (ptype == 0x0800) && (hlen == 6) && (plen == 4) && (len >= 28)) {
+				MAC senderMac(arp + 8, 6);
+				MAC targetMac(arp + 18, 6);
+				srcZt = senderMac.toAddress(nwid);
+				dstZt = targetMac.toAddress(nwid);
+				srcIp.set(arp + 14, 4, 0);	 // sender protocol address
+				dstIp.set(arp + 24, 4, 0);	 // target protocol address
+			}
+		}
+
+		// We only emit monitor logs when we have in-network IP context.
+		const bool haveOverlayIpContext = (srcIp || dstIp);
+		if (! haveOverlayIpContext) {
+			return;
+		}
+
+		std::set<std::string> monitorLogPaths;
+		{
+			Mutex::Lock _l(_monitorTargets_m);
+			if (srcZt && (_monitoredZtAddresses.find(srcZt) != _monitoredZtAddresses.end())) {
+				monitorLogPaths.insert(_monitorLogPathForZt(srcZt));
+			}
+			if (dstZt && (_monitoredZtAddresses.find(dstZt) != _monitoredZtAddresses.end())) {
+				monitorLogPaths.insert(_monitorLogPathForZt(dstZt));
+			}
+			if (srcIp && (_monitoredIPAddresses.find(srcIp.ipOnly()) != _monitoredIPAddresses.end())) {
+				monitorLogPaths.insert(_monitorLogPathForIP(srcIp.ipOnly()));
+			}
+			if (dstIp && (_monitoredIPAddresses.find(dstIp.ipOnly()) != _monitoredIPAddresses.end())) {
+				monitorLogPaths.insert(_monitorLogPathForIP(dstIp.ipOnly()));
+			}
+		}
+		// Allow monitoring by underlay/public IP by resolving monitored underlay IP -> ztAddr association.
+		_addMonitorPathsForAssociatedUnderlayIp(srcZt, monitorLogPaths);
+		_addMonitorPathsForAssociatedUnderlayIp(dstZt, monitorLogPaths);
+		if (monitorLogPaths.empty()) {
+			return;
+		}
+
+		char srcZtBuf[16], dstZtBuf[16], srcIpBuf[64], dstIpBuf[64], nwidBuf[32];
+		srcZt.toString(srcZtBuf);
+		dstZt.toString(dstZtBuf);
+		if (srcIp) {
+			srcIp.toIpString(srcIpBuf);
+		}
+		else {
+			snprintf(srcIpBuf, sizeof(srcIpBuf), "-");
+		}
+		if (dstIp) {
+			dstIp.toIpString(dstIpBuf);
+		}
+		else {
+			snprintf(dstIpBuf, sizeof(dstIpBuf), "-");
+		}
+		OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
+		if (srcZt && srcIp) {
+			const bool isNew = _recordObservedOverlayIP(nwid, srcZt, srcIp);
+			char assocLine[384];
+			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=src new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, srcZtBuf, srcIpBuf, isNew ? 1 : 0);
+			_appendMonitorLine(monitorLogPaths, assocLine);
+		}
+		if (dstZt && dstIp) {
+			const bool isNew = _recordObservedOverlayIP(nwid, dstZt, dstIp);
+			char assocLine[384];
+			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=dst new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, dstZtBuf, dstIpBuf, isNew ? 1 : 0);
+			_appendMonitorLine(monitorLogPaths, assocLine);
 		}
 	}
 
