@@ -243,11 +243,10 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  get <network ID> <setting> - Get a network setting" ZT_EOL_S);
 	fprintf(out, "  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out, "  stats                   - Show peer port usage statistics" ZT_EOL_S);
-	fprintf(out, "  stats-by-ip             - Show statistics aggregated by IP address only" ZT_EOL_S);	  // TODO - test
-	fprintf(out, "  health                  - Show system health status" ZT_EOL_S);						  // TODO - test
-	fprintf(out, "  metrics                 - Show system metrics" ZT_EOL_S);							  // TODO - test
-	fprintf(out, "  debug-peer <zt_address> - Show debug information for a peer" ZT_EOL_S);				  // TODO - test
-	fprintf(out, "  debug-lookup <ip>       - Debug IP to ZT address lookup" ZT_EOL_S);					  // TODO - test
+	fprintf(out, "  metrics                 - Show daemon metrics output" ZT_EOL_S);
+	fprintf(out, "  monitor-add <ip|zt>     - Enable extra packet logging for an IP or ZT address" ZT_EOL_S);
+	fprintf(out, "  monitor-remove <ip|zt>  - Disable extra packet logging for an IP or ZT address" ZT_EOL_S);
+	fprintf(out, "  monitor-list            - List active monitor targets and their /tmp log files" ZT_EOL_S);
 	fprintf(out, "  findztaddr <ip_address> - Find ZeroTier address for given IP" ZT_EOL_S);
 	fprintf(out, "  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
 	fprintf(out, "  set-api-token <token>   - Set ZeroTier Central API token for enhanced lookups" ZT_EOL_S);
@@ -2291,84 +2290,6 @@ static int cli(int argc, char** argv)
 
 		return 1;
 	}
-	else if (command == "stats-by-ip") {
-		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/stats/by-ip", requestHeaders, responseHeaders, responseBody);
-		if (scode == 200) {
-			if (json) {
-				printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
-			}
-			else {
-				nlohmann::json result = OSUtils::jsonParse(responseBody);
-				printf("IP Address Statistics (aggregated by IP only):" ZT_EOL_S);
-				printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, "IP Address", "RX Bytes", "TX Bytes", "Last Seen");
-				printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, "---------------", "------------", "------------", "--------------------");
-
-				for (auto it = result.begin(); it != result.end(); ++it) {
-					const std::string& ipAddr = it.key();
-					const nlohmann::json& stats = it.value();
-
-					uint64_t rxBytes = OSUtils::jsonInt(stats["incomingBytes"], 0ULL);
-					uint64_t txBytes = OSUtils::jsonInt(stats["outgoingBytes"], 0ULL);
-					uint64_t lastSeen = OSUtils::jsonInt(stats["lastSeen"], 0ULL);
-
-					char rxStr[32], txStr[32], lastSeenStr[32];
-
-					// Format bytes in human-readable format
-					auto formatBytes = [](uint64_t bytes, char* str) {
-						if (bytes >= 1073741824ULL) {
-							snprintf(str, 32, "%.1f GB", (double)bytes / 1073741824.0);
-						}
-						else if (bytes >= 1048576ULL) {
-							snprintf(str, 32, "%.1f MB", (double)bytes / 1048576.0);
-						}
-						else if (bytes >= 1024ULL) {
-							snprintf(str, 32, "%.1f KB", (double)bytes / 1024.0);
-						}
-						else {
-							snprintf(str, 32, "%llu B", (unsigned long long)bytes);
-						}
-					};
-
-					formatBytes(rxBytes, rxStr);
-					formatBytes(txBytes, txStr);
-
-					if (lastSeen > 0) {
-						time_t t = (time_t)(lastSeen / 1000ULL);
-						struct tm* tm = localtime(&t);
-						strftime(lastSeenStr, sizeof(lastSeenStr), "%Y-%m-%d %H:%M:%S", tm);
-					}
-					else {
-						strcpy(lastSeenStr, "never");
-					}
-
-					printf("%-15s %-12s %-12s %-20s" ZT_EOL_S, ipAddr.c_str(), rxStr, txStr, lastSeenStr);
-				}
-			}
-		}
-		else {
-			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
-			return 1;
-		}
-	}
-	else if (command == "health") {
-		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/health", requestHeaders, responseHeaders, responseBody);
-		if (scode == 200) {
-			if (json) {
-				printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
-			}
-			else {
-				nlohmann::json result = OSUtils::jsonParse(responseBody);
-				printf("System Health Status:" ZT_EOL_S);
-				printf("Status: %s" ZT_EOL_S, OSUtils::jsonString(result["status"], "unknown").c_str());
-				printf("Uptime: %llu seconds" ZT_EOL_S, (unsigned long long)OSUtils::jsonInt(result["uptime"], 0ULL));
-				printf("Clock: %llu" ZT_EOL_S, (unsigned long long)OSUtils::jsonInt(result["clock"], 0ULL));
-			}
-		}
-		else {
-			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
-			return 1;
-		}
-	}
 	else if (command == "metrics") {
 		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/metrics", requestHeaders, responseHeaders, responseBody);
 		if (scode == 200) {
@@ -2377,30 +2298,23 @@ static int cli(int argc, char** argv)
 		}
 		else {
 			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			printf("Metrics may be disabled; set \"enableMetrics\": true in local.conf if needed." ZT_EOL_S);
 			return 1;
 		}
 	}
-	else if (command == "debug-peer") {
-		if (arg1.empty()) {
-			printf("usage: zerotier-cli debug-peer <zt_address>" ZT_EOL_S);
-			return 2;
-		}
-
-		std::string url = "/debug/peer?ztaddr=" + arg1;
-		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, url.c_str(), requestHeaders, responseHeaders, responseBody);
+	else if (command == "monitor-list") {
+		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor", requestHeaders, responseHeaders, responseBody);
 		if (scode == 200) {
 			if (json) {
 				printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
 			}
 			else {
 				nlohmann::json result = OSUtils::jsonParse(responseBody);
-				printf("Debug Information for Peer %s:" ZT_EOL_S, arg1.c_str());
-				printf("Address: %s" ZT_EOL_S, OSUtils::jsonString(result["address"], "unknown").c_str());
-				printf("Last Seen: %llu" ZT_EOL_S, (unsigned long long)OSUtils::jsonInt(result["lastSeen"], 0ULL));
-				printf("Paths: %u" ZT_EOL_S, (unsigned int)OSUtils::jsonInt(result["pathCount"], 0));
-				if (result.contains("paths") && result["paths"].is_array()) {
-					for (const auto& path : result["paths"]) {
-						printf("  Path: %s" ZT_EOL_S, OSUtils::jsonString(path["address"], "unknown").c_str());
+				printf("%-8s %-42s %s" ZT_EOL_S, "Type", "Target", "Log file");
+				printf("%-8s %-42s %s" ZT_EOL_S, "--------", "------------------------------------------", "--------");
+				if (result.contains("entries") && result["entries"].is_array()) {
+					for (const auto& entry : result["entries"]) {
+						printf("%-8s %-42s %s" ZT_EOL_S, OSUtils::jsonString(entry["type"], "").c_str(), OSUtils::jsonString(entry["target"], "").c_str(), OSUtils::jsonString(entry["logFile"], "").c_str());
 					}
 				}
 			}
@@ -2410,31 +2324,30 @@ static int cli(int argc, char** argv)
 			return 1;
 		}
 	}
-	else if (command == "debug-lookup") {
+	else if (command == "monitor-add") {
 		if (arg1.empty()) {
-			printf("usage: zerotier-cli debug-lookup <ip_address>" ZT_EOL_S);
+			printf("usage: zerotier-cli monitor-add <ip|zt_address>" ZT_EOL_S);
 			return 2;
 		}
-
-		std::string url = "/debug/lookup?ip=" + arg1;
-		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, url.c_str(), requestHeaders, responseHeaders, responseBody);
+		const std::string body = std::string("{\"target\":\"") + arg1 + "\"}";
+		const unsigned int scode = Http::POST(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor/add", requestHeaders, body.c_str(), (unsigned long)body.size(), responseHeaders, responseBody);
 		if (scode == 200) {
-			if (json) {
-				printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
-			}
-			else {
-				nlohmann::json result = OSUtils::jsonParse(responseBody);
-				printf("Debug Lookup for IP %s:" ZT_EOL_S, arg1.c_str());
-				printf("Found ZT Addresses:" ZT_EOL_S);
-				if (result.contains("addresses") && result["addresses"].is_array()) {
-					for (const auto& addr : result["addresses"]) {
-						printf("  %s" ZT_EOL_S, addr.get<std::string>().c_str());
-					}
-				}
-				else {
-					printf("  None found" ZT_EOL_S);
-				}
-			}
+			printf("%s" ZT_EOL_S, json ? cliFixJsonCRs(responseBody).c_str() : responseBody.c_str());
+		}
+		else {
+			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+	}
+	else if (command == "monitor-remove") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli monitor-remove <ip|zt_address>" ZT_EOL_S);
+			return 2;
+		}
+		const std::string body = std::string("{\"target\":\"") + arg1 + "\"}";
+		const unsigned int scode = Http::POST(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor/remove", requestHeaders, body.c_str(), (unsigned long)body.size(), responseHeaders, responseBody);
+		if (scode == 200) {
+			printf("%s" ZT_EOL_S, json ? cliFixJsonCRs(responseBody).c_str() : responseBody.c_str());
 		}
 		else {
 			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());

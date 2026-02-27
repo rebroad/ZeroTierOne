@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <exception>
 #include <map>
 #include <stdint.h>
@@ -1050,6 +1051,11 @@ class OneServiceImpl : public OneService {
 	std::set<InetAddress> _infrastructureIPs;
 	Mutex _infrastructureIPs_m;
 
+	// Optional per-target packet monitoring for ad-hoc debugging.
+	std::set<Address> _monitoredZtAddresses;
+	std::set<InetAddress> _monitoredIPAddresses;
+	Mutex _monitorTargets_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char* hp, unsigned int port)
@@ -1848,7 +1854,6 @@ class OneServiceImpl : public OneService {
 		std::string setBondMtuPath = "/bond/setmtu/([0-9]{1,6})/([a-zA-Z0-9_]{1,16})/([0-9a-fA-F\\.\\:]{1,39})";
 		std::string configPath = "/config";
 		std::string configPostPath = "/config/settings";
-		std::string healthPath = "/health";
 		std::string moonListPath = "/moon";
 		std::string moonPath = "/moon/([0-9a-fA-F]{10})";
 		std::string networkListPath = "/network";
@@ -1858,7 +1863,7 @@ class OneServiceImpl : public OneService {
 		std::string statusPath = "/status";
 		std::string metricsPath = "/metrics";
 
-		std::vector<std::string> noAuthEndpoints { "/sso", "/health" };
+		std::vector<std::string> noAuthEndpoints { "/sso" };
 
 		auto setContent = [=](const httplib::Request& req, httplib::Response& res, std::string content) {
 			if (req.has_param("jsonp")) {
@@ -2215,33 +2220,6 @@ class OneServiceImpl : public OneService {
 		_controlPlane.Put(configPostPath, configPost);
 		_controlPlaneV6.Post(configPostPath, configPost);
 		_controlPlaneV6.Put(configPostPath, configPost);
-
-		auto healthGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
-			auto provider = opentelemetry::trace::Provider::GetTracerProvider();
-			auto tracer = provider->GetTracer("http_control_plane");
-			auto span = tracer->StartSpan("http_control_plane::healthGet");
-			auto scope = tracer->WithActiveSpan(span);
-
-			json out = json::object();
-
-			char tmp[256];
-
-			ZT_NodeStatus status;
-			_node->status(&status);
-
-			out["online"] = (bool)(status.online != 0);
-			out["versionMajor"] = ZEROTIER_ONE_VERSION_MAJOR;
-			out["versionMinor"] = ZEROTIER_ONE_VERSION_MINOR;
-			out["versionRev"] = ZEROTIER_ONE_VERSION_REVISION;
-			out["versionBuild"] = ZEROTIER_ONE_VERSION_BUILD;
-			OSUtils::ztsnprintf(tmp, sizeof(tmp), "%d.%d.%d", ZEROTIER_ONE_VERSION_MAJOR, ZEROTIER_ONE_VERSION_MINOR, ZEROTIER_ONE_VERSION_REVISION);
-			out["version"] = tmp;
-			out["clock"] = OSUtils::now();
-
-			setContent(req, res, out.dump());
-		};
-		_controlPlane.Get(healthPath, healthGet);
-		_controlPlaneV6.Get(healthPath, healthGet);
 
 		auto moonListGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
 			auto provider = opentelemetry::trace::Provider::GetTracerProvider();
@@ -2687,6 +2665,106 @@ class OneServiceImpl : public OneService {
 		};
 		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
+
+		auto monitorListGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
+			json out = json::object();
+			json entries = json::array();
+			{
+				Mutex::Lock _l(_monitorTargets_m);
+				for (std::set<Address>::const_iterator it = _monitoredZtAddresses.begin(); it != _monitoredZtAddresses.end(); ++it) {
+					char ztBuf[16];
+					it->toString(ztBuf);
+					json entry = json::object();
+					entry["type"] = "zt";
+					entry["target"] = ztBuf;
+					entry["logFile"] = _monitorLogPathForZt(*it);
+					entries.push_back(entry);
+				}
+				for (std::set<InetAddress>::const_iterator it = _monitoredIPAddresses.begin(); it != _monitoredIPAddresses.end(); ++it) {
+					char ipBuf[64];
+					it->toIpString(ipBuf);
+					json entry = json::object();
+					entry["type"] = "ip";
+					entry["target"] = ipBuf;
+					entry["logFile"] = _monitorLogPathForIP(*it);
+					entries.push_back(entry);
+				}
+			}
+			out["entries"] = entries;
+			setContent(req, res, out.dump(2));
+		};
+		_controlPlane.Get("/monitor", monitorListGet);
+		_controlPlaneV6.Get("/monitor", monitorListGet);
+
+		auto monitorUpdate = [&, setContent](const httplib::Request& req, httplib::Response& res, bool add) {
+			std::string target;
+			try {
+				json body = OSUtils::jsonParse(req.body);
+				if (body.is_object()) {
+					target = OSUtils::jsonString(body["target"], "");
+				}
+			}
+			catch (...) {
+			}
+			if (target.empty() && req.has_param("target")) {
+				target = req.get_param_value("target");
+			}
+
+			Address ztAddr;
+			InetAddress ipAddr;
+			const MonitorTargetType type = _parseMonitorTarget(target, ztAddr, ipAddr);
+			if (type == MONITOR_TARGET_INVALID) {
+				setContent(req, res, "{\"error\":\"target must be a 10-digit ZT address or valid IP address\"}");
+				res.status = 400;
+				return;
+			}
+
+			bool changed = false;
+			std::string normalized;
+			std::string logPath;
+			{
+				Mutex::Lock _l(_monitorTargets_m);
+				if (type == MONITOR_TARGET_ZT) {
+					char ztBuf[16];
+					ztAddr.toString(ztBuf);
+					normalized = ztBuf;
+					logPath = _monitorLogPathForZt(ztAddr);
+					if (add) {
+						changed = _monitoredZtAddresses.insert(ztAddr).second;
+					}
+					else {
+						changed = (_monitoredZtAddresses.erase(ztAddr) > 0);
+					}
+				}
+				else {
+					char ipBuf[64];
+					ipAddr.toIpString(ipBuf);
+					normalized = ipBuf;
+					logPath = _monitorLogPathForIP(ipAddr);
+					if (add) {
+						changed = _monitoredIPAddresses.insert(ipAddr).second;
+					}
+					else {
+						changed = (_monitoredIPAddresses.erase(ipAddr) > 0);
+					}
+				}
+			}
+
+			json out = json::object();
+			out["ok"] = true;
+			out["action"] = add ? "add" : "remove";
+			out["changed"] = changed;
+			out["type"] = (type == MONITOR_TARGET_ZT) ? "zt" : "ip";
+			out["target"] = normalized;
+			out["logFile"] = logPath;
+			setContent(req, res, out.dump(2));
+		};
+		auto monitorAdd = [&](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, true); };
+		auto monitorRemove = [&](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, false); };
+		_controlPlane.Post("/monitor/add", monitorAdd);
+		_controlPlaneV6.Post("/monitor/add", monitorAdd);
+		_controlPlane.Post("/monitor/remove", monitorRemove);
+		_controlPlaneV6.Post("/monitor/remove", monitorRemove);
 
 		// GET /stats - peer port and bandwidth usage statistics
 		auto statsGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
@@ -4944,6 +5022,66 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
+	std::string _sanitizeForFilename(const std::string& raw)
+	{
+		std::string out;
+		out.reserve(raw.size());
+		for (std::string::const_iterator c = raw.begin(); c != raw.end(); ++c) {
+			if (((*c >= 'a') && (*c <= 'z')) || ((*c >= 'A') && (*c <= 'Z')) || ((*c >= '0') && (*c <= '9')) || (*c == '-') || (*c == '_')) {
+				out.push_back(*c);
+			}
+			else {
+				out.push_back('_');
+			}
+		}
+		return out;
+	}
+
+	std::string _monitorLogPathForZt(const Address& ztAddr)
+	{
+		char ztBuf[16];
+		ztAddr.toString(ztBuf);
+		return std::string("/tmp/zt-") + std::string(ztBuf) + ".log";
+	}
+
+	std::string _monitorLogPathForIP(const InetAddress& ipAddr)
+	{
+		char ipBuf[64];
+		ipAddr.ipOnly().toIpString(ipBuf);
+		return std::string("/tmp/ip-") + _sanitizeForFilename(ipBuf) + ".log";
+	}
+
+	enum MonitorTargetType { MONITOR_TARGET_INVALID = 0, MONITOR_TARGET_ZT = 1, MONITOR_TARGET_IP = 2 };
+
+	MonitorTargetType _parseMonitorTarget(const std::string& target, Address& ztAddr, InetAddress& ipAddr)
+	{
+		ztAddr = Address();
+		ipAddr = InetAddress();
+		if (target.length() == 10) {
+			bool allHex = true;
+			for (std::string::const_iterator c = target.begin(); c != target.end(); ++c) {
+				if (! std::isxdigit(static_cast<unsigned char>(*c))) {
+					allHex = false;
+					break;
+				}
+			}
+			if (allHex) {
+				ztAddr = Address(Utils::hexStrToU64(target.c_str()));
+				if (ztAddr) {
+					return MONITOR_TARGET_ZT;
+				}
+			}
+		}
+
+		InetAddress parsed(target.c_str());
+		if (parsed.isV4() || parsed.isV6()) {
+			ipAddr = parsed.ipOnly();
+			return MONITOR_TARGET_IP;
+		}
+
+		return MONITOR_TARGET_INVALID;
+	}
+
 	// Add an IP address to the infrastructure lookup table - TODO needed? Didn't upstream already have a way to do this?
 	void _addInfrastructureIP(const InetAddress& ipAddr)
 	{
@@ -5085,6 +5223,43 @@ class OneServiceImpl : public OneService {
 				}
 				else {
 					fprintf(stderr, "PACKET_TO: size=%lu remote_ip=%s remote_port=%u peer=%s local_port=%u" ZT_EOL_S, packetSize, ipBuf, remotePort, ztBuf, localPort);
+				}
+			}
+
+			std::set<std::string> monitorLogPaths;
+			{
+				Mutex::Lock _l(_monitorTargets_m);
+				if (ztAddr && (_monitoredZtAddresses.find(ztAddr) != _monitoredZtAddresses.end())) {
+					monitorLogPaths.insert(_monitorLogPathForZt(ztAddr));
+				}
+				if (_monitoredIPAddresses.find(keyIP) != _monitoredIPAddresses.end()) {
+					monitorLogPaths.insert(_monitorLogPathForIP(keyIP));
+				}
+			}
+			if (! monitorLogPaths.empty()) {
+				char ztBuf[16], ipBuf[64], line[512];
+				ztAddr.toString(ztBuf);
+				ipAddr.ipOnly().toIpString(ipBuf);
+				snprintf(
+					line,
+					sizeof(line),
+					"ts=%llu dir=%s zt=%s ip=%s remote_port=%u local_port=%u size=%lu ok=%d auth=%d logical=%d\n",
+					(unsigned long long)OSUtils::now(),
+					incoming ? "in" : "out",
+					ztBuf,
+					ipBuf,
+					ipAddr.port(),
+					localPort,
+					packetSize,
+					successful ? 1 : 0,
+					authenticated ? 1 : 0,
+					countLogical ? 1 : 0);
+				for (std::set<std::string>::const_iterator p = monitorLogPaths.begin(); p != monitorLogPaths.end(); ++p) {
+					FILE* f = fopen(p->c_str(), "a");
+					if (f) {
+						fputs(line, f);
+						fclose(f);
+					}
 				}
 			}
 		}
