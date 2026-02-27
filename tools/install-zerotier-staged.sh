@@ -2,6 +2,7 @@
 set -euo pipefail
 
 STAGE_DIR="${1:-/var/tmp/zerotier-remote-install}"
+STAGED_GEOIP_DB_BASENAME="${2:-}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/sbin}"
 SERVICE_NAME="${SERVICE_NAME:-zerotier-one}"
 STATE_DIR="${STATE_DIR:-/var/lib/zerotier-one}"
@@ -11,6 +12,45 @@ ROLLBACK_DISABLE_FILE="${ROLLBACK_DISABLE_FILE:-${STATE_DIR}/.rollback-disabled}
 ROLLBACK_SCRIPT="${ROLLBACK_SCRIPT:-/usr/local/sbin/zerotier-rollback-on-boot.sh}"
 ROLLBACK_SERVICE="${ROLLBACK_SERVICE:-zerotier-rollback-on-boot.service}"
 ROLLBACK_LOG="${ROLLBACK_LOG:-/var/log/zerotier-rollback.log}"
+
+geoip_db_exists() {
+	local candidate
+	for candidate in \
+		/var/lib/geoip/GeoLite2-Country.mmdb \
+		/var/lib/geoip/GeoLite2-City.mmdb \
+		/usr/share/GeoIP/GeoLite2-Country.mmdb \
+		/usr/share/GeoIP/GeoLite2-City.mmdb; do
+		if [[ -r "${candidate}" ]]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+install_staged_geoip_db_if_present() {
+	if [[ -z "${STAGED_GEOIP_DB_BASENAME}" ]]; then
+		return 1
+	fi
+
+	case "${STAGED_GEOIP_DB_BASENAME}" in
+		GeoLite2-Country.mmdb|GeoLite2-City.mmdb) ;;
+		*)
+			echo "warning: unsupported staged GeoIP DB filename: ${STAGED_GEOIP_DB_BASENAME}" >&2
+			return 1
+			;;
+	esac
+
+	local staged_db="${STAGE_DIR}/${STAGED_GEOIP_DB_BASENAME}"
+	if [[ ! -r "${staged_db}" ]]; then
+		echo "warning: staged GeoIP DB not readable: ${staged_db}" >&2
+		return 1
+	fi
+
+	install -d -m 0755 /var/lib/geoip
+	install -m 0644 "${staged_db}" "/var/lib/geoip/${STAGED_GEOIP_DB_BASENAME}"
+	echo "Installed GeoIP DB: /var/lib/geoip/${STAGED_GEOIP_DB_BASENAME}"
+	return 0
+}
 
 if [[ "${EUID}" -ne 0 ]]; then
 	echo "error: run as root (e.g. sudo $0 ${STAGE_DIR})" >&2
@@ -140,6 +180,15 @@ echo "Installed version: $("${INSTALL_DIR}/zerotier-one" -v 2>/dev/null | head -
 if command -v ldd >/dev/null 2>&1; then
 	if ldd "${INSTALL_DIR}/zerotier-one" 2>/dev/null | grep -q "libmaxminddb"; then
 		echo "GeoIP runtime linkage: libmaxminddb detected"
+		if geoip_db_exists; then
+			echo "GeoIP database: usable GeoLite2 database detected"
+		elif install_staged_geoip_db_if_present && geoip_db_exists; then
+			echo "GeoIP database: installed staged GeoLite2 database"
+		else
+			echo "warning: usable GeoLite2 DB not found on target" >&2
+			echo "         expected one of: /var/lib/geoip/GeoLite2-{Country,City}.mmdb" >&2
+			echo "                          /usr/share/GeoIP/GeoLite2-{Country,City}.mmdb" >&2
+		fi
 	else
 		echo "warning: GeoIP runtime linkage missing (libmaxminddb not found by ldd)" >&2
 		echo "         install package 'libmaxminddb0' on target to enable country flags in stats" >&2

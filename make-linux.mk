@@ -585,6 +585,21 @@ docker-build-remote-install-binary: docker-build-ubuntu2204
 remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT)
 	@set -eu; \
 	local_arch="$$(uname -m)"; \
+	local_mmdb=""; \
+	local_mmdb_mtime=0; \
+	for candidate in \
+		/var/lib/geoip/GeoLite2-Country.mmdb \
+		/usr/share/GeoIP/GeoLite2-Country.mmdb \
+		/var/lib/geoip/GeoLite2-City.mmdb \
+		/usr/share/GeoIP/GeoLite2-City.mmdb; do \
+		if [ -r "$$candidate" ]; then \
+			candidate_mtime="$$(stat -c %Y "$$candidate" 2>/dev/null || echo 0)"; \
+			if [ "$$candidate_mtime" -gt "$$local_mmdb_mtime" ]; then \
+				local_mmdb="$$candidate"; \
+				local_mmdb_mtime="$$candidate_mtime"; \
+			fi; \
+		fi; \
+	done; \
 	if ! command -v objdump >/dev/null 2>&1; then \
 		echo "error: objdump is required for remote-install preflight checks"; \
 		exit 1; \
@@ -595,10 +610,23 @@ remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT
 		echo REMOTE_ARCH=$$(uname -m); \
 		if command -v ldd >/dev/null 2>&1; then \
 			ldd --version 2>&1 | head -n1 | sed -n "s/.* \([0-9][0-9.]*\)$$/REMOTE_GLIBC=\1/p"; \
-		fi' )"; \
+		fi; \
+		usable_geoip=0; \
+		for candidate in \
+			/var/lib/geoip/GeoLite2-Country.mmdb \
+			/var/lib/geoip/GeoLite2-City.mmdb \
+			/usr/share/GeoIP/GeoLite2-Country.mmdb \
+			/usr/share/GeoIP/GeoLite2-City.mmdb; do \
+			if [ -r "$$candidate" ]; then \
+				usable_geoip=1; \
+				break; \
+			fi; \
+		done; \
+		echo REMOTE_HAS_GEOIP=$$usable_geoip' )"; \
 	echo "$$remote_info"; \
 	remote_arch="$$(echo "$$remote_info" | sed -n 's/^REMOTE_ARCH=//p' | head -n1)"; \
 	remote_glibc="$$(echo "$$remote_info" | sed -n 's/^REMOTE_GLIBC=//p' | head -n1)"; \
+	remote_has_geoip="$$(echo "$$remote_info" | sed -n 's/^REMOTE_HAS_GEOIP=//p' | head -n1)"; \
 	if [ -z "$$remote_arch" ]; then \
 		echo "error: unable to determine remote architecture on $(REMOTE_HOST)"; \
 		exit 1; \
@@ -615,12 +643,29 @@ remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT
 			exit 1; \
 		fi; \
 	fi; \
+	stage_geoip_src=""; \
+	if [ "$${remote_has_geoip:-0}" = "1" ]; then \
+		echo "Remote GeoIP DB: usable GeoLite2 database already present"; \
+	elif [ -n "$$local_mmdb" ]; then \
+		stage_geoip_src="$$local_mmdb"; \
+		echo "Remote GeoIP DB: missing; will stage local $$stage_geoip_src"; \
+	else \
+		echo "Remote GeoIP DB: missing and no local GeoLite2 DB available to stage"; \
+	fi; \
 	echo "Staging files on $(REMOTE_HOST):$(REMOTE_STAGE_DIR)"; \
 	$(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "mkdir -p $(REMOTE_STAGE_DIR)"; \
-	$(REMOTE_SCP) -q ./zerotier-one "tools/$(REMOTE_INSTALL_SCRIPT)" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
+	if [ -n "$$stage_geoip_src" ]; then \
+		$(REMOTE_SCP) -q ./zerotier-one "tools/$(REMOTE_INSTALL_SCRIPT)" "$$stage_geoip_src" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
+	else \
+		$(REMOTE_SCP) -q ./zerotier-one "tools/$(REMOTE_INSTALL_SCRIPT)" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
+	fi; \
 	$(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "chmod 0755 $(REMOTE_STAGE_DIR)/$(REMOTE_INSTALL_SCRIPT) $(REMOTE_STAGE_DIR)/zerotier-one"; \
+	install_args="$(REMOTE_STAGE_DIR)"; \
+	if [ -n "$$stage_geoip_src" ]; then \
+		install_args="$$install_args $$(basename "$$stage_geoip_src")"; \
+	fi; \
 	echo "Running installer via $(REMOTE_SUDO) on $(REMOTE_HOST)"; \
-	$(REMOTE_SSH) -t -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "$(REMOTE_SUDO) $(REMOTE_STAGE_DIR)/$(REMOTE_INSTALL_SCRIPT) $(REMOTE_STAGE_DIR)"; \
+	$(REMOTE_SSH) -t -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "$(REMOTE_SUDO) $(REMOTE_STAGE_DIR)/$(REMOTE_INSTALL_SCRIPT) $$install_args"; \
 	echo "Remote install completed."; \
 	echo "Optional Docker cleanup: make docker-build-clean"
 

@@ -1716,15 +1716,25 @@ static int cli(int argc, char** argv)
 							if (initialized)
 								return;
 							initialized = true;
-							const char* paths[] = { "/var/lib/geoip/GeoLite2-City.mmdb", "/var/lib/geoip/GeoLite2-Country.mmdb" };
-							for (unsigned int i = 0; i < 2; ++i) {
+							const char* paths[] = { "/var/lib/geoip/GeoLite2-Country.mmdb", "/var/lib/geoip/GeoLite2-City.mmdb", "/usr/share/GeoIP/GeoLite2-Country.mmdb", "/usr/share/GeoIP/GeoLite2-City.mmdb" };
+							const char* selectedPath = nullptr;
+							time_t selectedMtime = 0;
+							for (unsigned int i = 0; i < (sizeof(paths) / sizeof(paths[0])); ++i) {
 								if (::access(paths[i], R_OK) != 0)
 									continue;
-								const int rc = MMDB_open(paths[i], MMDB_MODE_MMAP, &mmdb);
-								if (rc == MMDB_SUCCESS) {
-									available = true;
-									return;
+								struct stat st;
+								if (::stat(paths[i], &st) != 0)
+									continue;
+								if (! selectedPath || (st.st_mtime > selectedMtime)) {
+									selectedPath = paths[i];
+									selectedMtime = st.st_mtime;
 								}
+							}
+							if (! selectedPath)
+								return;
+							const int rc = MMDB_open(selectedPath, MMDB_MODE_MMAP, &mmdb);
+							if (rc == MMDB_SUCCESS) {
+								available = true;
 							}
 						}
 
