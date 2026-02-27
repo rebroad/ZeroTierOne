@@ -1051,14 +1051,11 @@ class OneServiceImpl : public OneService {
 	std::set<InetAddress> _infrastructureIPs;
 	Mutex _infrastructureIPs_m;
 
-	// Optional per-target packet monitoring for ad-hoc debugging.
-	std::set<Address> _monitoredZtAddresses;
-	std::set<InetAddress> _monitoredIPAddresses;
-	Mutex _monitorTargets_m;
-
 	// Observed overlay (inside ZT network) IP associations by (nwid, ztAddr).
 	std::map<std::pair<uint64_t, Address>, std::set<InetAddress> > _observedOverlayIPs;
 	Mutex _observedOverlayIPs_m;
+	static constexpr std::size_t ZT_MAX_OBSERVED_OVERLAY_PEERS = 16384;
+	static constexpr std::size_t ZT_MAX_OBSERVED_IPS_PER_PEER = 16;
 
 	// end member variables ----------------------------------------------------
 
@@ -2669,106 +2666,6 @@ class OneServiceImpl : public OneService {
 		};
 		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
-
-		auto monitorListGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
-			json out = json::object();
-			json entries = json::array();
-			{
-				Mutex::Lock _l(_monitorTargets_m);
-				for (std::set<Address>::const_iterator it = _monitoredZtAddresses.begin(); it != _monitoredZtAddresses.end(); ++it) {
-					char ztBuf[16];
-					it->toString(ztBuf);
-					json entry = json::object();
-					entry["type"] = "zt";
-					entry["target"] = ztBuf;
-					entry["logFile"] = _monitorLogPathForZt(*it);
-					entries.push_back(entry);
-				}
-				for (std::set<InetAddress>::const_iterator it = _monitoredIPAddresses.begin(); it != _monitoredIPAddresses.end(); ++it) {
-					char ipBuf[64];
-					it->toIpString(ipBuf);
-					json entry = json::object();
-					entry["type"] = "ip";
-					entry["target"] = ipBuf;
-					entry["logFile"] = _monitorLogPathForIP(*it);
-					entries.push_back(entry);
-				}
-			}
-			out["entries"] = entries;
-			setContent(req, res, out.dump(2));
-		};
-		_controlPlane.Get("/monitor", monitorListGet);
-		_controlPlaneV6.Get("/monitor", monitorListGet);
-
-		auto monitorUpdate = [&, setContent](const httplib::Request& req, httplib::Response& res, bool add) {
-			std::string target;
-			try {
-				json body = OSUtils::jsonParse(req.body);
-				if (body.is_object()) {
-					target = OSUtils::jsonString(body["target"], "");
-				}
-			}
-			catch (...) {
-			}
-			if (target.empty() && req.has_param("target")) {
-				target = req.get_param_value("target");
-			}
-
-			Address ztAddr;
-			InetAddress ipAddr;
-			const MonitorTargetType type = _parseMonitorTarget(target, ztAddr, ipAddr);
-			if (type == MONITOR_TARGET_INVALID) {
-				setContent(req, res, "{\"error\":\"target must be a 10-digit ZT address or valid IP address\"}");
-				res.status = 400;
-				return;
-			}
-
-			bool changed = false;
-			std::string normalized;
-			std::string logPath;
-			{
-				Mutex::Lock _l(_monitorTargets_m);
-				if (type == MONITOR_TARGET_ZT) {
-					char ztBuf[16];
-					ztAddr.toString(ztBuf);
-					normalized = ztBuf;
-					logPath = _monitorLogPathForZt(ztAddr);
-					if (add) {
-						changed = _monitoredZtAddresses.insert(ztAddr).second;
-					}
-					else {
-						changed = (_monitoredZtAddresses.erase(ztAddr) > 0);
-					}
-				}
-				else {
-					char ipBuf[64];
-					ipAddr.toIpString(ipBuf);
-					normalized = ipBuf;
-					logPath = _monitorLogPathForIP(ipAddr);
-					if (add) {
-						changed = _monitoredIPAddresses.insert(ipAddr).second;
-					}
-					else {
-						changed = (_monitoredIPAddresses.erase(ipAddr) > 0);
-					}
-				}
-			}
-
-			json out = json::object();
-			out["ok"] = true;
-			out["action"] = add ? "add" : "remove";
-			out["changed"] = changed;
-			out["type"] = (type == MONITOR_TARGET_ZT) ? "zt" : "ip";
-			out["target"] = normalized;
-			out["logFile"] = logPath;
-			setContent(req, res, out.dump(2));
-		};
-		auto monitorAdd = [monitorUpdate](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, true); };
-		auto monitorRemove = [monitorUpdate](const httplib::Request& req, httplib::Response& res) { monitorUpdate(req, res, false); };
-		_controlPlane.Post("/monitor/add", monitorAdd);
-		_controlPlaneV6.Post("/monitor/add", monitorAdd);
-		_controlPlane.Post("/monitor/remove", monitorRemove);
-		_controlPlaneV6.Post("/monitor/remove", monitorRemove);
 
 		auto overlayLookupGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
 			json out = json::object();
@@ -5116,66 +5013,6 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
-	std::string _sanitizeForFilename(const std::string& raw)
-	{
-		std::string out;
-		out.reserve(raw.size());
-		for (std::string::const_iterator c = raw.begin(); c != raw.end(); ++c) {
-			if (((*c >= 'a') && (*c <= 'z')) || ((*c >= 'A') && (*c <= 'Z')) || ((*c >= '0') && (*c <= '9')) || (*c == '-') || (*c == '_')) {
-				out.push_back(*c);
-			}
-			else {
-				out.push_back('_');
-			}
-		}
-		return out;
-	}
-
-	std::string _monitorLogPathForZt(const Address& ztAddr)
-	{
-		char ztBuf[16];
-		ztAddr.toString(ztBuf);
-		return std::string("/tmp/zt-") + std::string(ztBuf) + ".log";
-	}
-
-	std::string _monitorLogPathForIP(const InetAddress& ipAddr)
-	{
-		char ipBuf[64];
-		ipAddr.ipOnly().toIpString(ipBuf);
-		return std::string("/tmp/ip-") + _sanitizeForFilename(ipBuf) + ".log";
-	}
-
-	enum MonitorTargetType { MONITOR_TARGET_INVALID = 0, MONITOR_TARGET_ZT = 1, MONITOR_TARGET_IP = 2 };
-
-	MonitorTargetType _parseMonitorTarget(const std::string& target, Address& ztAddr, InetAddress& ipAddr)
-	{
-		ztAddr = Address();
-		ipAddr = InetAddress();
-		if (target.length() == 10) {
-			bool allHex = true;
-			for (std::string::const_iterator c = target.begin(); c != target.end(); ++c) {
-				if (! std::isxdigit(static_cast<unsigned char>(*c))) {
-					allHex = false;
-					break;
-				}
-			}
-			if (allHex) {
-				ztAddr = Address(Utils::hexStrToU64(target.c_str()));
-				if (ztAddr) {
-					return MONITOR_TARGET_ZT;
-				}
-			}
-		}
-
-		InetAddress parsed(target.c_str());
-		if (parsed.isV4() || parsed.isV6()) {
-			ipAddr = parsed.ipOnly();
-			return MONITOR_TARGET_IP;
-		}
-
-		return MONITOR_TARGET_INVALID;
-	}
-
 	// Add an IP address to the infrastructure lookup table - TODO needed? Didn't upstream already have a way to do this?
 	void _addInfrastructureIP(const InetAddress& ipAddr)
 	{
@@ -5325,17 +5162,6 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
-	void _appendMonitorLine(const std::set<std::string>& monitorLogPaths, const char* line)
-	{
-		for (std::set<std::string>::const_iterator p = monitorLogPaths.begin(); p != monitorLogPaths.end(); ++p) {
-			FILE* f = fopen(p->c_str(), "a");
-			if (f) {
-				fputs(line, f);
-				fclose(f);
-			}
-		}
-	}
-
 	bool _recordObservedOverlayIP(uint64_t nwid, const Address& ztAddr, const InetAddress& ipAddr)
 	{
 		if ((! ztAddr) || (! ipAddr)) {
@@ -5343,36 +5169,19 @@ class OneServiceImpl : public OneService {
 		}
 		const InetAddress ipOnly = ipAddr.ipOnly();
 		Mutex::Lock _l(_observedOverlayIPs_m);
-		std::set<InetAddress>& ips = _observedOverlayIPs[std::make_pair(nwid, ztAddr)];
+		const std::pair<uint64_t, Address> key = std::make_pair(nwid, ztAddr);
+		std::map<std::pair<uint64_t, Address>, std::set<InetAddress> >::iterator entry = _observedOverlayIPs.find(key);
+		if (entry == _observedOverlayIPs.end()) {
+			if (_observedOverlayIPs.size() >= ZT_MAX_OBSERVED_OVERLAY_PEERS) {
+				return false;
+			}
+			entry = _observedOverlayIPs.insert(std::make_pair(key, std::set<InetAddress>())).first;
+		}
+		std::set<InetAddress>& ips = entry->second;
+		if ((ips.find(ipOnly) == ips.end()) && (ips.size() >= ZT_MAX_OBSERVED_IPS_PER_PEER)) {
+			return false;
+		}
 		return ips.insert(ipOnly).second;
-	}
-
-	void _addMonitorPathsForAssociatedUnderlayIp(const Address& ztAddr, std::set<std::string>& monitorLogPaths)
-	{
-		if (! ztAddr) {
-			return;
-		}
-
-		std::set<InetAddress> associatedUnderlayIps;
-		{
-			Mutex::Lock _l(_peerStats_m);
-			for (std::map<std::pair<Address, InetAddress>, PeerStats>::const_iterator it = _peerStats.begin(); it != _peerStats.end(); ++it) {
-				if (it->first.first == ztAddr) {
-					associatedUnderlayIps.insert(it->first.second.ipOnly());
-				}
-			}
-		}
-
-		if (associatedUnderlayIps.empty()) {
-			return;
-		}
-
-		Mutex::Lock _l(_monitorTargets_m);
-		for (std::set<InetAddress>::const_iterator ip = associatedUnderlayIps.begin(); ip != associatedUnderlayIps.end(); ++ip) {
-			if (_monitoredIPAddresses.find(*ip) != _monitoredIPAddresses.end()) {
-				monitorLogPaths.insert(_monitorLogPathForIP(*ip));
-			}
-		}
 	}
 
 	void observeVirtualFrame(uint64_t nwid, const MAC& from, const MAC& to, unsigned int etherType, const void* data, unsigned int len, bool outgoing)
@@ -5422,55 +5231,8 @@ class OneServiceImpl : public OneService {
 			dstAssocNew = _recordObservedOverlayIP(nwid, dstZt, dstIp);
 		}
 
-		std::set<std::string> monitorLogPaths;
-		{
-			Mutex::Lock _l(_monitorTargets_m);
-			if (srcZt && (_monitoredZtAddresses.find(srcZt) != _monitoredZtAddresses.end())) {
-				monitorLogPaths.insert(_monitorLogPathForZt(srcZt));
-			}
-			if (dstZt && (_monitoredZtAddresses.find(dstZt) != _monitoredZtAddresses.end())) {
-				monitorLogPaths.insert(_monitorLogPathForZt(dstZt));
-			}
-			if (srcIp && (_monitoredIPAddresses.find(srcIp.ipOnly()) != _monitoredIPAddresses.end())) {
-				monitorLogPaths.insert(_monitorLogPathForIP(srcIp.ipOnly()));
-			}
-			if (dstIp && (_monitoredIPAddresses.find(dstIp.ipOnly()) != _monitoredIPAddresses.end())) {
-				monitorLogPaths.insert(_monitorLogPathForIP(dstIp.ipOnly()));
-			}
-		}
-		// Allow monitoring by underlay/public IP by resolving monitored underlay IP -> ztAddr association.
-		_addMonitorPathsForAssociatedUnderlayIp(srcZt, monitorLogPaths);
-		_addMonitorPathsForAssociatedUnderlayIp(dstZt, monitorLogPaths);
-		if (monitorLogPaths.empty()) {
-			return;
-		}
-
-		char srcZtBuf[16], dstZtBuf[16], srcIpBuf[64], dstIpBuf[64], nwidBuf[32];
-		srcZt.toString(srcZtBuf);
-		dstZt.toString(dstZtBuf);
-		if (srcIp) {
-			srcIp.toIpString(srcIpBuf);
-		}
-		else {
-			snprintf(srcIpBuf, sizeof(srcIpBuf), "-");
-		}
-		if (dstIp) {
-			dstIp.toIpString(dstIpBuf);
-		}
-		else {
-			snprintf(dstIpBuf, sizeof(dstIpBuf), "-");
-		}
-		OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
-		if (srcZt && srcIp) {
-			char assocLine[384];
-			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=src new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, srcZtBuf, srcIpBuf, srcAssocNew ? 1 : 0);
-			_appendMonitorLine(monitorLogPaths, assocLine);
-		}
-		if (dstZt && dstIp) {
-			char assocLine[384];
-			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=dst new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, dstZtBuf, dstIpBuf, dstAssocNew ? 1 : 0);
-			_appendMonitorLine(monitorLogPaths, assocLine);
-		}
+		(void)srcAssocNew;
+		(void)dstAssocNew;
 	}
 
 	// Get a copy of the infrastructure IPs (for stats endpoints)

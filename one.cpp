@@ -244,9 +244,6 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out, "  stats                   - Show peer port usage statistics" ZT_EOL_S);
 	fprintf(out, "  metrics                 - Show daemon metrics output" ZT_EOL_S);
-	fprintf(out, "  monitor-add <ip|zt>     - Enable extra packet logging for an IP or ZT address" ZT_EOL_S);
-	fprintf(out, "  monitor-remove <ip|zt>  - Disable extra packet logging for an IP or ZT address" ZT_EOL_S);
-	fprintf(out, "  monitor-list            - List active monitor targets and their /tmp log files" ZT_EOL_S);
 	fprintf(out, "  findzt <ip_address>     - Find ZeroTier address(es) for given in-network IP" ZT_EOL_S);
 	fprintf(out, "  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
 	fprintf(out, "  set-api-token <token>   - Set ZeroTier Central API token for enhanced lookups" ZT_EOL_S);
@@ -2063,58 +2060,6 @@ static int cli(int argc, char** argv)
 		else {
 			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
 			printf("Metrics may be disabled; set \"enableMetrics\": true in local.conf if needed." ZT_EOL_S);
-			return 1;
-		}
-	}
-	else if (command == "monitor-list") {
-		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor", requestHeaders, responseHeaders, responseBody);
-		if (scode == 200) {
-			if (json) {
-				printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
-			}
-			else {
-				nlohmann::json result = OSUtils::jsonParse(responseBody);
-				printf("%-8s %-42s %s" ZT_EOL_S, "Type", "Target", "Log file");
-				printf("%-8s %-42s %s" ZT_EOL_S, "--------", "------------------------------------------", "--------");
-				if (result.contains("entries") && result["entries"].is_array()) {
-					for (const auto& entry : result["entries"]) {
-						printf("%-8s %-42s %s" ZT_EOL_S, OSUtils::jsonString(entry["type"], "").c_str(), OSUtils::jsonString(entry["target"], "").c_str(), OSUtils::jsonString(entry["logFile"], "").c_str());
-					}
-				}
-			}
-		}
-		else {
-			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
-			return 1;
-		}
-	}
-	else if (command == "monitor-add") {
-		if (arg1.empty()) {
-			printf("usage: zerotier-cli monitor-add <ip|zt_address>" ZT_EOL_S);
-			return 2;
-		}
-		const std::string body = std::string("{\"target\":\"") + arg1 + "\"}";
-		const unsigned int scode = Http::POST(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor/add", requestHeaders, body.c_str(), (unsigned long)body.size(), responseHeaders, responseBody);
-		if (scode == 200) {
-			printf("%s" ZT_EOL_S, json ? cliFixJsonCRs(responseBody).c_str() : responseBody.c_str());
-		}
-		else {
-			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
-			return 1;
-		}
-	}
-	else if (command == "monitor-remove") {
-		if (arg1.empty()) {
-			printf("usage: zerotier-cli monitor-remove <ip|zt_address>" ZT_EOL_S);
-			return 2;
-		}
-		const std::string body = std::string("{\"target\":\"") + arg1 + "\"}";
-		const unsigned int scode = Http::POST(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor/remove", requestHeaders, body.c_str(), (unsigned long)body.size(), responseHeaders, responseBody);
-		if (scode == 200) {
-			printf("%s" ZT_EOL_S, json ? cliFixJsonCRs(responseBody).c_str() : responseBody.c_str());
-		}
-		else {
-			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
 			return 1;
 		}
 	}
