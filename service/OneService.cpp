@@ -2770,6 +2770,94 @@ class OneServiceImpl : public OneService {
 		_controlPlane.Post("/monitor/remove", monitorRemove);
 		_controlPlaneV6.Post("/monitor/remove", monitorRemove);
 
+		auto overlayLookupGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
+			json out = json::object();
+			json results = json::array();
+
+			const bool hasZt = req.has_param("zt");
+			const bool hasIp = req.has_param("ip");
+			if (! hasZt && ! hasIp) {
+				setContent(req, res, "{\"error\":\"missing query parameter: zt or ip\"}");
+				res.status = 400;
+				return;
+			}
+
+			Address queryZt;
+			InetAddress queryIp;
+			if (hasZt) {
+				const std::string ztRaw = req.get_param_value("zt");
+				if (ztRaw.size() != 10) {
+					setContent(req, res, "{\"error\":\"zt must be 10 hex characters\"}");
+					res.status = 400;
+					return;
+				}
+				bool allHex = true;
+				for (std::string::const_iterator c = ztRaw.begin(); c != ztRaw.end(); ++c) {
+					if (! std::isxdigit(static_cast<unsigned char>(*c))) {
+						allHex = false;
+						break;
+					}
+				}
+				if (! allHex) {
+					setContent(req, res, "{\"error\":\"zt must be 10 hex characters\"}");
+					res.status = 400;
+					return;
+				}
+				queryZt = Address(Utils::hexStrToU64(ztRaw.c_str()));
+				out["query"] = json::object({ { "zt", ztRaw } });
+			}
+			if (hasIp) {
+				queryIp = InetAddress(req.get_param_value("ip").c_str());
+				if (! (queryIp.isV4() || queryIp.isV6())) {
+					setContent(req, res, "{\"error\":\"ip must be valid IPv4 or IPv6\"}");
+					res.status = 400;
+					return;
+				}
+				queryIp = queryIp.ipOnly();
+				if (! hasZt) {
+					char ipBuf[64];
+					queryIp.toIpString(ipBuf);
+					out["query"] = json::object({ { "ip", std::string(ipBuf) } });
+				}
+			}
+
+			{
+				Mutex::Lock _l(_observedOverlayIPs_m);
+				for (std::map<std::pair<uint64_t, Address>, std::set<InetAddress> >::const_iterator it = _observedOverlayIPs.begin(); it != _observedOverlayIPs.end(); ++it) {
+					const uint64_t nwid = it->first.first;
+					const Address& ztAddr = it->first.second;
+					const std::set<InetAddress>& ips = it->second;
+
+					if (hasZt && (ztAddr != queryZt)) {
+						continue;
+					}
+					if (hasIp && (ips.find(queryIp) == ips.end())) {
+						continue;
+					}
+
+					char nwidBuf[32], ztBuf[16];
+					OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
+					ztAddr.toString(ztBuf);
+
+					json row = json::object();
+					row["networkId"] = nwidBuf;
+					row["ztAddress"] = ztBuf;
+					row["ips"] = json::array();
+					for (std::set<InetAddress>::const_iterator ip = ips.begin(); ip != ips.end(); ++ip) {
+						char ipBuf[64];
+						ip->toIpString(ipBuf);
+						row["ips"].push_back(std::string(ipBuf));
+					}
+					results.push_back(row);
+				}
+			}
+
+			out["results"] = results;
+			setContent(req, res, out.dump(2));
+		};
+		_controlPlane.Get("/overlay/lookup", overlayLookupGet);
+		_controlPlaneV6.Get("/overlay/lookup", overlayLookupGet);
+
 		// GET /stats - peer port and bandwidth usage statistics
 		auto statsGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
 			json stats = json::object();
@@ -5324,6 +5412,16 @@ class OneServiceImpl : public OneService {
 			return;
 		}
 
+		// Always learn overlay associations, even when no monitor target is configured.
+		bool srcAssocNew = false;
+		bool dstAssocNew = false;
+		if (srcZt && srcIp) {
+			srcAssocNew = _recordObservedOverlayIP(nwid, srcZt, srcIp);
+		}
+		if (dstZt && dstIp) {
+			dstAssocNew = _recordObservedOverlayIP(nwid, dstZt, dstIp);
+		}
+
 		std::set<std::string> monitorLogPaths;
 		{
 			Mutex::Lock _l(_monitorTargets_m);
@@ -5364,15 +5462,13 @@ class OneServiceImpl : public OneService {
 		}
 		OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
 		if (srcZt && srcIp) {
-			const bool isNew = _recordObservedOverlayIP(nwid, srcZt, srcIp);
 			char assocLine[384];
-			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=src new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, srcZtBuf, srcIpBuf, isNew ? 1 : 0);
+			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=src new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, srcZtBuf, srcIpBuf, srcAssocNew ? 1 : 0);
 			_appendMonitorLine(monitorLogPaths, assocLine);
 		}
 		if (dstZt && dstIp) {
-			const bool isNew = _recordObservedOverlayIP(nwid, dstZt, dstIp);
 			char assocLine[384];
-			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=dst new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, dstZtBuf, dstIpBuf, isNew ? 1 : 0);
+			snprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=dst new=%d\n", (unsigned long long)OSUtils::now(), nwidBuf, dstZtBuf, dstIpBuf, dstAssocNew ? 1 : 0);
 			_appendMonitorLine(monitorLogPaths, assocLine);
 		}
 	}
