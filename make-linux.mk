@@ -529,7 +529,7 @@ ifeq ($(ZT_SSO_SUPPORTED), 1)
 ifeq ($(ZT_EMBEDDED),)
 # zeroidc depends on its Rust source files - let Cargo handle incremental builds
 zeroidc: rustybits/Cargo.toml
-	export PATH=/${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p zeroidc
+	export PATH=$${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p zeroidc
 endif
 else
 zeroidc:
@@ -538,7 +538,7 @@ endif
 ifeq ($(ZT_CONTROLLER), 1)
 # smeeclient depends on its Rust source files - let Cargo handle incremental builds
 smeeclient: rustybits/Cargo.toml
-	export PATH=/${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p smeeclient
+	export PATH=$${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p smeeclient
 else
 smeeclient:
 endif
@@ -549,6 +549,80 @@ service/OneService.o: zeroidc
 # Note: keep the symlinks in /var/lib/zerotier-one to the binaries since these
 # provide backward compatibility with old releases where the binaries actually
 # lived here. Folks got scripts.
+
+# Remote install settings for "make remote-install"
+REMOTE_HOST ?= bigquiet
+REMOTE_SSH ?= ssh
+REMOTE_SCP ?= scp
+REMOTE_STAGE_DIR ?= /var/tmp/zerotier-remote-install
+REMOTE_INSTALL_SCRIPT ?= install-zerotier-staged.sh
+REMOTE_SUDO ?= sudo
+DOCKER ?= docker
+DOCKER_REMOTE_BUILD_IMAGE ?= zerotier-build-ubuntu2204
+DOCKER_REMOTE_BUILD_DOCKERFILE ?= tools/Dockerfile.ubuntu2204-builder
+DOCKER_BUILD_NETWORK ?= host
+DOCKER_CARGO_HOME ?= /src/.cache/cargo
+
+.PHONY: docker-build-ubuntu2204
+docker-build-ubuntu2204:
+	$(DOCKER) build --network=$(DOCKER_BUILD_NETWORK) --progress=plain -f $(DOCKER_REMOTE_BUILD_DOCKERFILE) -t $(DOCKER_REMOTE_BUILD_IMAGE) .
+
+.PHONY: docker-build-clean
+docker-build-clean:
+	-$(DOCKER) rmi $(DOCKER_REMOTE_BUILD_IMAGE)
+
+.PHONY: docker-build-remote-install-binary
+docker-build-remote-install-binary: docker-build-ubuntu2204
+	$(DOCKER) run --rm \
+		--network=$(DOCKER_BUILD_NETWORK) \
+		--user "$$(id -u):$$(id -g)" \
+		-v "$(CURDIR):/src" \
+		-w /src \
+		$(DOCKER_REMOTE_BUILD_IMAGE) \
+		bash -lc "export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; make one"
+
+.PHONY: remote-install
+remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT)
+	@set -eu; \
+	local_arch="$$(uname -m)"; \
+	if ! command -v objdump >/dev/null 2>&1; then \
+		echo "error: objdump is required for remote-install preflight checks"; \
+		exit 1; \
+	fi; \
+	required_glibc="$$(objdump -T ./zerotier-one 2>/dev/null | sed -n 's/.*GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -n1)"; \
+	remote_info="$$( $(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) '\
+		set -e; \
+		echo REMOTE_ARCH=$$(uname -m); \
+		if command -v ldd >/dev/null 2>&1; then \
+			ldd --version 2>&1 | head -n1 | sed -n "s/.* \([0-9][0-9.]*\)$$/REMOTE_GLIBC=\1/p"; \
+		fi' )"; \
+	echo "$$remote_info"; \
+	remote_arch="$$(echo "$$remote_info" | sed -n 's/^REMOTE_ARCH=//p' | head -n1)"; \
+	remote_glibc="$$(echo "$$remote_info" | sed -n 's/^REMOTE_GLIBC=//p' | head -n1)"; \
+	if [ -z "$$remote_arch" ]; then \
+		echo "error: unable to determine remote architecture on $(REMOTE_HOST)"; \
+		exit 1; \
+	fi; \
+	if [ "$$local_arch" != "$$remote_arch" ]; then \
+		echo "error: local arch ($$local_arch) does not match remote arch ($$remote_arch)"; \
+		echo "       rebuild on a matching host or use an explicit cross-compile toolchain."; \
+		exit 1; \
+	fi; \
+	if [ -n "$$required_glibc" ] && [ -n "$$remote_glibc" ]; then \
+		lowest="$$(printf '%s\n%s\n' "$$required_glibc" "$$remote_glibc" | sort -V | head -n1)"; \
+		if [ "$$lowest" != "$$required_glibc" ]; then \
+			echo "error: zerotier-one requires glibc >= $$required_glibc but remote has $$remote_glibc"; \
+			exit 1; \
+		fi; \
+	fi; \
+	echo "Staging files on $(REMOTE_HOST):$(REMOTE_STAGE_DIR)"; \
+	$(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "mkdir -p $(REMOTE_STAGE_DIR)"; \
+	$(REMOTE_SCP) -q ./zerotier-one "tools/$(REMOTE_INSTALL_SCRIPT)" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
+	$(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "chmod 0755 $(REMOTE_STAGE_DIR)/$(REMOTE_INSTALL_SCRIPT) $(REMOTE_STAGE_DIR)/zerotier-one"; \
+	echo "Running installer via $(REMOTE_SUDO) on $(REMOTE_HOST)"; \
+	$(REMOTE_SSH) -t -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "$(REMOTE_SUDO) $(REMOTE_STAGE_DIR)/$(REMOTE_INSTALL_SCRIPT) $(REMOTE_STAGE_DIR)"; \
+	echo "Remote install completed."; \
+	echo "Optional Docker cleanup: make docker-build-clean"
 
 install:	FORCE
 	mkdir -p $(DESTDIR)/usr/sbin

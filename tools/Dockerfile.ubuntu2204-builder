@@ -1,0 +1,22 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/cargo/bin:${PATH}
+
+RUN apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update && \
+	apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y --no-install-recommends \
+		build-essential \
+		clang \
+		make \
+		pkg-config \
+		libssl-dev \
+		curl \
+		ca-certificates \
+		file \
+		binutils && \
+	rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile=minimal --default-toolchain stable && \
+	rustup --version && cargo --version && rustc --version
