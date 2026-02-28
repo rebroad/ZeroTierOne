@@ -29,11 +29,14 @@ COMMON_DEFS=(
   -DZT_USE_MINIUPNPC
   -DMINIUPNP_STATICLIB
   -DZT_SOFTWARE_UPDATE_DEFAULT=\"disable\"
+  -DPACKAGE_VERSION=\"1.9.1\"
 )
 
 COMMON_INC=(
   -I"$ROOT_DIR"
   -I"$ROOT_DIR/ext"
+  -I"$ROOT_DIR/tools/windows-cross/libmaxminddb/include"
+  -I"$ROOT_DIR/tools/windows-cross/libmaxminddb/src"
   -I"$ROOT_DIR/ext/prometheus-cpp-lite-1.0/core/include"
   -I"$ROOT_DIR/ext/prometheus-cpp-lite-1.0/simpleapi/include"
   -I"$ROOT_DIR/ext/opentelemetry-cpp-api-only/include"
@@ -67,6 +70,22 @@ CFLAGS=(
 )
 
 OBJS=()
+
+MMDB_SRCS=(
+  "tools/windows-cross/libmaxminddb/src/maxminddb.c"
+  "tools/windows-cross/libmaxminddb/src/data-pool.c"
+)
+
+for src in "${MMDB_SRCS[@]}"; do
+  src_abs="$ROOT_DIR/$src"
+  obj="$OBJ_DIR/${src//\//_}.o"
+  if [ ! -f "$obj" ] || [ "$src_abs" -nt "$obj" ]; then
+    mkdir -p "$(dirname "$obj")"
+    "$CC" "${CFLAGS[@]}" "${COMMON_DEFS[@]}" "${COMMON_INC[@]}" -c "$src_abs" -o "$obj"
+  fi
+  OBJS+=("$obj")
+done
+
 while IFS= read -r src; do
   [ -z "$src" ] && continue
   src_abs="$ROOT_DIR/$src"

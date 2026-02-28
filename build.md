@@ -35,15 +35,17 @@ Primary Make targets:
 - `make windows-install` copies the installer to a remote Windows host and installs it with elevation
 
 Output installer:
-- `build/windows-x64/ZeroTier-One-Cross-x64-Installer.exe`
+- `build/windows-x64/ZeroTier-One-x64-Installer.exe`
 
 Remote install via Cygwin SSH with elevation (runs installer as `SYSTEM` using Scheduled Tasks):
 - `make REMOTE_HOST=<host> windows-install`
+- Installer deploys into the existing ZeroTier service binary directory when present (for example `C:\ProgramData\ZeroTier\One` or `C:\Program Files (x86)\ZeroTier\One`), restarts `ZeroTierOneService`, and includes a temporary failsafe auto-start + rollback path to reduce outage risk during replacement.
+- During `windows-install`, if the remote host lacks a GeoLite2 database and the local build host has one under `/var/lib/geoip` or `/usr/share/GeoIP`, it is staged to the remote host and copied into `C:\ProgramData\ZeroTier\One`.
 
 Defaults:
 - `REMOTE_HOST=vicco`
 - `WINDOWS_OUT_DIR=build/windows-x64`
-- `WINDOWS_INSTALLER=$(WINDOWS_OUT_DIR)/ZeroTier-One-Cross-x64-Installer.exe`
+- `WINDOWS_INSTALLER=$(WINDOWS_OUT_DIR)/ZeroTier-One-x64-Installer.exe`
 
 For detailed usage and troubleshooting, see `doc/windows-cross-installer.md`.
 

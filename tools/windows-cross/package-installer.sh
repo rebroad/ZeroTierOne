@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="${1:-$ROOT_DIR/build/windows-x64}"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 STAGE_DIR="$OUT_DIR/bin"
-INSTALLER_PATH="${2:-$OUT_DIR/ZeroTier-One-Cross-x64-Installer.exe}"
+INSTALLER_PATH="${2:-$OUT_DIR/ZeroTier-One-x64-Installer.exe}"
 NSI="$ROOT_DIR/tools/windows-cross/zerotier-one-cross.nsi"
 
 if ! command -v makensis >/dev/null 2>&1; then
@@ -22,9 +22,18 @@ for req in zerotier-one_x64.exe zerotier-cli.bat zerotier-idtool.bat zttap300.in
 done
 
 mkdir -p "$(dirname "$INSTALLER_PATH")"
+tmp_out="$(mktemp /tmp/zt-installer.XXXXXX.exe)"
+cleanup() {
+  rm -f "$tmp_out"
+}
+trap cleanup EXIT
+
 makensis \
   -D"STAGE_DIR=$STAGE_DIR" \
-  -D"OUTPUT_FILE=$INSTALLER_PATH" \
+  -D"OUTPUT_FILE=$tmp_out" \
   "$NSI"
+
+mv -f "$tmp_out" "$INSTALLER_PATH"
+trap - EXIT
 
 echo "Built installer: $INSTALLER_PATH"

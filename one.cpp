@@ -524,25 +524,22 @@ static void cliStatsPrintPeerTable(const nlohmann::json& j)
 			if (initialized)
 				return;
 			initialized = true;
-			const char* paths[] = { "/var/lib/geoip/GeoLite2-Country.mmdb", "/var/lib/geoip/GeoLite2-City.mmdb", "/usr/share/GeoIP/GeoLite2-Country.mmdb", "/usr/share/GeoIP/GeoLite2-City.mmdb" };
-			const char* selectedPath = nullptr;
-			time_t selectedMtime = 0;
+			const char* paths[] = {
+				"/var/lib/geoip/GeoLite2-Country.mmdb",
+				"/var/lib/geoip/GeoLite2-City.mmdb",
+				"/usr/share/GeoIP/GeoLite2-Country.mmdb",
+				"/usr/share/GeoIP/GeoLite2-City.mmdb",
+#ifdef __WINDOWS__
+				"C:\\ProgramData\\ZeroTier\\One\\GeoLite2-Country.mmdb",
+				"C:\\ProgramData\\ZeroTier\\One\\GeoLite2-City.mmdb",
+#endif
+			};
 			for (unsigned int i = 0; i < (sizeof(paths) / sizeof(paths[0])); ++i) {
-				if (::access(paths[i], R_OK) != 0)
-					continue;
-				struct stat st;
-				if (::stat(paths[i], &st) != 0)
-					continue;
-				if (! selectedPath || (st.st_mtime > selectedMtime)) {
-					selectedPath = paths[i];
-					selectedMtime = st.st_mtime;
+				const int rc = MMDB_open(paths[i], MMDB_MODE_MMAP, &mmdb);
+				if (rc == MMDB_SUCCESS) {
+					available = true;
+					break;
 				}
-			}
-			if (! selectedPath)
-				return;
-			const int rc = MMDB_open(selectedPath, MMDB_MODE_MMAP, &mmdb);
-			if (rc == MMDB_SUCCESS) {
-				available = true;
 			}
 		}
 
