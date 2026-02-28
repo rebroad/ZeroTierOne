@@ -1,0 +1,30 @@
+ARG BASE_IMAGE=arm32v7/debian:buster
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/cargo/bin:${PATH}
+
+RUN set -eu; \
+	if grep -Eq "^[[:space:]]*deb .*[[:space:]]buster([[:space:]]|/)" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then \
+		sed -i "s|http://deb.debian.org/debian|http://archive.debian.org/debian|g" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true; \
+		sed -i "s|http://security.debian.org/debian-security|http://archive.debian.org/debian-security|g" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true; \
+		printf "Acquire::Check-Valid-Until \"false\";\n" > /etc/apt/apt.conf.d/99no-check-valid; \
+	fi; \
+	apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update && \
+	apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y --no-install-recommends \
+		build-essential \
+		clang \
+		make \
+		pkg-config \
+		libssl-dev \
+		libmaxminddb-dev \
+		curl \
+		ca-certificates \
+		file \
+		binutils && \
+	rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile=minimal --default-toolchain stable && \
+	rustup --version && cargo --version && rustc --version
