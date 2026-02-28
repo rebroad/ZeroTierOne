@@ -244,8 +244,8 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out, "  stats                   - Show peer port usage statistics" ZT_EOL_S);
 	fprintf(out, "  metrics                 - Show daemon metrics output" ZT_EOL_S);
-	fprintf(out, "  monitor-add <ip|zt|nwid|ip:zt> - Enable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
-	fprintf(out, "  monitor-remove <target> - Disable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
+	fprintf(out, "  monitor-add <ip|zt|nwid|network_name|ip:zt> - Enable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
+	fprintf(out, "  monitor-remove <ip|zt|nwid|network_name|ip:zt> - Disable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
 	fprintf(out, "  monitor-list            - List active monitor targets and their /tmp log files" ZT_EOL_S);
 	fprintf(out, "  findzt <ip_address>     - Find ZeroTier address(es) for given in-network IP" ZT_EOL_S);
 	fprintf(out, "  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
@@ -1591,13 +1591,15 @@ static int cli(int argc, char** argv)
 					printf("Port Config: p=%u s=%s t=%u bound=%s" ZT_EOL_S, primaryPort, secondaryField.c_str(), tertiaryPort, boundField.c_str());
 				}
 
-				// Show non-zero per-network overlay packet usage as nwid=in:out.
+				// Show non-zero per-network overlay packet usage as label=in:out.
 				if (j.contains("networkUsage") && j["networkUsage"].is_object()) {
 					auto& nu = j["networkUsage"];
 					std::string usageLine;
 					if (nu.contains("perNetwork") && nu["perNetwork"].is_array()) {
 						for (const auto& row : nu["perNetwork"]) {
+							const std::string name = row.value("name", "");
 							const std::string nwid = row.value("nwid", "");
+							const std::string label = ! name.empty() ? name : nwid;
 							const uint64_t in = row.value("incoming", 0ULL);
 							const uint64_t out = row.value("outgoing", 0ULL);
 							if ((in == 0ULL) && (out == 0ULL)) {
@@ -1605,7 +1607,7 @@ static int cli(int argc, char** argv)
 							}
 							if (! usageLine.empty())
 								usageLine += ", ";
-							usageLine += nwid + "=" + formatBytesCompact(in) + ":" + formatBytesCompact(out);
+							usageLine += label + "=" + formatBytesCompact(in) + ":" + formatBytesCompact(out);
 						}
 					}
 					if (! usageLine.empty()) {
@@ -1988,7 +1990,7 @@ static int cli(int argc, char** argv)
 					int ztColWidth = displayWidth("ZT Address");
 					int rxColWidth = displayWidth("RX Bytes");
 					int txColWidth = displayWidth("TX Bytes");
-					int lastSeenColWidth = displayWidth("Last Seen");
+					int lastSeenColWidth = displayWidth("Seen");
 
 					for (const auto& row : rows) {
 						const char* icon = roleEmoji(row.peerRole);
@@ -2029,7 +2031,7 @@ static int cli(int argc, char** argv)
 						padRightDisplay("ZT Address", ztColWidth).c_str(),
 						padRightDisplay("RX Bytes", rxColWidth).c_str(),
 						padRightDisplay("TX Bytes", txColWidth).c_str(),
-						padRightDisplay("Last Seen", lastSeenColWidth).c_str(),
+						padRightDisplay("Seen", lastSeenColWidth).c_str(),
 						"Port Usage");
 					printf(
 						"%s %s %s %s %s %s" ZT_EOL_S,
@@ -2143,11 +2145,13 @@ static int cli(int argc, char** argv)
 	else if (command == "monitor-add" || command == "monitor-remove") {
 		const bool add = (command == "monitor-add");
 		if (arg1.empty()) {
-			printf("usage: zerotier-cli %s <ip|zt_address|network_id>" ZT_EOL_S, command.c_str());
+			printf("usage: zerotier-cli %s <ip|zt_address|network_id|network_name>" ZT_EOL_S, command.c_str());
 			return 2;
 		}
 		const std::string target = arg1;
-		const std::string body = std::string("{\"target\":\"") + target + "\"}";
+		nlohmann::json bodyObj = nlohmann::json::object();
+		bodyObj["target"] = target;
+		const std::string body = bodyObj.dump();
 		const unsigned int scode = Http::POST(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, (add ? "/monitor/add" : "/monitor/remove"), requestHeaders, body.c_str(), (unsigned long)body.size(), responseHeaders, responseBody);
 		if (scode == 200) {
 			printf("%s" ZT_EOL_S, json ? cliFixJsonCRs(responseBody).c_str() : responseBody.c_str());

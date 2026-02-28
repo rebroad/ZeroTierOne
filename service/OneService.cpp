@@ -2769,7 +2769,7 @@ class OneServiceImpl : public OneService {
 			Address pairZtAddr;
 			const MonitorTargetType type = _parseMonitorTarget(target, ztAddr, ipAddr, nwid, pairIpAddr, pairZtAddr);
 			if (type == MONITOR_TARGET_INVALID) {
-				setContent(req, res, "{\"error\":\"target must be 10-digit ZT address (including 0000000000), valid IP, IP:ZT pair, or 16-digit network ID\"}");
+				setContent(req, res, "{\"error\":\"target must be 10-digit ZT address (including 0000000000), valid IP, IP:ZT pair, 16-digit network ID, or joined network name\"}");
 				res.status = 400;
 				return;
 			}
@@ -2964,16 +2964,16 @@ class OneServiceImpl : public OneService {
 			json networkUsage = json::object();
 			json perNetwork = json::array();
 			{
-				std::vector<uint64_t> joinedNetworks;
+				std::vector<std::pair<uint64_t, std::string> > joinedNetworks;
 				{
 					Mutex::Lock _nl(_nets_m);
-					for (std::map<uint64_t, NetworkState>::const_iterator n(_nets.begin()); n != _nets.end(); ++n) {
-						joinedNetworks.push_back(n->first);
+					for (std::map<uint64_t, NetworkState>::iterator n(_nets.begin()); n != _nets.end(); ++n) {
+						joinedNetworks.push_back(std::make_pair(n->first, n->second.config().name));
 					}
 				}
 				Mutex::Lock _pl(_overlayPacketCounts_m);
-				for (std::vector<uint64_t>::const_iterator it = joinedNetworks.begin(); it != joinedNetworks.end(); ++it) {
-					const uint64_t nwid = *it;
+				for (std::vector<std::pair<uint64_t, std::string> >::const_iterator it = joinedNetworks.begin(); it != joinedNetworks.end(); ++it) {
+					const uint64_t nwid = it->first;
 					char nwidBuf[32];
 					OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
 					const std::map<uint64_t, OverlayPacketDirCounts>::const_iterator c = _overlayPacketCountsByNetwork.find(nwid);
@@ -2981,6 +2981,7 @@ class OneServiceImpl : public OneService {
 					const uint64_t out = (c != _overlayPacketCountsByNetwork.end()) ? c->second.outgoing : 0ULL;
 					json row = json::object();
 					row["nwid"] = nwidBuf;
+					row["name"] = it->second;
 					row["incoming"] = in;
 					row["outgoing"] = out;
 					perNetwork.push_back(row);
@@ -5700,6 +5701,31 @@ class OneServiceImpl : public OneService {
 			if (allHex) {
 				nwid = Utils::hexStrToU64(normalized.c_str());
 				if (nwid != 0ULL) {
+					return MONITOR_TARGET_NETWORK;
+				}
+			}
+		}
+
+		auto toLowerCopy = [](const std::string& s) -> std::string {
+			std::string out;
+			out.reserve(s.size());
+			for (std::string::const_iterator c = s.begin(); c != s.end(); ++c) {
+				out.push_back(OSUtils::toLower(*c));
+			}
+			return out;
+		};
+		{
+			Mutex::Lock _nl(_nets_m);
+			for (std::map<uint64_t, NetworkState>::iterator n(_nets.begin()); n != _nets.end(); ++n) {
+				if (n->second.config().name == normalized) {
+					nwid = n->first;
+					return MONITOR_TARGET_NETWORK;
+				}
+			}
+			const std::string normalizedLower = toLowerCopy(normalized);
+			for (std::map<uint64_t, NetworkState>::iterator n(_nets.begin()); n != _nets.end(); ++n) {
+				if (toLowerCopy(n->second.config().name) == normalizedLower) {
+					nwid = n->first;
 					return MONITOR_TARGET_NETWORK;
 				}
 			}
