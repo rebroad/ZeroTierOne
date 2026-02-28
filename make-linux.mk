@@ -14,6 +14,7 @@ DEFS?=
 LDLIBS?=
 DESTDIR?=
 EXTRA_DEPS?=
+BUILD_OBJ_DIR ?= build/native-$(shell uname -m)/obj
 
 include objects.mk
 
@@ -83,6 +84,7 @@ endif
 ifeq ($(ZT_SANITIZE),1)
 	override DEFS+=-fsanitize=address -DASAN_OPTIONS=symbolize=1
 endif
+CRYPTO_OPT_OBJS=node/Salsa20.o node/SHA512.o node/C25519.o node/Poly1305.o
 ifeq ($(ZT_DEBUG),1)
 	override CFLAGS+=-Wall -Werror -Wno-deprecated -g -O -pthread $(INCLUDES) $(DEFS)
 	override CXXFLAGS+=-Wall -Werror -Wno-deprecated -g -O -std=c++17 -pthread $(INCLUDES) $(DEFS)
@@ -90,7 +92,7 @@ ifeq ($(ZT_DEBUG),1)
 	ZT_CARGO_FLAGS=
 	# The following line enables optimization for the crypto code, since
 	# C25519 in particular is almost UNUSABLE in -O0 even on a 3ghz box!
-node/Salsa20.o node/SHA512.o node/C25519.o node/Poly1305.o: CXXFLAGS=-Wall -Werror -O2 -g -pthread $(INCLUDES) $(DEFS)
+$(CRYPTO_OPT_OBJS) $(addprefix $(BUILD_OBJ_DIR)/,$(CRYPTO_OPT_OBJS)): CXXFLAGS=-Wall -Werror -O2 -g -pthread $(INCLUDES) $(DEFS)
 else
     CFLAGS?=-O3 -fstack-protector -g
 	override CFLAGS+=-Wall -Werror -Wno-deprecated -pthread $(INCLUDES) -DNDEBUG $(DEFS)
@@ -414,7 +416,19 @@ override CXXFLAGS+=-fPIC -fPIE
 override CFLAGS+=$(DEPFLAGS)
 override CXXFLAGS+=$(DEPFLAGS)
 
-DEP_FILES=$(CORE_OBJS:.o=.d) $(ONE_OBJS:.o=.d) one.d selftest.d
+ifeq ($(strip $(BUILD_OBJ_DIR)),)
+ONE_MAIN_OBJ=one.o
+SELFTEST_MAIN_OBJ=selftest.o
+BUILD_SIGNATURE_FILE=.build-signature
+else
+ONE_MAIN_OBJ=$(BUILD_OBJ_DIR)/one.o
+SELFTEST_MAIN_OBJ=$(BUILD_OBJ_DIR)/selftest.o
+BUILD_SIGNATURE_FILE=$(BUILD_OBJ_DIR)/.build-signature
+ONE_OBJS:=$(addprefix $(BUILD_OBJ_DIR)/,$(ONE_OBJS))
+override CORE_OBJS:=$(addprefix $(BUILD_OBJ_DIR)/,$(CORE_OBJS))
+endif
+
+DEP_FILES=$(CORE_OBJS:.o=.d) $(ONE_OBJS:.o=.d) $(ONE_MAIN_OBJ:.o=.d) $(SELFTEST_MAIN_OBJ:.o=.d)
 
 # Keep default goal stable even when included .d files contain targets.
 .DEFAULT_GOAL := all
@@ -424,17 +438,31 @@ DEP_FILES=$(CORE_OBJS:.o=.d) $(ONE_OBJS:.o=.d) one.d selftest.d
 # Build signature tracking:
 # Rebuild objects automatically when compiler or build flags change.
 # Do not include git HEAD; otherwise every commit forces a full object rebuild.
-BUILD_SIGNATURE_FILE=.build-signature
 BUILD_SIGNATURE=$(shell printf "%s\n%s\n%s\n%s\n%s\n" "$(CC)" "$(CXX)" "$(CFLAGS)" "$(CXXFLAGS)" "$(DEFS) $(INCLUDES)" | sha256sum | awk '{print $$1}')
 
 $(BUILD_SIGNATURE_FILE): FORCE
+	@mkdir -p $(dir $@)
 	@sig='$(BUILD_SIGNATURE)'; \
 	if [ -f $@ ] && [ "$$(cat $@)" = "$$sig" ]; then :; else \
 		echo "$$sig" > $@; \
 		echo "Build signature changed; scheduling object rebuild."; \
 	fi
 
-$(CORE_OBJS) $(ONE_OBJS) one.o selftest.o: $(BUILD_SIGNATURE_FILE)
+$(CORE_OBJS) $(ONE_OBJS) $(ONE_MAIN_OBJ) $(SELFTEST_MAIN_OBJ): $(BUILD_SIGNATURE_FILE)
+
+ifneq ($(strip $(BUILD_OBJ_DIR)),)
+$(BUILD_OBJ_DIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_OBJ_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_OBJ_DIR)/%.o: %.S
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c -o $@ $<
+endif
 
 # Non-executable stack
 override LDFLAGS+=-Wl,-z,noexecstack
@@ -449,8 +477,8 @@ from_builder:	FORCE
 	ln -sf zerotier-one zerotier-idtool
 	ln -sf zerotier-one zerotier-cli
 
-zerotier-one: $(CORE_OBJS) $(ONE_OBJS) one.o ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h zeroidc smeeclient
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o zerotier-one $(CORE_OBJS) $(ONE_OBJS) one.o $(LDLIBS)
+zerotier-one: $(CORE_OBJS) $(ONE_OBJS) $(ONE_MAIN_OBJ) ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h zeroidc smeeclient
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o zerotier-one $(CORE_OBJS) $(ONE_OBJS) $(ONE_MAIN_OBJ) $(LDLIBS)
 
 zerotier-idtool: zerotier-one
 	ln -sf zerotier-one zerotier-idtool
@@ -463,14 +491,14 @@ zerotier-cli: zerotier-one
 # individual object files should not trigger Rust rebuilds
 
 libzerotiercore.a:	FORCE
-	make CFLAGS="-O3 -fstack-protector -fPIC" CXXFLAGS="-O3 -std=c++17 -fstack-protector -fPIC" $(CORE_OBJS)
+	make BUILD_OBJ_DIR="$(BUILD_OBJ_DIR)" CFLAGS="-O3 -fstack-protector -fPIC" CXXFLAGS="-O3 -std=c++17 -fstack-protector -fPIC" $(CORE_OBJS)
 	ar rcs libzerotiercore.a $(CORE_OBJS)
 	ranlib libzerotiercore.a
 
 core: libzerotiercore.a
 
-selftest:	$(CORE_OBJS) $(ONE_OBJS) selftest.o
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o zerotier-selftest selftest.o $(CORE_OBJS) $(ONE_OBJS) $(LDLIBS)
+selftest:	$(CORE_OBJS) $(ONE_OBJS) $(SELFTEST_MAIN_OBJ)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o zerotier-selftest $(SELFTEST_MAIN_OBJ) $(CORE_OBJS) $(ONE_OBJS) $(LDLIBS)
 
 zerotier-selftest: selftest
 
@@ -491,7 +519,7 @@ endif
 ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h: otel
 
 clean: FORCE
-	rm -rf *.a *.so *.o *.d $(BUILD_SIGNATURE_FILE) node/*.o node/*.d nonfree/controller/*.o nonfree/controller/*.d osdep/*.o osdep/*.d service/*.o service/*.d ext/http-parser/*.o ext/http-parser/*.d ext/miniupnpc/*.o ext/miniupnpc/*.d ext/libnatpmp/*.o ext/libnatpmp/*.d $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
+	rm -rf *.a *.so *.o *.d $(BUILD_SIGNATURE_FILE) $(BUILD_OBJ_DIR) node/*.o node/*.d nonfree/controller/*.o nonfree/controller/*.d osdep/*.o osdep/*.d service/*.o service/*.d ext/http-parser/*.o ext/http-parser/*.d ext/miniupnpc/*.o ext/miniupnpc/*.d ext/libnatpmp/*.o ext/libnatpmp/*.d $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
 
 distclean:	clean
 
@@ -544,7 +572,7 @@ smeeclient:
 endif
 
 # Ensure generated zeroidc.h exists before compiling OneService.cpp.
-service/OneService.o: zeroidc
+service/OneService.o $(BUILD_OBJ_DIR)/service/OneService.o: zeroidc
 
 # Note: keep the symlinks in /var/lib/zerotier-one to the binaries since these
 # provide backward compatibility with old releases where the binaries actually
@@ -565,7 +593,7 @@ DOCKER_CARGO_HOME ?= /src/.cache/cargo
 REMOTE_BUILD_ARCH ?= $(shell uname -m)
 REMOTE_BUILD_GLIBC ?= 2.35
 REMOTE_BUILD_DIR ?= build/glibc$(REMOTE_BUILD_GLIBC)-$(REMOTE_BUILD_ARCH)
-REMOTE_BUILD_WORK_DIR ?= $(REMOTE_BUILD_DIR)/work
+REMOTE_BUILD_OBJ_DIR ?= $(REMOTE_BUILD_DIR)/obj
 REMOTE_BUILD_BIN ?= $(REMOTE_BUILD_DIR)/zerotier-one
 
 .PHONY: docker-build-ubuntu2204
@@ -584,7 +612,7 @@ docker-build-remote-install-binary: docker-build-ubuntu2204
 		-v "$(CURDIR):/src" \
 		-w /src \
 		$(DOCKER_REMOTE_BUILD_IMAGE) \
-		bash -lc "set -eu; export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; rm -rf \"$(REMOTE_BUILD_WORK_DIR)\"; mkdir -p \"$(REMOTE_BUILD_WORK_DIR)\" \"$(REMOTE_BUILD_DIR)\"; tar -C /src --exclude='./build' -cf - . | tar -C \"$(REMOTE_BUILD_WORK_DIR)\" -xf -; cd \"$(REMOTE_BUILD_WORK_DIR)\"; make one; cp -f zerotier-one /src/$(REMOTE_BUILD_BIN)"
+		bash -lc "set -eu; export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; rm -rf \"/src/$(REMOTE_BUILD_OBJ_DIR)\"; mkdir -p \"/src/$(REMOTE_BUILD_DIR)\"; cd /src; make BUILD_OBJ_DIR=$(REMOTE_BUILD_OBJ_DIR) one; cp -f zerotier-one /src/$(REMOTE_BUILD_BIN)"
 
 .PHONY: remote-install
 remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT)
