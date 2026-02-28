@@ -5666,11 +5666,12 @@ class OneServiceImpl : public OneService {
 		}
 		const uint64_t now = OSUtils::now();
 		{
-			const Address& peerZt = outgoing ? dstZt : srcZt;
-			const InetAddress& peerIp = outgoing ? dstIp : srcIp;
-			if (peerZt && peerIp) {
+			auto recordOverlayEndpointPair = [&](const Address& zt, const InetAddress& ip) {
+				if ((! zt) || (! ip)) {
+					return;
+				}
 				Mutex::Lock _ps(_overlayPairStats_m);
-				OverlayPairStats& ps = _overlayPairStats[std::make_pair(peerZt, peerIp.ipOnly())];
+				OverlayPairStats& ps = _overlayPairStats[std::make_pair(zt, ip.ipOnly())];
 				if (outgoing) {
 					ps.bytesOutgoing += (uint64_t)len;
 					++ps.packetsOutgoing;
@@ -5680,6 +5681,11 @@ class OneServiceImpl : public OneService {
 					++ps.packetsIncoming;
 				}
 				ps.lastSeen = now;
+			};
+
+			recordOverlayEndpointPair(srcZt, srcIp);
+			if ((srcZt != dstZt) || (srcIp.ipOnly() != dstIp.ipOnly())) {
+				recordOverlayEndpointPair(dstZt, dstIp);
 			}
 		}
 
