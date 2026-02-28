@@ -28,8 +28,9 @@
 #include <wchar.h>
 #include <lmcons.h>
 #include <newdev.h>
-#include <atlbase.h>
 #include <iphlpapi.h>
+#include <io.h>
+#include <sys/stat.h>
 #include <iomanip>
 #include <shlobj.h>
 #include "osdep/WindowsEthernetTap.hpp"
@@ -2230,7 +2231,11 @@ static int cli(int argc, char** argv)
 
 		if (OSUtils::writeFile(tokenPath, arg1.c_str(), arg1.length())) {
 			// Set restrictive permissions (owner read/write only)
+#ifdef __WINDOWS__
+			_chmod(tokenPath, S_IREAD | S_IWRITE);
+#else
 			chmod(tokenPath, 0600);
+#endif
 			printf("200 set-api-token API token saved successfully" ZT_EOL_S);
 			printf("Enhanced IP/ZeroTier address lookups are now available" ZT_EOL_S);
 			return 0;
@@ -3599,40 +3604,39 @@ static BOOL IsCurrentUserLocalAdministrator(void)
 
 	const DWORD ACCESS_READ = 1;
 	const DWORD ACCESS_WRITE = 2;
-
-	__try {
+	do {
 		if (! OpenThreadToken(GetCurrentThread(), TOKEN_DUPLICATE | TOKEN_QUERY, TRUE, &hToken)) {
 			if (GetLastError() != ERROR_NO_TOKEN)
-				__leave;
+				break;
 			if (! OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY, &hToken))
-				__leave;
+				break;
 		}
 		if (! DuplicateToken(hToken, SecurityImpersonation, &hImpersonationToken))
-			__leave;
+			break;
 		if (! AllocateAndInitializeSid(&SystemSidAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &psidAdmin))
-			__leave;
+			break;
 		psdAdmin = LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
 		if (psdAdmin == NULL)
-			__leave;
+			break;
 		if (! InitializeSecurityDescriptor(psdAdmin, SECURITY_DESCRIPTOR_REVISION))
-			__leave;
+			break;
 		dwACLSize = sizeof(ACL) + sizeof(ACCESS_ALLOWED_ACE) + GetLengthSid(psidAdmin) - sizeof(DWORD);
 		pACL = (PACL)LocalAlloc(LPTR, dwACLSize);
 		if (pACL == NULL)
-			__leave;
+			break;
 		if (! InitializeAcl(pACL, dwACLSize, ACL_REVISION2))
-			__leave;
+			break;
 		dwAccessMask = ACCESS_READ | ACCESS_WRITE;
 		if (! AddAccessAllowedAce(pACL, ACL_REVISION2, dwAccessMask, psidAdmin))
-			__leave;
+			break;
 		if (! SetSecurityDescriptorDacl(psdAdmin, TRUE, pACL, FALSE))
-			__leave;
+			break;
 
 		SetSecurityDescriptorGroup(psdAdmin, psidAdmin, FALSE);
 		SetSecurityDescriptorOwner(psdAdmin, psidAdmin, FALSE);
 
 		if (! IsValidSecurityDescriptor(psdAdmin))
-			__leave;
+			break;
 		dwAccessDesired = ACCESS_READ;
 
 		GenericMapping.GenericRead = ACCESS_READ;
@@ -3642,22 +3646,21 @@ static BOOL IsCurrentUserLocalAdministrator(void)
 
 		if (! AccessCheck(psdAdmin, hImpersonationToken, dwAccessDesired, &GenericMapping, &ps, &dwStructureSize, &dwStatus, &fReturn)) {
 			fReturn = FALSE;
-			__leave;
+			break;
 		}
-	}
-	__finally {
-		// Clean up.
-		if (pACL)
-			LocalFree(pACL);
-		if (psdAdmin)
-			LocalFree(psdAdmin);
-		if (psidAdmin)
-			FreeSid(psidAdmin);
-		if (hImpersonationToken)
-			CloseHandle(hImpersonationToken);
-		if (hToken)
-			CloseHandle(hToken);
-	}
+	} while (0);
+
+	// Clean up.
+	if (pACL)
+		LocalFree(pACL);
+	if (psdAdmin)
+		LocalFree(psdAdmin);
+	if (psidAdmin)
+		FreeSid(psidAdmin);
+	if (hImpersonationToken)
+		CloseHandle(hImpersonationToken);
+	if (hToken)
+		CloseHandle(hToken);
 
 	return fReturn;
 }

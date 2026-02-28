@@ -11,15 +11,13 @@
 #include "../node/Constants.hpp"
 #include "../node/Mutex.hpp"
 #include "../node/Utils.hpp"
-#include "..\windows\TapDriver6\tap-windows.h"
+#include "../windows/TapDriver6/tap-windows.h"
 #include "OSUtils.hpp"
 #include "WinDNSHelper.hpp"
 
-#include <IPHlpApi.h>
-#include <SetupAPI.h>
-#include <atlbase.h>
 #include <cfgmgr32.h>
 #include <iostream>
+#include <iphlpapi.h>
 #include <malloc.h>
 #include <netcon.h>
 #include <netioapi.h>
@@ -27,6 +25,7 @@
 #include <newdev.h>
 #include <nldef.h>
 #include <set>
+#include <setupapi.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -849,7 +848,7 @@ void WindowsEthernetTap::setFriendlyName(const char* dn)
 	HRESULT hr = S_OK;
 
 	INetSharingManager* nsm;
-	hr = CoCreateInstance(__uuidof(NetSharingManager), NULL, CLSCTX_ALL, __uuidof(INetSharingManager), (void**)&nsm);
+	hr = CoCreateInstance(CLSID_NetSharingManager, NULL, CLSCTX_ALL, IID_INetSharingManager, (void**)&nsm);
 	if (hr != S_OK)
 		return;
 
@@ -865,7 +864,7 @@ void WindowsEthernetTap::setFriendlyName(const char* dn)
 	IUnknown* unk = nullptr;
 	hr = nsecc->get__NewEnum(&unk);
 	if (unk) {
-		hr = unk->QueryInterface(__uuidof(IEnumVARIANT), (void**)&ev);
+		hr = unk->QueryInterface(IID_IEnumVARIANT, (void**)&ev);
 		unk->Release();
 	}
 	if (ev) {
@@ -875,7 +874,7 @@ void WindowsEthernetTap::setFriendlyName(const char* dn)
 		while ((S_OK == ev->Next(1, &v, NULL)) && found == FALSE) {
 			if (V_VT(&v) == VT_UNKNOWN) {
 				INetConnection* nc = nullptr;
-				V_UNKNOWN(&v)->QueryInterface(__uuidof(INetConnection), (void**)&nc);
+				V_UNKNOWN(&v)->QueryInterface(IID_INetConnection, (void**)&nc);
 				if (nc) {
 					NETCON_PROPERTIES* ncp = nullptr;
 					nc->GetProperties(&ncp);
@@ -1091,7 +1090,7 @@ void WindowsEthernetTap::threadMain() throw()
 					nr.NextHop.si_family = AF_INET;
 					nr.NextHop.Ipv4.sin_addr.s_addr = fakeIp;
 					nr.Metric = 9999;	// do not use as real default route
-					nr.Protocol = MIB_IPPROTO_NETMGMT;
+					nr.Protocol = static_cast<NL_ROUTE_PROTOCOL>(MIB_IPPROTO_NETMGMT);
 					DWORD result = CreateIpForwardEntry2(&nr);
 					if (result != NO_ERROR)
 						Sleep(250);

@@ -15,7 +15,7 @@
 #include <string.h>
 
 #ifdef __WINDOWS__
-#include <IPHlpApi.h>
+#include <iphlpapi.h>
 #include <netioapi.h>
 #include <windows.h>
 #include <winsock2.h>
@@ -341,7 +341,7 @@ static bool _winRoute(bool del, const NET_LUID& interfaceLuid, const NET_IFINDEX
 	rtrow.ValidLifetime = 0xffffffff;
 	rtrow.PreferredLifetime = 0xffffffff;
 	rtrow.Metric = -1;
-	rtrow.Protocol = MIB_IPPROTO_NETMGMT;
+	rtrow.Protocol = static_cast<NL_ROUTE_PROTOCOL>(MIB_IPPROTO_NETMGMT);
 	rtrow.Loopback = FALSE;
 	rtrow.AutoconfigureAddress = FALSE;
 	rtrow.Publish = FALSE;
