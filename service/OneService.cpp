@@ -3980,7 +3980,7 @@ class OneServiceImpl : public OneService {
 			// Record incoming wire observation for all packets.
 			// Use null ZT address only when identity attribution is unavailable.
 			const bool hasIdentityAttribution = (len >= ZT_PROTO_MIN_PACKET_LENGTH && authenticatedZtAddr);
-			observePacket(hasIdentityAttribution ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, hasIdentityAttribution, true);   // true = incoming packet
+			observePacket(hasIdentityAttribution ? authenticatedZtAddr : Address(), remoteIpAddr, localPort, len, true, isSuccessful, hasIdentityAttribution, true, data);	 // true = incoming packet
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
 			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
@@ -4839,7 +4839,7 @@ class OneServiceImpl : public OneService {
 			if ((ttl) && (addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket*)((uintptr_t)localSocket), 255);
 			}
-			observePacket(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r, (bool)ztAddr, true);
+			observePacket(ztAddr, ipAddr, _getLocalPortSafely(localSocket), len, false, r, (bool)ztAddr, true, data);
 			return ((r) ? 0 : -1);
 		}
 		else {
@@ -4847,7 +4847,7 @@ class OneServiceImpl : public OneService {
 			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sentOk) {
 				// udpSendAll emits once per bound socket; count logical bytes/packets only once.
 				const bool countLogical = ! logicalObserved;
-				observePacket(ztAddr, ipAddr, sentLocalPort, len, false, sentOk, (bool)ztAddr, countLogical);
+				observePacket(ztAddr, ipAddr, sentLocalPort, len, false, sentOk, (bool)ztAddr, countLogical, data);
 				logicalObserved = true;
 			});
 			return (r ? 0 : -1);
@@ -5341,8 +5341,58 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
+	const char* _packetVerbName(unsigned int verb)
+	{
+		switch ((Packet::Verb)verb) {
+			case Packet::VERB_NOP:
+				return "nop";
+			case Packet::VERB_HELLO:
+				return "hello";
+			case Packet::VERB_ERROR:
+				return "error";
+			case Packet::VERB_OK:
+				return "ok";
+			case Packet::VERB_WHOIS:
+				return "whois";
+			case Packet::VERB_RENDEZVOUS:
+				return "rendezvous";
+			case Packet::VERB_FRAME:
+				return "frame";
+			case Packet::VERB_EXT_FRAME:
+				return "ext_frame";
+			case Packet::VERB_ECHO:
+				return "echo";
+			case Packet::VERB_MULTICAST_LIKE:
+				return "multicast_like";
+			case Packet::VERB_NETWORK_CREDENTIALS:
+				return "network_credentials";
+			case Packet::VERB_NETWORK_CONFIG_REQUEST:
+				return "network_config_request";
+			case Packet::VERB_NETWORK_CONFIG:
+				return "network_config";
+			case Packet::VERB_MULTICAST_GATHER:
+				return "multicast_gather";
+			case Packet::VERB_MULTICAST_FRAME:
+				return "multicast_frame";
+			case Packet::VERB_PUSH_DIRECT_PATHS:
+				return "push_direct_paths";
+			case Packet::VERB_ACK:
+				return "ack";
+			case Packet::VERB_QOS_MEASUREMENT:
+				return "qos_measurement";
+			case Packet::VERB_USER_MESSAGE:
+				return "user_message";
+			case Packet::VERB_REMOTE_TRACE:
+				return "remote_trace";
+			case Packet::VERB_PATH_NEGOTIATION_REQUEST:
+				return "path_negotiation_request";
+			default:
+				return "unknown";
+		}
+	}
+
 	// Unified packet observation function: statistics + first-seen logging
-	void observePacket(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful, bool authenticated, bool countLogical)
+	void observePacket(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful, bool authenticated, bool countLogical, const void* packetData)
 	{
 		// Skip processing during early initialization
 		if (! _node)
@@ -5438,6 +5488,9 @@ class OneServiceImpl : public OneService {
 			if (! monitorLogPaths.empty()) {
 				const uint64_t now = OSUtils::now();
 				const unsigned int remotePort = ipAddr.port();
+				const bool isZtPacket = (packetData && (packetSize >= ZT_PROTO_MIN_PACKET_LENGTH));
+				const unsigned int rawVerb = (isZtPacket ? (((const unsigned char*)packetData)[ZT_PACKET_IDX_VERB] & 0x1fU) : 0xffU);
+				const char* packetType = isZtPacket ? _packetVerbName(rawVerb) : "non_zt_or_short";
 				char ztBuf[16], ipBuf[64];
 				if (ztAddr) {
 					ztAddr.toString(ztBuf);
@@ -5451,9 +5504,11 @@ class OneServiceImpl : public OneService {
 				OSUtils::ztsnprintf(
 					line,
 					sizeof(line),
-					"ts=%llu scope=underlay_packet dir=%s zt=%s ip=%s remote_port=%u local_port=%u bytes=%lu ok=%u auth=%u logical=%u\n",
+					"ts=%llu scope=underlay_packet dir=%s type=%s verb=0x%02x zt=%s ip=%s remote_port=%u local_port=%u bytes=%lu ok=%u auth=%u logical=%u\n",
 					(unsigned long long)now,
 					incoming ? "in" : "out",
+					packetType,
+					rawVerb,
 					ztBuf,
 					ipBuf,
 					remotePort,
