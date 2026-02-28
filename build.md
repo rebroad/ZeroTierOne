@@ -49,6 +49,22 @@ Defaults:
 
 For detailed usage and troubleshooting, see `doc/windows-cross-installer.md`.
 
+### Raspberry Pi 3 Install (Linux host via SSH)
+
+Use `make pi-install` to build an ARMv7 binary in a container and install it on a Raspberry Pi host over SSH.
+
+Primary Make target:
+- `make pi-install`
+
+Defaults:
+- `PI_HOST=pi3`
+- `PI_INSTALL_STAGE_DIR=/var/tmp/zerotier-remote-install`
+- `DOCKER_PI_BUILD_IMAGE=zerotier-build-pi3`
+- `DOCKER_PI_DOCKERFILE=tools/Dockerfile.pi3-builder`
+- `DOCKER_PI_BASE_IMAGE=arm32v7/debian:buster` (matches `~/src/node/build-pi3.sh`)
+
+The install flow stages `zerotier-one` and `tools/install-zerotier-staged.sh` to the Pi, then runs the staged installer via `sudo`.
+
 #### FreeBSD
 - GNU make is required. Type `gmake` to build.
 - `binutils` is required. Type `pkg install binutils` to install.
