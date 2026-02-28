@@ -299,15 +299,23 @@ static std::string cliStatsFormatAge(uint64_t lastSeenMs)
 	if (now <= lastSeenMs)
 		return "0s";
 	uint64_t secondsAgo = (now - lastSeenMs) / 1000;
+	const uint64_t minutesAgo = secondsAgo / 60;
+	const uint64_t hoursAgo = secondsAgo / 3600;
 	char buf[32];
 	if (secondsAgo < 60) {
 		snprintf(buf, sizeof(buf), "%lus", (unsigned long)secondsAgo);
 	}
-	else if (secondsAgo < 3600) {
+	else if (secondsAgo < (20ULL * 60ULL)) {
 		snprintf(buf, sizeof(buf), "%lum%lus", (unsigned long)(secondsAgo / 60), (unsigned long)(secondsAgo % 60));
 	}
+	else if (secondsAgo < 3600) {
+		snprintf(buf, sizeof(buf), "%lum", (unsigned long)minutesAgo);
+	}
+	else if (secondsAgo < (12ULL * 3600ULL)) {
+		snprintf(buf, sizeof(buf), "%luh%lum", (unsigned long)hoursAgo, (unsigned long)((secondsAgo % 3600) / 60));
+	}
 	else if (secondsAgo < 86400) {
-		snprintf(buf, sizeof(buf), "%luh%lum", (unsigned long)(secondsAgo / 3600), (unsigned long)((secondsAgo % 3600) / 60));
+		snprintf(buf, sizeof(buf), "%luh", (unsigned long)hoursAgo);
 	}
 	else {
 		snprintf(buf, sizeof(buf), "%lud%luh", (unsigned long)(secondsAgo / 86400), (unsigned long)((secondsAgo % 86400) / 3600));

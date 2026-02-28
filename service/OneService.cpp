@@ -1025,6 +1025,10 @@ class OneServiceImpl : public OneService {
 	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int> > _seenIncomingPeerPorts;	  // For first-time incoming logging
 	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int> > _seenOutgoingPeerPorts;	  // For first-time outgoing logging
 	Mutex _peerStats_m;
+	static const uint64_t ZT_STATS_STALE_PAIR_AGE_MS = 48ULL * 60ULL * 60ULL * 1000ULL;	  // 48h
+	static const uint64_t ZT_STATS_PRUNE_CHECK_INTERVAL_MS = 5ULL * 60ULL * 1000ULL;	  // 5m
+	static const size_t ZT_STATS_PRUNE_TRIGGER_ENTRIES = 16384;
+	static const size_t ZT_STATS_PRUNE_TARGET_ENTRIES = 12288;
 
 	// Peer introduction tracking for misbehavior detection
 	struct PeerIntroduction {
@@ -1452,6 +1456,7 @@ class OneServiceImpl : public OneService {
 			int64_t lastTapMulticastGroupCheck = 0;
 			int64_t lastBindRefresh = 0;
 			int64_t lastCleanedPeersDb = 0;
+			int64_t lastPeerStatsPruneCheck = 0;
 			int64_t lastLocalConfFileCheck = OSUtils::now();
 			int64_t lastOnline = lastLocalConfFileCheck;
 
@@ -1583,6 +1588,12 @@ class OneServiceImpl : public OneService {
 				if ((now - lastCleanedPeersDb) >= 3600000) {
 					lastCleanedPeersDb = now;
 					OSUtils::cleanDirectory((_homePath + ZT_PATH_SEPARATOR_S "peers.d").c_str(), now - 2592000000LL);	// delete older than 30 days
+				}
+
+				// Keep pair lookup-table memory bounded under pressure by expiring stale pairs.
+				if ((now - lastPeerStatsPruneCheck) >= (int64_t)ZT_STATS_PRUNE_CHECK_INTERVAL_MS) {
+					lastPeerStatsPruneCheck = now;
+					_expireStalePeerStats((uint64_t)now);
 				}
 
 				const unsigned long delay = (dl > now) ? (unsigned long)(dl - now) : 500;
@@ -3030,13 +3041,18 @@ class OneServiceImpl : public OneService {
 			{
 				Mutex::Lock _l(_peerStats_m);	// TODO - is lock-free an option?
 				for (const auto& peerEntry : _peerStats) {
+					const PeerStats& peerStats = peerEntry.second;
+					const bool hasIncomingForDisplay = (peerStats.totalIncoming > 0) || (peerStats.LogicalBytesIncoming > 0) || (peerStats.AuthBytesIncoming > 0) || (peerStats.WireBytesIncoming > 0);
+					if (! hasIncomingForDisplay) {
+						continue;
+					}
 					sortedPeers.push_back(peerEntry);
 
 					const Address& ztAddr = peerEntry.first.first;
 					const InetAddress& ipAddr = peerEntry.first.second;
-					const PeerStats& peerStats = peerEntry.second;
 
 					const uint64_t lastSeen = std::max(std::max(peerStats.lastIncomingSeen, peerStats.lastOutgoingSeen), std::max(peerStats.lastAuthIncomingSeen, peerStats.lastAuthOutgoingSeen));
+
 					// Logical bytes are deduplicated per logical send/receive operation.
 					const uint64_t pairIncoming = peerStats.LogicalBytesIncoming;
 					const uint64_t pairOutgoing = peerStats.LogicalBytesOutgoing;
@@ -3223,6 +3239,9 @@ class OneServiceImpl : public OneService {
 					const Address& ztAddr = key.first;
 					const InetAddress& ipAddr = key.second;
 					if ((! ztAddr) || (! ipAddr)) {
+						continue;
+					}
+					if (it->second.packetsIncoming == 0 && it->second.bytesIncoming == 0) {
 						continue;
 					}
 					if (pairIncomingBytes.find(key) != pairIncomingBytes.end()) {
@@ -6022,6 +6041,63 @@ class OneServiceImpl : public OneService {
 			}
 		}
 		return ipAddresses;	  // TODO - which functions are using this?
+	}
+
+	void _expireStalePeerStats(uint64_t now)
+	{
+		Mutex::Lock _l(_peerStats_m);
+		if (_peerStats.size() < ZT_STATS_PRUNE_TRIGGER_ENTRIES) {
+			return;
+		}
+
+		std::vector<std::pair<uint64_t, std::pair<Address, InetAddress> > > staleKeys;
+		staleKeys.reserve(_peerStats.size());
+
+		for (std::map<std::pair<Address, InetAddress>, PeerStats>::const_iterator it = _peerStats.begin(); it != _peerStats.end(); ++it) {
+			const PeerStats& s = it->second;
+			const uint64_t lastSeen = std::max(std::max(s.lastIncomingSeen, s.lastOutgoingSeen), std::max(s.lastAuthIncomingSeen, s.lastAuthOutgoingSeen));
+			if ((lastSeen > 0) && (now > lastSeen) && ((now - lastSeen) >= ZT_STATS_STALE_PAIR_AGE_MS)) {
+				staleKeys.push_back(std::make_pair(lastSeen, it->first));
+			}
+		}
+
+		if (staleKeys.empty()) {
+			return;
+		}
+
+		std::sort(staleKeys.begin(), staleKeys.end(), [](const std::pair<uint64_t, std::pair<Address, InetAddress> >& a, const std::pair<uint64_t, std::pair<Address, InetAddress> >& b) { return a.first < b.first; });
+
+		const size_t overTarget = (_peerStats.size() > ZT_STATS_PRUNE_TARGET_ENTRIES) ? (_peerStats.size() - ZT_STATS_PRUNE_TARGET_ENTRIES) : 0;
+		size_t eraseBudget = staleKeys.size();
+		if (overTarget > 0) {
+			eraseBudget = std::min(eraseBudget, overTarget);
+		}
+		if (eraseBudget == 0) {
+			return;
+		}
+
+		std::set<std::pair<Address, InetAddress> > removedKeys;
+		for (size_t i = 0; i < eraseBudget; ++i) {
+			removedKeys.insert(staleKeys[i].second);
+			_peerStats.erase(staleKeys[i].second);
+		}
+
+		for (std::set<std::pair<std::pair<Address, InetAddress>, unsigned int> >::iterator it = _seenIncomingPeerPorts.begin(); it != _seenIncomingPeerPorts.end();) {
+			if (removedKeys.find(it->first) != removedKeys.end()) {
+				_seenIncomingPeerPorts.erase(it++);
+			}
+			else {
+				++it;
+			}
+		}
+		for (std::set<std::pair<std::pair<Address, InetAddress>, unsigned int> >::iterator it = _seenOutgoingPeerPorts.begin(); it != _seenOutgoingPeerPorts.end();) {
+			if (removedKeys.find(it->first) != removedKeys.end()) {
+				_seenOutgoingPeerPorts.erase(it++);
+			}
+			else {
+				++it;
+			}
+		}
 	}
 
 	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& ipAddr, PeerStats& stats, uint64_t now)
