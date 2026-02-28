@@ -383,7 +383,7 @@ static void cliStatsPrintPortConfiguration(const nlohmann::json& j)
 			boundField = bf;
 		}
 	}
-	printf("Port Config: p=%u s=%s t=%u bound=%s" ZT_EOL_S, primaryPort, secondaryField.c_str(), tertiaryPort, boundField.c_str());
+	printf("Port Config: %u,%s,%u (bound=%s)" ZT_EOL_S, primaryPort, secondaryField.c_str(), tertiaryPort, boundField.c_str());
 }
 
 static void cliStatsPrintNetworkUsage(const nlohmann::json& j)
