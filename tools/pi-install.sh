@@ -13,6 +13,9 @@ DOCKER_PI_DOCKERFILE="${DOCKER_PI_DOCKERFILE:-$ROOT_DIR/tools/Dockerfile.pi3-bui
 DOCKER_PI_BASE_IMAGE="${DOCKER_PI_BASE_IMAGE:-arm32v7/debian:buster}"
 DOCKER_BUILD_NETWORK="${DOCKER_BUILD_NETWORK:-host}"
 DOCKER_CARGO_HOME="${DOCKER_CARGO_HOME:-/src/.cache/cargo-pi3}"
+PI_BUILD_DIR="${PI_BUILD_DIR:-build/pi-armv7}"
+PI_BUILD_WORK_DIR="${PI_BUILD_WORK_DIR:-$PI_BUILD_DIR/work}"
+PI_BUILD_BIN="$ROOT_DIR/$PI_BUILD_DIR/zerotier-one"
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
 
@@ -85,14 +88,14 @@ echo "Building zerotier-one for ARMv7 in container"
   -e CARGO_NET_RETRY=10 \
   -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
   "$DOCKER_PI_BUILD_IMAGE" \
-  bash -lc 'set -euo pipefail; mkdir -p "$CARGO_HOME"; make one'
+  bash -lc "set -euo pipefail; mkdir -p \"\$CARGO_HOME\"; rm -rf \"$PI_BUILD_WORK_DIR\"; mkdir -p \"$PI_BUILD_WORK_DIR\" \"$PI_BUILD_DIR\"; tar -C /src --exclude='./build' -cf - . | tar -C \"$PI_BUILD_WORK_DIR\" -xf -; cd \"$PI_BUILD_WORK_DIR\"; make one; cp -f zerotier-one \"/src/$PI_BUILD_DIR/zerotier-one\""
 
-if [ ! -x "$ROOT_DIR/zerotier-one" ]; then
-  echo "error: build did not produce executable: $ROOT_DIR/zerotier-one" >&2
+if [ ! -x "$PI_BUILD_BIN" ]; then
+  echo "error: build did not produce executable: $PI_BUILD_BIN" >&2
   exit 1
 fi
 
-bin_desc="$(file -b "$ROOT_DIR/zerotier-one" || true)"
+bin_desc="$(file -b "$PI_BUILD_BIN" || true)"
 if ! echo "$bin_desc" | grep -Eq 'ARM'; then
   echo "error: built binary does not look like ARM: $bin_desc" >&2
   exit 1
@@ -119,7 +122,7 @@ if ! command -v objdump >/dev/null 2>&1; then
   exit 1
 fi
 
-required_glibc="$(objdump -T "$ROOT_DIR/zerotier-one" 2>/dev/null | sed -n 's/.*GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -n1)"
+required_glibc="$(objdump -T "$PI_BUILD_BIN" 2>/dev/null | sed -n 's/.*GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -n1)"
 
 remote_info="$(
   ssh "${SSH_OPTS[@]}" "$HOST" '
@@ -183,13 +186,13 @@ echo "Staging files on $HOST:$REMOTE_STAGE_DIR"
 ssh "${SSH_OPTS[@]}" "$HOST" "mkdir -p '$REMOTE_STAGE_DIR'"
 if [ -n "$stage_geoip_src" ]; then
   scp "${SSH_OPTS[@]}" -q \
-    "$ROOT_DIR/zerotier-one" \
+    "$PI_BUILD_BIN" \
     "$ROOT_DIR/tools/$REMOTE_INSTALL_SCRIPT" \
     "$stage_geoip_src" \
     "$HOST:$REMOTE_STAGE_DIR/"
 else
   scp "${SSH_OPTS[@]}" -q \
-    "$ROOT_DIR/zerotier-one" \
+    "$PI_BUILD_BIN" \
     "$ROOT_DIR/tools/$REMOTE_INSTALL_SCRIPT" \
     "$HOST:$REMOTE_STAGE_DIR/"
 fi

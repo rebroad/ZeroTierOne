@@ -62,7 +62,7 @@ else
 endif
 
 # Optional in-process GeoIP (used by zerotier-cli stats country flags)
-MMDB_HEADER:=$(firstword $(wildcard /usr/include/maxminddb.h /usr/include/x86_64-linux-gnu/maxminddb.h))
+MMDB_HEADER:=$(firstword $(wildcard /usr/include/maxminddb.h /usr/include/*-linux-gnu/maxminddb.h))
 ifneq ($(MMDB_HEADER),)
 	LDLIBS+=-lmaxminddb
 endif
@@ -562,6 +562,11 @@ DOCKER_REMOTE_BUILD_IMAGE ?= zerotier-build-ubuntu2204
 DOCKER_REMOTE_BUILD_DOCKERFILE ?= tools/Dockerfile.ubuntu2204-builder
 DOCKER_BUILD_NETWORK ?= host
 DOCKER_CARGO_HOME ?= /src/.cache/cargo
+REMOTE_BUILD_ARCH ?= $(shell uname -m)
+REMOTE_BUILD_GLIBC ?= 2.35
+REMOTE_BUILD_DIR ?= build/glibc$(REMOTE_BUILD_GLIBC)-$(REMOTE_BUILD_ARCH)
+REMOTE_BUILD_WORK_DIR ?= $(REMOTE_BUILD_DIR)/work
+REMOTE_BUILD_BIN ?= $(REMOTE_BUILD_DIR)/zerotier-one
 
 .PHONY: docker-build-ubuntu2204
 docker-build-ubuntu2204:
@@ -579,7 +584,7 @@ docker-build-remote-install-binary: docker-build-ubuntu2204
 		-v "$(CURDIR):/src" \
 		-w /src \
 		$(DOCKER_REMOTE_BUILD_IMAGE) \
-		bash -lc "export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; make one"
+		bash -lc "set -eu; export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; rm -rf \"$(REMOTE_BUILD_WORK_DIR)\"; mkdir -p \"$(REMOTE_BUILD_WORK_DIR)\" \"$(REMOTE_BUILD_DIR)\"; tar -C /src --exclude='./build' -cf - . | tar -C \"$(REMOTE_BUILD_WORK_DIR)\" -xf -; cd \"$(REMOTE_BUILD_WORK_DIR)\"; make one; cp -f zerotier-one /src/$(REMOTE_BUILD_BIN)"
 
 .PHONY: remote-install
 remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT)
@@ -604,7 +609,7 @@ remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT
 		echo "error: objdump is required for remote-install preflight checks"; \
 		exit 1; \
 	fi; \
-	required_glibc="$$(objdump -T ./zerotier-one 2>/dev/null | sed -n 's/.*GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -n1)"; \
+	required_glibc="$$(objdump -T ./$(REMOTE_BUILD_BIN) 2>/dev/null | sed -n 's/.*GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -n1)"; \
 	remote_info="$$( $(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) '\
 		set -e; \
 		echo REMOTE_ARCH=$$(uname -m); \
@@ -655,9 +660,9 @@ remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT
 	echo "Staging files on $(REMOTE_HOST):$(REMOTE_STAGE_DIR)"; \
 	$(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "mkdir -p $(REMOTE_STAGE_DIR)"; \
 	if [ -n "$$stage_geoip_src" ]; then \
-		$(REMOTE_SCP) -q ./zerotier-one "tools/$(REMOTE_INSTALL_SCRIPT)" "$$stage_geoip_src" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
+		$(REMOTE_SCP) -q ./$(REMOTE_BUILD_BIN) "tools/$(REMOTE_INSTALL_SCRIPT)" "$$stage_geoip_src" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
 	else \
-		$(REMOTE_SCP) -q ./zerotier-one "tools/$(REMOTE_INSTALL_SCRIPT)" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
+		$(REMOTE_SCP) -q ./$(REMOTE_BUILD_BIN) "tools/$(REMOTE_INSTALL_SCRIPT)" "$(REMOTE_HOST):$(REMOTE_STAGE_DIR)/"; \
 	fi; \
 	$(REMOTE_SSH) -o BatchMode=yes -o ConnectTimeout=10 $(REMOTE_HOST) "chmod 0755 $(REMOTE_STAGE_DIR)/$(REMOTE_INSTALL_SCRIPT) $(REMOTE_STAGE_DIR)/zerotier-one"; \
 	install_args="$(REMOTE_STAGE_DIR)"; \
