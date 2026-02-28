@@ -5422,6 +5422,49 @@ class OneServiceImpl : public OneService {
 				}
 			}
 
+			// 1b. Monitor logging for underlay packet/accounting events.
+			// This runs for every observed packet update so monitored targets can
+			// correlate log lines with port/pair byte counters.
+			std::set<std::string> monitorLogPaths;
+			{
+				Mutex::Lock _l(_monitorTargets_m);
+				if (ztAddr && (_monitoredZtAddresses.find(ztAddr) != _monitoredZtAddresses.end())) {
+					monitorLogPaths.insert(_monitorLogPathForZt(ztAddr));
+				}
+				if (_monitoredIPAddresses.find(keyIP) != _monitoredIPAddresses.end()) {
+					monitorLogPaths.insert(_monitorLogPathForIP(keyIP));
+				}
+			}
+			if (! monitorLogPaths.empty()) {
+				const uint64_t now = OSUtils::now();
+				const unsigned int remotePort = ipAddr.port();
+				char ztBuf[16], ipBuf[64];
+				if (ztAddr) {
+					ztAddr.toString(ztBuf);
+				}
+				else {
+					OSUtils::ztsnprintf(ztBuf, sizeof(ztBuf), "-");
+				}
+				keyIP.toIpString(ipBuf);
+
+				char line[512];
+				OSUtils::ztsnprintf(
+					line,
+					sizeof(line),
+					"ts=%llu scope=underlay_packet dir=%s zt=%s ip=%s remote_port=%u local_port=%u bytes=%lu ok=%u auth=%u logical=%u\n",
+					(unsigned long long)now,
+					incoming ? "in" : "out",
+					ztBuf,
+					ipBuf,
+					remotePort,
+					localPort,
+					packetSize,
+					successful ? 1U : 0U,
+					(authenticated && ztAddr) ? 1U : 0U,
+					countLogical ? 1U : 0U);
+				_appendMonitorLine(monitorLogPaths, line);
+			}
+
 			// 2. LOGGING (first packet only to avoid spam)
 			auto packetKey = std::make_pair(std::make_pair(ztAddr, ipAddr), localPort);
 			bool shouldLog = false;
