@@ -1075,6 +1075,29 @@ class OneServiceImpl : public OneService {
 	OverlayPacketDirCounts _overlayPacketCountsOther;
 	Mutex _overlayPacketCounts_m;
 
+	struct OverlayEndpointDirCounts {
+		uint64_t incoming;
+		uint64_t outgoing;
+		OverlayEndpointDirCounts() : incoming(0), outgoing(0)
+		{
+		}
+	};
+	std::map<std::pair<uint64_t, Address>, OverlayEndpointDirCounts> _overlayEndpointCountsByNetworkAndZt;
+	Mutex _overlayEndpointCounts_m;
+
+	struct OverlayPairStats {
+		uint64_t bytesIncoming;
+		uint64_t bytesOutgoing;
+		uint64_t packetsIncoming;
+		uint64_t packetsOutgoing;
+		uint64_t lastSeen;
+		OverlayPairStats() : bytesIncoming(0), bytesOutgoing(0), packetsIncoming(0), packetsOutgoing(0), lastSeen(0)
+		{
+		}
+	};
+	std::map<std::pair<Address, InetAddress>, OverlayPairStats> _overlayPairStats;
+	Mutex _overlayPairStats_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char* hp, unsigned int port)
@@ -2950,6 +2973,26 @@ class OneServiceImpl : public OneService {
 			networkUsage["perNetwork"] = perNetwork;
 			stats["networkUsage"] = networkUsage;
 
+			// Overlay ZT endpoints observed from virtual frame processing.
+			json overlayEndpoints = json::array();
+			{
+				Mutex::Lock _el(_overlayEndpointCounts_m);
+				for (std::map<std::pair<uint64_t, Address>, OverlayEndpointDirCounts>::const_iterator it = _overlayEndpointCountsByNetworkAndZt.begin(); it != _overlayEndpointCountsByNetworkAndZt.end(); ++it) {
+					const uint64_t nwid = it->first.first;
+					const Address& ztAddr = it->first.second;
+					char nwidBuf[32], ztBuf[16];
+					OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
+					ztAddr.toString(ztBuf);
+					json row = json::object();
+					row["nwid"] = nwidBuf;
+					row["ztAddress"] = ztBuf;
+					row["incoming"] = it->second.incoming;
+					row["outgoing"] = it->second.outgoing;
+					overlayEndpoints.push_back(row);
+				}
+			}
+			stats["overlayEndpoints"] = overlayEndpoints;
+
 			// Note: Total peer count is included in diagnostics section below
 
 			const uint32_t primaryPort = _primaryPort;
@@ -3126,6 +3169,94 @@ class OneServiceImpl : public OneService {
 				peerStat["MaxDivergenceRatio"] = pairStats.maxDivergenceRatio;
 
 				peerStats.push_back(peerStat);
+			}
+
+			// Add overlay-observed (ZT, in-network IP) pairs that are not present in peer-path stats.
+			{
+				std::map<std::pair<Address, InetAddress>, OverlayPairStats> overlayPairs;
+				{
+					Mutex::Lock _ol(_overlayPairStats_m);
+					overlayPairs = _overlayPairStats;
+				}
+
+				std::map<InetAddress, uint64_t> overlayIpIncomingBytes, overlayIpOutgoingBytes;
+				std::map<Address, uint64_t> overlayZtIncomingBytes, overlayZtOutgoingBytes;
+				for (std::map<std::pair<Address, InetAddress>, OverlayPairStats>::const_iterator it = overlayPairs.begin(); it != overlayPairs.end(); ++it) {
+					overlayIpIncomingBytes[it->first.second] += it->second.bytesIncoming;
+					overlayIpOutgoingBytes[it->first.second] += it->second.bytesOutgoing;
+					overlayZtIncomingBytes[it->first.first] += it->second.bytesIncoming;
+					overlayZtOutgoingBytes[it->first.first] += it->second.bytesOutgoing;
+				}
+
+				for (std::map<std::pair<Address, InetAddress>, OverlayPairStats>::const_iterator it = overlayPairs.begin(); it != overlayPairs.end(); ++it) {
+					const std::pair<Address, InetAddress>& key = it->first;
+					const Address& ztAddr = key.first;
+					const InetAddress& ipAddr = key.second;
+					if ((! ztAddr) || (! ipAddr)) {
+						continue;
+					}
+					if (pairIncomingBytes.find(key) != pairIncomingBytes.end()) {
+						continue;	// already represented by normal peer-path stats
+					}
+
+					char ipAddrStr[64];
+					ipAddr.toIpString(ipAddrStr);
+					char ztAddrStr[32];
+					ztAddr.toString(ztAddrStr);
+
+					const uint64_t rx = it->second.bytesIncoming;
+					const uint64_t tx = it->second.bytesOutgoing;
+					const uint64_t ipRx = overlayIpIncomingBytes[ipAddr];
+					const uint64_t ipTx = overlayIpOutgoingBytes[ipAddr];
+					const uint64_t ztRx = overlayZtIncomingBytes[ztAddr];
+					const uint64_t ztTx = overlayZtOutgoingBytes[ztAddr];
+					const bool rxFromIp = (ipRx >= ztRx);
+					const bool txFromIp = (ipTx >= ztTx);
+					const uint64_t displayRx = rxFromIp ? ipRx : ztRx;
+					const uint64_t displayTx = txFromIp ? ipTx : ztTx;
+
+					json peerStat = json::object();
+					peerStat["ztAddress"] = std::string(ztAddrStr);
+					peerStat["ipAddress"] = std::string(ipAddrStr);
+					peerStat["peerRole"] = "overlay";
+					peerStat["pairBytesIncoming"] = rx;
+					peerStat["pairBytesOutgoing"] = tx;
+					peerStat["ipBytesIncoming"] = ipRx;
+					peerStat["ipBytesOutgoing"] = ipTx;
+					peerStat["ztBytesIncoming"] = ztRx;
+					peerStat["ztBytesOutgoing"] = ztTx;
+					peerStat["displayBytesIncoming"] = displayRx;
+					peerStat["displayBytesOutgoing"] = displayTx;
+					peerStat["rxSource"] = rxFromIp ? "i" : "z";
+					peerStat["txSource"] = txFromIp ? "i" : "z";
+					peerStat["lastSeen"] = it->second.lastSeen;
+
+					peerStat["wireIncomingPorts"] = json::object();
+					peerStat["wireOutgoingPorts"] = json::object();
+					peerStat["authIncomingPorts"] = json::object();
+					peerStat["authOutgoingPorts"] = json::object();
+
+					peerStat["primaryIncoming"] = 0;
+					peerStat["primaryOutgoing"] = 0;
+					peerStat["secondaryIncoming"] = 0;
+					peerStat["secondaryOutgoing"] = 0;
+					peerStat["tertiaryIncoming"] = 0;
+					peerStat["tertiaryOutgoing"] = 0;
+					peerStat["overlayPacketsIncoming"] = it->second.packetsIncoming;
+					peerStat["overlayPacketsOutgoing"] = it->second.packetsOutgoing;
+
+					peerStat["WireBytesIncoming"] = rx;
+					peerStat["WireBytesOutgoing"] = tx;
+					peerStat["LogicalBytesIncoming"] = rx;
+					peerStat["LogicalBytesOutgoing"] = tx;
+					peerStat["AuthBytesIncoming"] = 0;
+					peerStat["AuthBytesOutgoing"] = 0;
+					peerStat["SuspiciousPacketCount"] = 0;
+					peerStat["AttackEventCount"] = 0;
+					peerStat["MaxDivergenceRatio"] = 0.0;
+
+					peerStats.push_back(peerStat);
+				}
 			}
 			stats["peersByZtAddressAndIP"] = peerStats;
 
@@ -5512,9 +5643,47 @@ class OneServiceImpl : public OneService {
 				++counts.incoming;
 			}
 		}
+		{
+			Mutex::Lock _el(_overlayEndpointCounts_m);
+			if (srcZt) {
+				OverlayEndpointDirCounts& c = _overlayEndpointCountsByNetworkAndZt[std::make_pair(nwid, srcZt)];
+				if (outgoing) {
+					++c.outgoing;
+				}
+				else {
+					++c.incoming;
+				}
+			}
+			if (dstZt) {
+				OverlayEndpointDirCounts& c = _overlayEndpointCountsByNetworkAndZt[std::make_pair(nwid, dstZt)];
+				if (outgoing) {
+					++c.outgoing;
+				}
+				else {
+					++c.incoming;
+				}
+			}
+		}
+		const uint64_t now = OSUtils::now();
+		{
+			const Address& peerZt = outgoing ? dstZt : srcZt;
+			const InetAddress& peerIp = outgoing ? dstIp : srcIp;
+			if (peerZt && peerIp) {
+				Mutex::Lock _ps(_overlayPairStats_m);
+				OverlayPairStats& ps = _overlayPairStats[std::make_pair(peerZt, peerIp.ipOnly())];
+				if (outgoing) {
+					ps.bytesOutgoing += (uint64_t)len;
+					++ps.packetsOutgoing;
+				}
+				else {
+					ps.bytesIncoming += (uint64_t)len;
+					++ps.packetsIncoming;
+				}
+				ps.lastSeen = now;
+			}
+		}
 
 		// Always learn overlay associations, even when no monitor target is configured.
-		const uint64_t now = OSUtils::now();
 		if (srcZt) {
 			_recordObservedOverlayIP(nwid, srcZt, srcIp, now);
 		}
@@ -5579,32 +5748,37 @@ class OneServiceImpl : public OneService {
 		OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
 
 		char packetLine[512];
-		OSUtils::ztsnprintf(
-			packetLine,
-			sizeof(packetLine),
-			"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s etherType=0x%04x len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s\n",
-			(unsigned long long)now,
-			outgoing ? "out" : "in",
-			nwidBuf,
-			proto,
-			etherType & 0xffff,
-			len,
-			srcZtBuf,
-			srcIpBuf,
-			dstZtBuf,
-			dstIpBuf);
+		if ((etherType == 0x0800) || (etherType == 0x86dd) || (etherType == 0x0806)) {
+			OSUtils::ztsnprintf(
+				packetLine,
+				sizeof(packetLine),
+				"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s\n",
+				(unsigned long long)now,
+				outgoing ? "out" : "in",
+				nwidBuf,
+				proto,
+				len,
+				srcZtBuf,
+				srcIpBuf,
+				dstZtBuf,
+				dstIpBuf);
+		}
+		else {
+			OSUtils::ztsnprintf(
+				packetLine,
+				sizeof(packetLine),
+				"ts=%llu scope=overlay_packet dir=%s nwid=%s etherType=0x%04x len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s\n",
+				(unsigned long long)now,
+				outgoing ? "out" : "in",
+				nwidBuf,
+				etherType & 0xffff,
+				len,
+				srcZtBuf,
+				srcIpBuf,
+				dstZtBuf,
+				dstIpBuf);
+		}
 		_appendMonitorLine(monitorLogPaths, packetLine);
-
-		if (srcZt) {
-			char assocLine[384];
-			OSUtils::ztsnprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=src proto=%s\n", (unsigned long long)now, nwidBuf, srcZtBuf, srcIpBuf, proto);
-			_appendMonitorLine(monitorLogPaths, assocLine);
-		}
-		if (dstZt) {
-			char assocLine[384];
-			OSUtils::ztsnprintf(assocLine, sizeof(assocLine), "ts=%llu scope=overlay_assoc nwid=%s zt=%s ip=%s learned=dst proto=%s\n", (unsigned long long)now, nwidBuf, dstZtBuf, dstIpBuf, proto);
-			_appendMonitorLine(monitorLogPaths, assocLine);
-		}
 	}
 
 	// Get a copy of the infrastructure IPs (for stats endpoints)

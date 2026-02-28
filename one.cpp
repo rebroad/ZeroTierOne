@@ -1648,6 +1648,7 @@ static int cli(int argc, char** argv)
 						std::string ipAddress;
 						std::string ztaddr;
 						std::string peerRole;
+						bool isPrivateIp;
 						std::string countryFlag;
 						std::string rxBytesStr;
 						std::string txBytesStr;
@@ -1666,6 +1667,38 @@ static int cli(int argc, char** argv)
 							}
 						}
 						return true;
+					};
+					auto isPrivateIpLiteral = [](const std::string& ip) -> bool {
+						InetAddress a(ip.c_str());
+						if (a.isV4()) {
+							char b[64];
+							a.ipOnly().toIpString(b);
+							unsigned int o1 = 0, o2 = 0, o3 = 0, o4 = 0;
+							if (sscanf(b, "%u.%u.%u.%u", &o1, &o2, &o3, &o4) == 4) {
+								if (o1 == 10)
+									return true;
+								if ((o1 == 172) && (o2 >= 16) && (o2 <= 31))
+									return true;
+								if ((o1 == 192) && (o2 == 168))
+									return true;
+								if (o1 == 127)
+									return true;
+								if ((o1 == 169) && (o2 == 254))
+									return true;
+							}
+						}
+						else if (a.isV6()) {
+							char b[64];
+							a.ipOnly().toIpString(b);
+							const std::string s(b);
+							if ((s.size() >= 2) && ((s[0] == 'f') || (s[0] == 'F')) && ((s[1] == 'c') || (s[1] == 'C') || (s[1] == 'd') || (s[1] == 'D')))
+								return true;
+							if ((s.size() >= 4) && (s[0] == 'f' || s[0] == 'F') && (s[1] == 'e' || s[1] == 'E') && (s[2] == '8') && (s[3] == '0'))
+								return true;
+							if (s == "::1")
+								return true;
+						}
+						return false;
 					};
 
 #ifdef ZT_HAVE_MAXMINDDB
@@ -1822,16 +1855,31 @@ static int cli(int argc, char** argv)
 
 					auto displayWidth = [&](const std::string& s) -> int {
 						int w = 0;
+						static constexpr int ZT_SPIDER_EMOJI_WIDTH = 1;	  // Terminal-specific override for U+1F578
 						std::vector<uint32_t> cps;
 						for (std::size_t i = 0; i < s.size();) {
 							cps.push_back(nextCodepoint(s, i));
 						}
+						auto isZeroWidth = [](uint32_t cp) -> bool {
+							// Common combining marks and emoji formatting code points.
+							if ((cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) || (cp >= 0x1DC0 && cp <= 0x1DFF) || (cp >= 0x20D0 && cp <= 0x20FF) || (cp >= 0xFE00 && cp <= 0xFE0F) || cp == 0x200D) {
+								return true;
+							}
+							return false;
+						};
 						for (std::size_t i = 0; i < cps.size(); ++i) {
 							const uint32_t cp = cps[i];
+							if (isZeroWidth(cp)) {
+								continue;
+							}
 							// Regional indicator pair (country flag) renders as one 2-cell glyph.
 							if (cp >= 0x1F1E6 && cp <= 0x1F1FF && i + 1 < cps.size() && cps[i + 1] >= 0x1F1E6 && cps[i + 1] <= 0x1F1FF) {
 								w += 2;
 								++i;
+								continue;
+							}
+							if (cp == 0x1F578) {   // spider-web emoji
+								w += ZT_SPIDER_EMOJI_WIDTH;
 								continue;
 							}
 							if (cp < 0x80) {
@@ -1899,15 +1947,24 @@ static int cli(int argc, char** argv)
 						uint64_t secondaryOut = (secondaryPort > 0) ? peerData.value("secondaryOutgoing", 0ULL) : 0ULL;
 						uint64_t tertiaryIn = peerData.value("tertiaryIncoming", 0ULL);
 						uint64_t tertiaryOut = peerData.value("tertiaryOutgoing", 0ULL);
+						uint64_t overlayPacketsIn = peerData.value("overlayPacketsIncoming", 0ULL);
+						uint64_t overlayPacketsOut = peerData.value("overlayPacketsOutgoing", 0ULL);
 
-						const std::string portUsage = formatBytesCompact(primaryIn) + ":" + formatBytesCompact(primaryOut) + ", " + formatBytesCompact(secondaryIn) + ":" + formatBytesCompact(secondaryOut) + ", "
-													  + formatBytesCompact(tertiaryIn) + ":" + formatBytesCompact(tertiaryOut);
+						std::string portUsage;
+						if (peerRole == "overlay") {
+							portUsage = formatBytesCompact(overlayPacketsIn) + ":" + formatBytesCompact(overlayPacketsOut);
+						}
+						else {
+							portUsage = formatBytesCompact(primaryIn) + ":" + formatBytesCompact(primaryOut) + ", " + formatBytesCompact(secondaryIn) + ":" + formatBytesCompact(secondaryOut) + ", " + formatBytesCompact(tertiaryIn) + ":"
+										+ formatBytesCompact(tertiaryOut);
+						}
 
 						StatsRow row;
 						row.pairTotal = pairBytesIncoming + pairBytesOutgoing;
 						row.ipAddress = ipAddress;
 						row.ztaddr = ztaddr;
 						row.peerRole = peerRole;
+						row.isPrivateIp = isPrivateIpLiteral(ipAddressRaw);
 						row.countryFlag = countryFlag;
 						row.rxBytesStr = rxBytesStr;
 						row.txBytesStr = txBytesStr;
@@ -1946,7 +2003,13 @@ static int cli(int argc, char** argv)
 					for (const auto& row : rows) {
 						const char* icon = roleEmoji(row.peerRole);
 						std::string ipCol = row.ipAddress;
-						if (! row.countryFlag.empty()) {
+						if (row.peerRole == "overlay") {
+							ipCol = std::string("🕸️  ") + row.ipAddress;
+						}
+						else if (row.isPrivateIp) {
+							ipCol = std::string("🏠 ") + row.ipAddress;
+						}
+						else if (! row.countryFlag.empty()) {
 							ipCol = row.countryFlag + " " + row.ipAddress;
 						}
 						std::string ztCol = row.ztaddr;
@@ -1970,8 +2033,10 @@ static int cli(int argc, char** argv)
 						lastSeenColWidth = std::max(lastSeenColWidth, displayWidth(rr.lastSeenCol));
 					}
 
+					ipColWidth += 2;   // extra gap before ZT column
+
 					printf(
-						"%s %s %s %s %s %s" ZT_EOL_S,
+						"%s  %s %s %s %s %s" ZT_EOL_S,
 						padRightDisplay("IP Address", ipColWidth).c_str(),
 						padRightDisplay("ZT Address", ztColWidth).c_str(),
 						padRightDisplay("RX Bytes", rxColWidth).c_str(),
@@ -1979,7 +2044,7 @@ static int cli(int argc, char** argv)
 						padRightDisplay("Last Seen", lastSeenColWidth).c_str(),
 						"Port Usage");
 					printf(
-						"%s %s %s %s %s %s" ZT_EOL_S,
+						"%s  %s %s %s %s %s" ZT_EOL_S,
 						std::string((std::size_t)ipColWidth, '-').c_str(),
 						std::string((std::size_t)ztColWidth, '-').c_str(),
 						std::string((std::size_t)rxColWidth, '-').c_str(),
@@ -1989,7 +2054,7 @@ static int cli(int argc, char** argv)
 
 					for (const auto& rr : renderedRows) {
 						printf(
-							"%s %s %s %s %s %s" ZT_EOL_S,
+							"%s  %s %s %s %s %s" ZT_EOL_S,
 							padRightDisplay(rr.ipCol, ipColWidth).c_str(),
 							padRightDisplay(rr.ztCol, ztColWidth).c_str(),
 							padRightDisplay(rr.rxCol, rxColWidth).c_str(),
