@@ -2031,8 +2031,8 @@ static int cli(int argc, char** argv)
 	else if (command == "stats") {
 		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/stats", requestHeaders, responseHeaders, responseBody);
 
-		if (scode == 0) {
-			printf("Error connecting to the ZeroTier service: %s\n\nPlease check that the service is running and that TCP port 9993 can be contacted via 127.0.0.1." ZT_EOL_S, responseBody.c_str());
+		if (scode != 200) {
+			printf("%u %s %s" ZT_EOL_S, scode, command.c_str(), responseBody.c_str());
 			return 1;
 		}
 
@@ -2046,11 +2046,6 @@ static int cli(int argc, char** argv)
 		}
 		catch (...) {
 			printf("%u %s invalid JSON response (unknown exception)" ZT_EOL_S, scode, command.c_str());
-			return 1;
-		}
-
-		if (scode != 200) {
-			printf("%u %s %s" ZT_EOL_S, scode, command.c_str(), responseBody.c_str());
 			return 1;
 		}
 
@@ -2116,25 +2111,25 @@ static int cli(int argc, char** argv)
 	}
 	else if (command == "monitor-list") {
 		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor", requestHeaders, responseHeaders, responseBody);
-		if (scode == 200) {
-			if (json) {
-				printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
-			}
-			else {
-				nlohmann::json result = OSUtils::jsonParse(responseBody);
-				printf("%-8s %-42s %s" ZT_EOL_S, "Type", "Target", "Log file");
-				printf("%-8s %-42s %s" ZT_EOL_S, "--------", "------------------------------------------", "--------");
-				if (result.contains("entries") && result["entries"].is_array()) {
-					for (const auto& entry : result["entries"]) {
-						printf("%-8s %-42s %s" ZT_EOL_S, OSUtils::jsonString(entry["type"], "").c_str(), OSUtils::jsonString(entry["target"], "").c_str(), OSUtils::jsonString(entry["logFile"], "").c_str());
-					}
-				}
-			}
-		}
-		else {
+		if (scode != 200) {
 			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
 			return 1;
 		}
+
+		if (json) {
+			printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
+			return 0;
+		}
+
+		nlohmann::json result = OSUtils::jsonParse(responseBody);
+		printf("%-8s %-42s %s" ZT_EOL_S, "Type", "Target", "Log file");
+		printf("%-8s %-42s %s" ZT_EOL_S, "--------", "------------------------------------------", "--------");
+		if (result.contains("entries") && result["entries"].is_array()) {
+			for (const auto& entry : result["entries"]) {
+				printf("%-8s %-42s %s" ZT_EOL_S, OSUtils::jsonString(entry["type"], "").c_str(), OSUtils::jsonString(entry["target"], "").c_str(), OSUtils::jsonString(entry["logFile"], "").c_str());
+			}
+		}
+		return 0;
 	}
 	else if (command == "monitor-add" || command == "monitor-remove") {
 		const bool add = (command == "monitor-add");
@@ -2142,18 +2137,20 @@ static int cli(int argc, char** argv)
 			printf("usage: zerotier-cli %s <ip|zt_address|network_id|network_name>" ZT_EOL_S, command.c_str());
 			return 2;
 		}
+
 		const std::string target = arg1;
 		nlohmann::json bodyObj = nlohmann::json::object();
 		bodyObj["target"] = target;
 		const std::string body = bodyObj.dump();
 		const unsigned int scode = Http::POST(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, (add ? "/monitor/add" : "/monitor/remove"), requestHeaders, body.c_str(), (unsigned long)body.size(), responseHeaders, responseBody);
-		if (scode == 200) {
-			printf("%s" ZT_EOL_S, json ? cliFixJsonCRs(responseBody).c_str() : responseBody.c_str());
-		}
-		else {
+
+		if (scode != 200) {
 			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
 			return 1;
 		}
+
+		printf("%s" ZT_EOL_S, json ? cliFixJsonCRs(responseBody).c_str() : responseBody.c_str());
+		return 0;
 	}
 	else if (command == "findip") {
 		if (arg1.empty()) {
