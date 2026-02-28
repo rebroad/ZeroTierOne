@@ -1054,6 +1054,7 @@ class OneServiceImpl : public OneService {
 	// Optional packet monitoring targets for ad-hoc debugging.
 	std::set<Address> _monitoredZtAddresses;
 	std::set<InetAddress> _monitoredIPAddresses;
+	std::set<std::pair<InetAddress, Address> > _monitoredIpZtPairs;
 	std::set<uint64_t> _monitoredNetworks;
 	Mutex _monitorTargets_m;
 
@@ -2731,6 +2732,13 @@ class OneServiceImpl : public OneService {
 					entry["logFile"] = _monitorLogPathForIP(*it);
 					entries.push_back(entry);
 				}
+				for (std::set<std::pair<InetAddress, Address> >::const_iterator it = _monitoredIpZtPairs.begin(); it != _monitoredIpZtPairs.end(); ++it) {
+					json entry = json::object();
+					entry["type"] = "pair";
+					entry["target"] = _monitorIpZtPairTargetString(it->first, it->second);
+					entry["logFile"] = _monitorLogPathForPair(it->first, it->second);
+					entries.push_back(entry);
+				}
 				for (std::set<uint64_t>::const_iterator it = _monitoredNetworks.begin(); it != _monitoredNetworks.end(); ++it) {
 					char nwidBuf[32];
 					OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)(*it));
@@ -2764,9 +2772,11 @@ class OneServiceImpl : public OneService {
 			Address ztAddr;
 			InetAddress ipAddr;
 			uint64_t nwid = 0ULL;
-			const MonitorTargetType type = _parseMonitorTarget(target, ztAddr, ipAddr, nwid);
+			InetAddress pairIpAddr;
+			Address pairZtAddr;
+			const MonitorTargetType type = _parseMonitorTarget(target, ztAddr, ipAddr, nwid, pairIpAddr, pairZtAddr);
 			if (type == MONITOR_TARGET_INVALID) {
-				setContent(req, res, "{\"error\":\"target must be 10-digit ZT address, valid IP, or 16-digit network ID\"}");
+				setContent(req, res, "{\"error\":\"target must be 10-digit ZT address (including 0000000000), valid IP, IP:ZT pair, or 16-digit network ID\"}");
 				res.status = 400;
 				return;
 			}
@@ -2800,6 +2810,17 @@ class OneServiceImpl : public OneService {
 						changed = (_monitoredIPAddresses.erase(ipAddr) > 0);
 					}
 				}
+				else if (type == MONITOR_TARGET_IP_ZT_PAIR) {
+					normalized = _monitorIpZtPairTargetString(pairIpAddr, pairZtAddr);
+					logPath = _monitorLogPathForPair(pairIpAddr, pairZtAddr);
+					const std::pair<InetAddress, Address> p = std::make_pair(pairIpAddr, pairZtAddr);
+					if (add) {
+						changed = _monitoredIpZtPairs.insert(p).second;
+					}
+					else {
+						changed = (_monitoredIpZtPairs.erase(p) > 0);
+					}
+				}
 				else {
 					char nwidBuf[32];
 					OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
@@ -2818,7 +2839,7 @@ class OneServiceImpl : public OneService {
 			out["ok"] = true;
 			out["action"] = add ? "add" : "remove";
 			out["changed"] = changed;
-			out["type"] = (type == MONITOR_TARGET_ZT) ? "zt" : ((type == MONITOR_TARGET_IP) ? "ip" : "network");
+			out["type"] = (type == MONITOR_TARGET_ZT) ? "zt" : ((type == MONITOR_TARGET_IP) ? "ip" : ((type == MONITOR_TARGET_IP_ZT_PAIR) ? "pair" : "network"));
 			out["target"] = normalized;
 			out["logFile"] = logPath;
 			setContent(req, res, out.dump(2));
@@ -5478,11 +5499,15 @@ class OneServiceImpl : public OneService {
 			std::set<std::string> monitorLogPaths;
 			{
 				Mutex::Lock _l(_monitorTargets_m);
-				if (ztAddr && (_monitoredZtAddresses.find(ztAddr) != _monitoredZtAddresses.end())) {
+				if (((ztAddr && (_monitoredZtAddresses.find(ztAddr) != _monitoredZtAddresses.end())) || ((! ztAddr) && (_monitoredZtAddresses.find(Address()) != _monitoredZtAddresses.end())))) {
 					monitorLogPaths.insert(_monitorLogPathForZt(ztAddr));
 				}
 				if (_monitoredIPAddresses.find(keyIP) != _monitoredIPAddresses.end()) {
 					monitorLogPaths.insert(_monitorLogPathForIP(keyIP));
+				}
+				const std::pair<InetAddress, Address> pairKey = std::make_pair(keyIP, ztAddr ? ztAddr : Address());
+				if (_monitoredIpZtPairs.find(pairKey) != _monitoredIpZtPairs.end()) {
+					monitorLogPaths.insert(_monitorLogPathForPair(keyIP, ztAddr ? ztAddr : Address()));
 				}
 			}
 			if (! monitorLogPaths.empty()) {
@@ -5624,17 +5649,67 @@ class OneServiceImpl : public OneService {
 		return std::string("/tmp/nwid-") + std::string(nwidBuf) + ".log";
 	}
 
-	enum MonitorTargetType { MONITOR_TARGET_INVALID = 0, MONITOR_TARGET_ZT = 1, MONITOR_TARGET_IP = 2, MONITOR_TARGET_NETWORK = 3 };
+	std::string _monitorIpZtPairTargetString(const InetAddress& ipAddr, const Address& ztAddr)
+	{
+		char ipBuf[64], ztBuf[16];
+		ipAddr.ipOnly().toIpString(ipBuf);
+		ztAddr.toString(ztBuf);
+		return std::string(ipBuf) + ":" + std::string(ztBuf);
+	}
 
-	MonitorTargetType _parseMonitorTarget(const std::string& target, Address& ztAddr, InetAddress& ipAddr, uint64_t& nwid)
+	std::string _monitorLogPathForPair(const InetAddress& ipAddr, const Address& ztAddr)
+	{
+		return std::string("/tmp/pair-") + _sanitizeForFilename(_monitorIpZtPairTargetString(ipAddr, ztAddr)) + ".log";
+	}
+
+	enum MonitorTargetType { MONITOR_TARGET_INVALID = 0, MONITOR_TARGET_ZT = 1, MONITOR_TARGET_IP = 2, MONITOR_TARGET_NETWORK = 3, MONITOR_TARGET_IP_ZT_PAIR = 4 };
+
+	MonitorTargetType _parseMonitorTarget(const std::string& target, Address& ztAddr, InetAddress& ipAddr, uint64_t& nwid, InetAddress& pairIpAddr, Address& pairZtAddr)
 	{
 		ztAddr = Address();
 		ipAddr = InetAddress();
 		nwid = 0ULL;
+		pairIpAddr = InetAddress();
+		pairZtAddr = Address();
 
 		std::string normalized = target;
 		if ((normalized.size() > 8) && (normalized.substr(0, 8) == "network:")) {
 			normalized = normalized.substr(8);
+		}
+
+		const std::size_t lastColon = normalized.rfind(':');
+		if (lastColon != std::string::npos) {
+			const std::string ipPart = normalized.substr(0, lastColon);
+			const std::string ztPartRaw = normalized.substr(lastColon + 1);
+			InetAddress parsedIp(ipPart.c_str());
+			if (parsedIp.isV4() || parsedIp.isV6()) {
+				std::string ztPart;
+				ztPart.reserve(ztPartRaw.size());
+				for (std::string::const_iterator c = ztPartRaw.begin(); c != ztPartRaw.end(); ++c) {
+					ztPart.push_back(OSUtils::toLower(*c));
+				}
+				bool ztNull = (ztPart.empty() || ztPart == "null" || ztPart == "0000000000");
+				if (ztNull) {
+					pairIpAddr = parsedIp.ipOnly();
+					pairZtAddr = Address();
+					return MONITOR_TARGET_IP_ZT_PAIR;
+				}
+				if (ztPart.size() == 10) {
+					bool allHex = true;
+					for (std::string::const_iterator c = ztPart.begin(); c != ztPart.end(); ++c) {
+						if (! std::isxdigit(static_cast<unsigned char>(*c))) {
+							allHex = false;
+							break;
+						}
+					}
+					if (allHex) {
+						pairIpAddr = parsedIp.ipOnly();
+						pairZtAddr = Address(Utils::hexStrToU64(ztPart.c_str()));
+						return MONITOR_TARGET_IP_ZT_PAIR;
+					}
+				}
+				return MONITOR_TARGET_INVALID;
+			}
 		}
 
 		if (normalized.length() == 16) {
@@ -5663,9 +5738,7 @@ class OneServiceImpl : public OneService {
 			}
 			if (allHex) {
 				ztAddr = Address(Utils::hexStrToU64(normalized.c_str()));
-				if (ztAddr) {
-					return MONITOR_TARGET_ZT;
-				}
+				return MONITOR_TARGET_ZT;
 			}
 		}
 
@@ -5801,10 +5874,10 @@ class OneServiceImpl : public OneService {
 			if (_monitoredNetworks.find(nwid) != _monitoredNetworks.end()) {
 				monitorLogPaths.insert(_monitorLogPathForNetwork(nwid));
 			}
-			if (srcZt && (_monitoredZtAddresses.find(srcZt) != _monitoredZtAddresses.end())) {
+			if (((srcZt && (_monitoredZtAddresses.find(srcZt) != _monitoredZtAddresses.end())) || ((! srcZt) && (_monitoredZtAddresses.find(Address()) != _monitoredZtAddresses.end())))) {
 				monitorLogPaths.insert(_monitorLogPathForZt(srcZt));
 			}
-			if (dstZt && (_monitoredZtAddresses.find(dstZt) != _monitoredZtAddresses.end())) {
+			if (((dstZt && (_monitoredZtAddresses.find(dstZt) != _monitoredZtAddresses.end())) || ((! dstZt) && (_monitoredZtAddresses.find(Address()) != _monitoredZtAddresses.end())))) {
 				monitorLogPaths.insert(_monitorLogPathForZt(dstZt));
 			}
 			if (_monitoredIPAddresses.find(srcIp.ipOnly()) != _monitoredIPAddresses.end()) {
@@ -5812,6 +5885,14 @@ class OneServiceImpl : public OneService {
 			}
 			if (_monitoredIPAddresses.find(dstIp.ipOnly()) != _monitoredIPAddresses.end()) {
 				monitorLogPaths.insert(_monitorLogPathForIP(dstIp.ipOnly()));
+			}
+			const std::pair<InetAddress, Address> srcPair = std::make_pair(srcIp.ipOnly(), srcZt ? srcZt : Address());
+			if (_monitoredIpZtPairs.find(srcPair) != _monitoredIpZtPairs.end()) {
+				monitorLogPaths.insert(_monitorLogPathForPair(srcIp.ipOnly(), srcZt ? srcZt : Address()));
+			}
+			const std::pair<InetAddress, Address> dstPair = std::make_pair(dstIp.ipOnly(), dstZt ? dstZt : Address());
+			if (_monitoredIpZtPairs.find(dstPair) != _monitoredIpZtPairs.end()) {
+				monitorLogPaths.insert(_monitorLogPathForPair(dstIp.ipOnly(), dstZt ? dstZt : Address()));
 			}
 		}
 		if (monitorLogPaths.empty()) {

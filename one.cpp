@@ -244,8 +244,8 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out, "  stats                   - Show peer port usage statistics" ZT_EOL_S);
 	fprintf(out, "  metrics                 - Show daemon metrics output" ZT_EOL_S);
-	fprintf(out, "  monitor-add <ip|zt|nwid> - Enable packet logging for IP, ZT address, or network" ZT_EOL_S);
-	fprintf(out, "  monitor-remove <target> - Disable packet logging for IP, ZT address, or network" ZT_EOL_S);
+	fprintf(out, "  monitor-add <ip|zt|nwid|ip:zt> - Enable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
+	fprintf(out, "  monitor-remove <target> - Disable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
 	fprintf(out, "  monitor-list            - List active monitor targets and their /tmp log files" ZT_EOL_S);
 	fprintf(out, "  findzt <ip_address>     - Find ZeroTier address(es) for given in-network IP" ZT_EOL_S);
 	fprintf(out, "  findip <zt_address>     - Find IP address for given ZeroTier address" ZT_EOL_S);
