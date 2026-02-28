@@ -409,7 +409,7 @@ static void cliStatsPrintNetworkUsage(const nlohmann::json& j)
 		}
 	}
 	if (! usageLine.empty()) {
-		printf("Net Usage:   %s" ZT_EOL_S ZT_EOL_S, usageLine.c_str());
+		printf("Net Usage:   %s" ZT_EOL_S, usageLine.c_str());
 	}
 }
 
@@ -2065,6 +2065,7 @@ static int cli(int argc, char** argv)
 		printf(ZT_EOL_S);
 		cliStatsPrintPortConfiguration(j);
 		cliStatsPrintNetworkUsage(j);
+		printf(ZT_EOL_S);
 		cliStatsPrintPeerTable(j);
 		return 0;
 	}
