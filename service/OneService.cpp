@@ -5741,11 +5741,15 @@ class OneServiceImpl : public OneService {
 
 	void observeVirtualFrame(uint64_t nwid, const MAC& from, const MAC& to, unsigned int etherType, const void* data, unsigned int len, bool outgoing)
 	{
-		Address srcZt = from.toAddress(nwid);
-		Address dstZt = to.toAddress(nwid);
-		MAC arpSenderMac;
-		MAC arpTargetMac;
-		bool haveArpMacs = false;
+		auto isValidZtMacForNwid = [&](const MAC& mac) -> bool {
+			if (! mac || mac.isBroadcast() || mac.isMulticast() || (! mac.isLocallyAdministered())) {
+				return false;
+			}
+			return (mac[0] == MAC::firstOctetForNetwork(nwid));
+		};
+		Address srcZt = isValidZtMacForNwid(from) ? from.toAddress(nwid) : Address();
+		Address dstZt = isValidZtMacForNwid(to) ? to.toAddress(nwid) : Address();
+		const char* dstZtLabel = nullptr;
 
 		InetAddress srcIp;
 		InetAddress dstIp;
@@ -5766,17 +5770,26 @@ class OneServiceImpl : public OneService {
 			if ((htype == 1) && (ptype == 0x0800) && (hlen == 6) && (plen == 4) && (len >= 28)) {
 				MAC senderMac(arp + 8, 6);
 				MAC targetMac(arp + 18, 6);
-				arpSenderMac = senderMac;
-				arpTargetMac = targetMac;
-				haveArpMacs = true;
-				auto isValidZtMacForNwid = [&](const MAC& mac) -> bool {
-					if (! mac || mac.isBroadcast() || mac.isMulticast() || (! mac.isLocallyAdministered())) {
-						return false;
+				srcZt = isValidZtMacForNwid(senderMac) ? senderMac.toAddress(nwid) : Address();
+				if (isValidZtMacForNwid(targetMac)) {
+					dstZt = targetMac.toAddress(nwid);
+					dstZtLabel = nullptr;
+				}
+				else {
+					dstZt = Address();
+					if (! targetMac) {
+						dstZtLabel = "ignored";
 					}
-					return (mac[0] == MAC::firstOctetForNetwork(nwid));
-				};
-				srcZt = senderMac.toAddress(nwid);
-				dstZt = isValidZtMacForNwid(targetMac) ? targetMac.toAddress(nwid) : Address();
+					else if (targetMac.isBroadcast()) {
+						dstZtLabel = "broadcast";
+					}
+					else if (targetMac.isMulticast()) {
+						dstZtLabel = "multicast";
+					}
+					else {
+						dstZtLabel = "nonztmac";
+					}
+				}
 				srcIp.set(arp + 14, 4, 0);	 // sender protocol address
 				dstIp.set(arp + 24, 4, 0);	 // target protocol address
 			}
@@ -5906,6 +5919,9 @@ class OneServiceImpl : public OneService {
 		if (dstZt) {
 			dstZt.toString(dstZtBuf);
 		}
+		else if (dstZtLabel) {
+			OSUtils::ztsnprintf(dstZtBuf, sizeof(dstZtBuf), "%s", dstZtLabel);
+		}
 		else {
 			OSUtils::ztsnprintf(dstZtBuf, sizeof(dstZtBuf), "-");
 		}
@@ -5915,41 +5931,19 @@ class OneServiceImpl : public OneService {
 
 		char packetLine[512];
 		if ((etherType == 0x0800) || (etherType == 0x86dd) || (etherType == 0x0806)) {
-			if ((etherType == 0x0806) && haveArpMacs) {
-				char arpSenderMacBuf[18], arpTargetMacBuf[18];
-				arpSenderMac.toString(arpSenderMacBuf);
-				arpTargetMac.toString(arpTargetMacBuf);
-				OSUtils::ztsnprintf(
-					packetLine,
-					sizeof(packetLine),
-					"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s arp_sender_mac=%s arp_target_mac=%s\n",
-					(unsigned long long)now,
-					outgoing ? "out" : "in",
-					nwidBuf,
-					proto,
-					len,
-					srcZtBuf,
-					srcIpBuf,
-					dstZtBuf,
-					dstIpBuf,
-					arpSenderMacBuf,
-					arpTargetMacBuf);
-			}
-			else {
-				OSUtils::ztsnprintf(
-					packetLine,
-					sizeof(packetLine),
-					"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s\n",
-					(unsigned long long)now,
-					outgoing ? "out" : "in",
-					nwidBuf,
-					proto,
-					len,
-					srcZtBuf,
-					srcIpBuf,
-					dstZtBuf,
-					dstIpBuf);
-			}
+			OSUtils::ztsnprintf(
+				packetLine,
+				sizeof(packetLine),
+				"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s\n",
+				(unsigned long long)now,
+				outgoing ? "out" : "in",
+				nwidBuf,
+				proto,
+				len,
+				srcZtBuf,
+				srcIpBuf,
+				dstZtBuf,
+				dstIpBuf);
 		}
 		else {
 			OSUtils::ztsnprintf(
