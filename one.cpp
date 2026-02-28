@@ -1538,58 +1538,6 @@ static int cli(int argc, char** argv)
 				}
 				printf(ZT_EOL_S);
 
-				// Show port configuration
-				if (j.contains("portConfiguration")) {
-					auto& portConfig = j["portConfiguration"];
-					uint32_t primaryPort = portConfig["primaryPort"];
-					uint32_t secondaryPort = portConfig["secondaryPort"];
-					uint32_t tertiaryPort = portConfig["tertiaryPort"];
-					bool allowSecondaryPort = portConfig["allowSecondaryPort"];
-
-					printf("Port Configuration:" ZT_EOL_S);
-					printf("  Primary Port:   %u (always active)" ZT_EOL_S, primaryPort);
-
-					if (allowSecondaryPort && secondaryPort > 0) {
-						printf("  Secondary Port: %u (enabled)" ZT_EOL_S, secondaryPort);
-					}
-					else if (allowSecondaryPort) {
-						printf("  Secondary Port: enabled (dynamic port assignment)" ZT_EOL_S);
-					}
-					else {
-						printf("  Secondary Port: disabled (use 'allowSecondaryPort' setting to enable)" ZT_EOL_S);
-					}
-
-					printf("  Tertiary Port:  %u (always active - NAT traversal & failover)" ZT_EOL_S, tertiaryPort);
-
-					// Show actual bound ports only if they differ from configured ports
-					if (portConfig.contains("actualBoundPorts") && portConfig["actualBoundPorts"].is_array()) {
-						auto actualPorts = portConfig["actualBoundPorts"];
-						std::set<unsigned int> expectedPorts = { primaryPort, tertiaryPort };
-						if (allowSecondaryPort && secondaryPort > 0) {
-							expectedPorts.insert(secondaryPort);
-						}
-
-						std::set<unsigned int> actualPortsSet;
-						for (auto& port : actualPorts) {
-							actualPortsSet.insert((unsigned int)port);
-						}
-
-						// Only show if different from expected
-						if (actualPortsSet != expectedPorts) {
-							printf("  Actually Bound: ");
-							bool first = true;
-							for (auto& port : actualPorts) {
-								if (! first)
-									printf(", ");
-								printf("%u", (unsigned int)port);
-								first = false;
-							}
-							printf(ZT_EOL_S);
-						}
-					}
-					printf(ZT_EOL_S);
-				}
-
 				auto formatBytesCompact = [](uint64_t bytes) -> std::string {
 					char buf[32];
 					if (bytes >= (1024ULL * 1024ULL * 1024ULL)) {
@@ -1609,6 +1557,66 @@ static int cli(int argc, char** argv)
 					}
 					return std::string(buf);
 				};
+
+				// Show port configuration (concise one-line format)
+				if (j.contains("portConfiguration")) {
+					auto& portConfig = j["portConfiguration"];
+					uint32_t primaryPort = portConfig["primaryPort"];
+					uint32_t secondaryPort = portConfig["secondaryPort"];
+					uint32_t tertiaryPort = portConfig["tertiaryPort"];
+					bool allowSecondaryPort = portConfig["allowSecondaryPort"];
+
+					std::string secondaryField = "off";
+					if (allowSecondaryPort && secondaryPort > 0) {
+						secondaryField = std::to_string(secondaryPort);
+					}
+					else if (allowSecondaryPort) {
+						secondaryField = "dyn";
+					}
+
+					std::string boundField = "-";
+					if (portConfig.contains("actualBoundPorts") && portConfig["actualBoundPorts"].is_array()) {
+						auto actualPorts = portConfig["actualBoundPorts"];
+						std::string bf;
+						for (auto& port : actualPorts) {
+							if (! bf.empty()) {
+								bf += ",";
+							}
+							bf += std::to_string((unsigned int)port);
+						}
+						if (! bf.empty()) {
+							boundField = bf;
+						}
+					}
+					printf("Port Config: p=%u s=%s t=%u bound=%s" ZT_EOL_S, primaryPort, secondaryField.c_str(), tertiaryPort, boundField.c_str());
+				}
+
+				// Show per-network overlay packet usage as nwid=in:out in joined-network order.
+				if (j.contains("networkUsage") && j["networkUsage"].is_object()) {
+					auto& nu = j["networkUsage"];
+					std::string usageLine;
+					if (nu.contains("perNetwork") && nu["perNetwork"].is_array()) {
+						for (const auto& row : nu["perNetwork"]) {
+							const std::string nwid = row.value("nwid", "");
+							const uint64_t in = row.value("incoming", 0ULL);
+							const uint64_t out = row.value("outgoing", 0ULL);
+							if (! usageLine.empty())
+								usageLine += ", ";
+							usageLine += nwid + "=" + formatBytesCompact(in) + ":" + formatBytesCompact(out);
+						}
+					}
+					if (nu.contains("other") && nu["other"].is_object()) {
+						const uint64_t in = nu["other"].value("incoming", 0ULL);
+						const uint64_t out = nu["other"].value("outgoing", 0ULL);
+						if (! usageLine.empty())
+							usageLine += ", ";
+						usageLine += "other=" + formatBytesCompact(in) + ":" + formatBytesCompact(out);
+					}
+					if (! usageLine.empty()) {
+						printf("Net Usage:   %s" ZT_EOL_S, usageLine.c_str());
+					}
+					printf(ZT_EOL_S);
+				}
 
 				auto formatAge = [](uint64_t lastSeenMs) -> std::string {
 					if (lastSeenMs == 0)
@@ -1892,17 +1900,8 @@ static int cli(int argc, char** argv)
 						uint64_t tertiaryIn = peerData.value("tertiaryIncoming", 0ULL);
 						uint64_t tertiaryOut = peerData.value("tertiaryOutgoing", 0ULL);
 
-						char portUsage[96];
-						snprintf(
-							portUsage,
-							sizeof(portUsage),
-							"%llu:%llu, %llu:%llu, %llu:%llu",
-							(unsigned long long)primaryIn,
-							(unsigned long long)primaryOut,
-							(unsigned long long)secondaryIn,
-							(unsigned long long)secondaryOut,
-							(unsigned long long)tertiaryIn,
-							(unsigned long long)tertiaryOut);
+						const std::string portUsage = formatBytesCompact(primaryIn) + ":" + formatBytesCompact(primaryOut) + ", " + formatBytesCompact(secondaryIn) + ":" + formatBytesCompact(secondaryOut) + ", "
+													  + formatBytesCompact(tertiaryIn) + ":" + formatBytesCompact(tertiaryOut);
 
 						StatsRow row;
 						row.pairTotal = pairBytesIncoming + pairBytesOutgoing;

@@ -1064,6 +1064,17 @@ class OneServiceImpl : public OneService {
 	static constexpr std::size_t ZT_MAX_OBSERVED_IPS_PER_PEER = 8;
 	static constexpr uint64_t ZT_OVERLAY_ASSOC_REFRESH_MS = 30000ULL;
 
+	struct OverlayPacketDirCounts {
+		uint64_t incoming;
+		uint64_t outgoing;
+		OverlayPacketDirCounts() : incoming(0), outgoing(0)
+		{
+		}
+	};
+	std::map<uint64_t, OverlayPacketDirCounts> _overlayPacketCountsByNetwork;
+	OverlayPacketDirCounts _overlayPacketCountsOther;
+	Mutex _overlayPacketCounts_m;
+
 	// end member variables ----------------------------------------------------
 
 	OneServiceImpl(const char* hp, unsigned int port)
@@ -2904,6 +2915,40 @@ class OneServiceImpl : public OneService {
 			portConfig["allowSecondaryPort"] = _allowSecondaryPort;
 			portConfig["actualBoundPorts"] = actualPorts;
 			stats["portConfiguration"] = portConfig;
+
+			// Overlay packet usage by joined network (ordered like listnetworks/map iteration), plus "other".
+			json networkUsage = json::object();
+			json perNetwork = json::array();
+			{
+				std::vector<uint64_t> joinedNetworks;
+				{
+					Mutex::Lock _nl(_nets_m);
+					for (std::map<uint64_t, NetworkState>::const_iterator n(_nets.begin()); n != _nets.end(); ++n) {
+						joinedNetworks.push_back(n->first);
+					}
+				}
+				Mutex::Lock _pl(_overlayPacketCounts_m);
+				for (std::vector<uint64_t>::const_iterator it = joinedNetworks.begin(); it != joinedNetworks.end(); ++it) {
+					const uint64_t nwid = *it;
+					char nwidBuf[32];
+					OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
+					const std::map<uint64_t, OverlayPacketDirCounts>::const_iterator c = _overlayPacketCountsByNetwork.find(nwid);
+					const uint64_t in = (c != _overlayPacketCountsByNetwork.end()) ? c->second.incoming : 0ULL;
+					const uint64_t out = (c != _overlayPacketCountsByNetwork.end()) ? c->second.outgoing : 0ULL;
+					json row = json::object();
+					row["nwid"] = nwidBuf;
+					row["incoming"] = in;
+					row["outgoing"] = out;
+					perNetwork.push_back(row);
+				}
+
+				json other = json::object();
+				other["incoming"] = _overlayPacketCountsOther.incoming;
+				other["outgoing"] = _overlayPacketCountsOther.outgoing;
+				networkUsage["other"] = other;
+			}
+			networkUsage["perNetwork"] = perNetwork;
+			stats["networkUsage"] = networkUsage;
 
 			// Note: Total peer count is included in diagnostics section below
 
@@ -5450,6 +5495,22 @@ class OneServiceImpl : public OneService {
 		const bool haveOverlayIpContext = (srcIp || dstIp);
 		if (! haveOverlayIpContext) {
 			return;
+		}
+
+		bool isJoinedNetwork = false;
+		{
+			Mutex::Lock _nl(_nets_m);
+			isJoinedNetwork = (_nets.find(nwid) != _nets.end());
+		}
+		{
+			Mutex::Lock _pl(_overlayPacketCounts_m);
+			OverlayPacketDirCounts& counts = isJoinedNetwork ? _overlayPacketCountsByNetwork[nwid] : _overlayPacketCountsOther;
+			if (outgoing) {
+				++counts.outgoing;
+			}
+			else {
+				++counts.incoming;
+			}
 		}
 
 		// Always learn overlay associations, even when no monitor target is configured.
