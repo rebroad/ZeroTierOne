@@ -21,6 +21,32 @@ To build on Mac and Linux just type `make`. On FreeBSD and OpenBSD `gmake` (GNU 
 - Visual Studio 2022 on Windows 10 or newer.
 - Rust for x86_64 and ARM64 targets *if SSO is enabled in the build*.
 
+### Linux Cross-Build for Windows (x64)
+
+The repository also supports building a Windows x64 installer from Linux using MinGW + NSIS.
+
+Prerequisites:
+- `x86_64-w64-mingw32-gcc`
+- `x86_64-w64-mingw32-g++`
+- `makensis`
+
+Primary Make targets:
+- `make windows` runs Windows cross-build + packaging
+- `make windows-install` copies the installer to a remote Windows host and installs it with elevation
+
+Output installer:
+- `build/windows-x64/ZeroTier-One-Cross-x64-Installer.exe`
+
+Remote install via Cygwin SSH with elevation (runs installer as `SYSTEM` using Scheduled Tasks):
+- `make REMOTE_HOST=<host> windows-install`
+
+Defaults:
+- `REMOTE_HOST=vicco`
+- `WINDOWS_OUT_DIR=build/windows-x64`
+- `WINDOWS_INSTALLER=$(WINDOWS_OUT_DIR)/ZeroTier-One-Cross-x64-Installer.exe`
+
+For detailed usage and troubleshooting, see `doc/windows-cross-installer.md`.
+
 #### FreeBSD
 - GNU make is required. Type `gmake` to build.
 - `binutils` is required. Type `pkg install binutils` to install.
