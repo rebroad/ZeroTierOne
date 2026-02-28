@@ -1591,7 +1591,7 @@ static int cli(int argc, char** argv)
 					printf("Port Config: p=%u s=%s t=%u bound=%s" ZT_EOL_S, primaryPort, secondaryField.c_str(), tertiaryPort, boundField.c_str());
 				}
 
-				// Show per-network overlay packet usage as nwid=in:out in joined-network order.
+				// Show non-zero per-network overlay packet usage as nwid=in:out.
 				if (j.contains("networkUsage") && j["networkUsage"].is_object()) {
 					auto& nu = j["networkUsage"];
 					std::string usageLine;
@@ -1600,22 +1600,17 @@ static int cli(int argc, char** argv)
 							const std::string nwid = row.value("nwid", "");
 							const uint64_t in = row.value("incoming", 0ULL);
 							const uint64_t out = row.value("outgoing", 0ULL);
+							if ((in == 0ULL) && (out == 0ULL)) {
+								continue;
+							}
 							if (! usageLine.empty())
 								usageLine += ", ";
 							usageLine += nwid + "=" + formatBytesCompact(in) + ":" + formatBytesCompact(out);
 						}
 					}
-					if (nu.contains("other") && nu["other"].is_object()) {
-						const uint64_t in = nu["other"].value("incoming", 0ULL);
-						const uint64_t out = nu["other"].value("outgoing", 0ULL);
-						if (! usageLine.empty())
-							usageLine += ", ";
-						usageLine += "other=" + formatBytesCompact(in) + ":" + formatBytesCompact(out);
-					}
 					if (! usageLine.empty()) {
-						printf("Net Usage:   %s" ZT_EOL_S, usageLine.c_str());
+						printf("Net Usage:   %s" ZT_EOL_S ZT_EOL_S, usageLine.c_str());
 					}
-					printf(ZT_EOL_S);
 				}
 
 				auto formatAge = [](uint64_t lastSeenMs) -> std::string {
@@ -1912,11 +1907,6 @@ static int cli(int argc, char** argv)
 						std::string peerRole = peerData.value("peerRole", "unknown");
 						std::string countryFlag = lookupCountryFlag(ipAddressRaw);
 
-						// Truncate IPv6 addresses to 15 characters
-						if (ipAddress.length() > 15) {
-							ipAddress = ipAddress.substr(0, 15);
-						}
-
 						// Pair bytes and chosen aggregate bytes
 						uint64_t pairBytesIncoming = peerData.value("pairBytesIncoming", 0ULL);
 						uint64_t pairBytesOutgoing = peerData.value("pairBytesOutgoing", 0ULL);
@@ -2033,10 +2023,8 @@ static int cli(int argc, char** argv)
 						lastSeenColWidth = std::max(lastSeenColWidth, displayWidth(rr.lastSeenCol));
 					}
 
-					ipColWidth += 2;   // extra gap before ZT column
-
 					printf(
-						"%s  %s %s %s %s %s" ZT_EOL_S,
+						"%s %s %s %s %s %s" ZT_EOL_S,
 						padRightDisplay("IP Address", ipColWidth).c_str(),
 						padRightDisplay("ZT Address", ztColWidth).c_str(),
 						padRightDisplay("RX Bytes", rxColWidth).c_str(),
@@ -2044,7 +2032,7 @@ static int cli(int argc, char** argv)
 						padRightDisplay("Last Seen", lastSeenColWidth).c_str(),
 						"Port Usage");
 					printf(
-						"%s  %s %s %s %s %s" ZT_EOL_S,
+						"%s %s %s %s %s %s" ZT_EOL_S,
 						std::string((std::size_t)ipColWidth, '-').c_str(),
 						std::string((std::size_t)ztColWidth, '-').c_str(),
 						std::string((std::size_t)rxColWidth, '-').c_str(),
@@ -2054,7 +2042,7 @@ static int cli(int argc, char** argv)
 
 					for (const auto& rr : renderedRows) {
 						printf(
-							"%s  %s %s %s %s %s" ZT_EOL_S,
+							"%s %s %s %s %s %s" ZT_EOL_S,
 							padRightDisplay(rr.ipCol, ipColWidth).c_str(),
 							padRightDisplay(rr.ztCol, ztColWidth).c_str(),
 							padRightDisplay(rr.rxCol, rxColWidth).c_str(),
