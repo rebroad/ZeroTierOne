@@ -5743,6 +5743,9 @@ class OneServiceImpl : public OneService {
 	{
 		Address srcZt = from.toAddress(nwid);
 		Address dstZt = to.toAddress(nwid);
+		MAC arpSenderMac;
+		MAC arpTargetMac;
+		bool haveArpMacs = false;
 
 		InetAddress srcIp;
 		InetAddress dstIp;
@@ -5763,8 +5766,17 @@ class OneServiceImpl : public OneService {
 			if ((htype == 1) && (ptype == 0x0800) && (hlen == 6) && (plen == 4) && (len >= 28)) {
 				MAC senderMac(arp + 8, 6);
 				MAC targetMac(arp + 18, 6);
+				arpSenderMac = senderMac;
+				arpTargetMac = targetMac;
+				haveArpMacs = true;
+				auto isValidZtMacForNwid = [&](const MAC& mac) -> bool {
+					if (! mac || mac.isBroadcast() || mac.isMulticast() || (! mac.isLocallyAdministered())) {
+						return false;
+					}
+					return (mac[0] == MAC::firstOctetForNetwork(nwid));
+				};
 				srcZt = senderMac.toAddress(nwid);
-				dstZt = targetMac.toAddress(nwid);
+				dstZt = isValidZtMacForNwid(targetMac) ? targetMac.toAddress(nwid) : Address();
 				srcIp.set(arp + 14, 4, 0);	 // sender protocol address
 				dstIp.set(arp + 24, 4, 0);	 // target protocol address
 			}
@@ -5903,19 +5915,41 @@ class OneServiceImpl : public OneService {
 
 		char packetLine[512];
 		if ((etherType == 0x0800) || (etherType == 0x86dd) || (etherType == 0x0806)) {
-			OSUtils::ztsnprintf(
-				packetLine,
-				sizeof(packetLine),
-				"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s\n",
-				(unsigned long long)now,
-				outgoing ? "out" : "in",
-				nwidBuf,
-				proto,
-				len,
-				srcZtBuf,
-				srcIpBuf,
-				dstZtBuf,
-				dstIpBuf);
+			if ((etherType == 0x0806) && haveArpMacs) {
+				char arpSenderMacBuf[18], arpTargetMacBuf[18];
+				arpSenderMac.toString(arpSenderMacBuf);
+				arpTargetMac.toString(arpTargetMacBuf);
+				OSUtils::ztsnprintf(
+					packetLine,
+					sizeof(packetLine),
+					"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s arp_sender_mac=%s arp_target_mac=%s\n",
+					(unsigned long long)now,
+					outgoing ? "out" : "in",
+					nwidBuf,
+					proto,
+					len,
+					srcZtBuf,
+					srcIpBuf,
+					dstZtBuf,
+					dstIpBuf,
+					arpSenderMacBuf,
+					arpTargetMacBuf);
+			}
+			else {
+				OSUtils::ztsnprintf(
+					packetLine,
+					sizeof(packetLine),
+					"ts=%llu scope=overlay_packet dir=%s nwid=%s proto=%s len=%u src_zt=%s src_ip=%s dst_zt=%s dst_ip=%s\n",
+					(unsigned long long)now,
+					outgoing ? "out" : "in",
+					nwidBuf,
+					proto,
+					len,
+					srcZtBuf,
+					srcIpBuf,
+					dstZtBuf,
+					dstIpBuf);
+			}
 		}
 		else {
 			OSUtils::ztsnprintf(
