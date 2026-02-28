@@ -243,7 +243,6 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  get <network ID> <setting> - Get a network setting" ZT_EOL_S);
 	fprintf(out, "  dump                    - Debug settings dump for support" ZT_EOL_S);
 	fprintf(out, "  stats                   - Show peer port usage statistics" ZT_EOL_S);
-	fprintf(out, "  metrics                 - Show daemon metrics output" ZT_EOL_S);
 	fprintf(out, "  monitor-add <ip|zt|nwid|network_name|ip:zt> - Enable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
 	fprintf(out, "  monitor-remove <ip|zt|nwid|network_name|ip:zt> - Disable packet logging for IP, ZT, network, or IP:ZT pair" ZT_EOL_S);
 	fprintf(out, "  monitor-list            - List active monitor targets and their /tmp log files" ZT_EOL_S);
@@ -268,6 +267,552 @@ static std::string cliFixJsonCRs(const std::string& s)
 			r.push_back(*c);
 	}
 	return r;
+}
+
+static std::string cliStatsFormatBytesCompact(uint64_t bytes)
+{
+	char buf[32];
+	if (bytes >= (1024ULL * 1024ULL * 1024ULL)) {
+		double v = bytes / (1024.0 * 1024.0 * 1024.0);
+		snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fg" : "%.1fg", v);
+	}
+	else if (bytes >= (1024ULL * 1024ULL)) {
+		double v = bytes / (1024.0 * 1024.0);
+		snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fm" : "%.1fm", v);
+	}
+	else if (bytes >= 1024ULL) {
+		double v = bytes / 1024.0;
+		snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fk" : "%.1fk", v);
+	}
+	else {
+		snprintf(buf, sizeof(buf), "%llu", (unsigned long long)bytes);
+	}
+	return std::string(buf);
+}
+
+static std::string cliStatsFormatAge(uint64_t lastSeenMs)
+{
+	if (lastSeenMs == 0)
+		return "never";
+	uint64_t now = OSUtils::now();
+	if (now <= lastSeenMs)
+		return "0s";
+	uint64_t secondsAgo = (now - lastSeenMs) / 1000;
+	char buf[32];
+	if (secondsAgo < 60) {
+		snprintf(buf, sizeof(buf), "%lus", (unsigned long)secondsAgo);
+	}
+	else if (secondsAgo < 3600) {
+		snprintf(buf, sizeof(buf), "%lum%lus", (unsigned long)(secondsAgo / 60), (unsigned long)(secondsAgo % 60));
+	}
+	else if (secondsAgo < 86400) {
+		snprintf(buf, sizeof(buf), "%luh%lum", (unsigned long)(secondsAgo / 3600), (unsigned long)((secondsAgo % 3600) / 60));
+	}
+	else {
+		snprintf(buf, sizeof(buf), "%lud%luh", (unsigned long)(secondsAgo / 86400), (unsigned long)((secondsAgo % 86400) / 3600));
+	}
+	return std::string(buf);
+}
+
+static void cliStatsPrintDiagnostics(const nlohmann::json& j)
+{
+	if (! j.contains("diagnostics")) {
+		return;
+	}
+	const auto& diag = j["diagnostics"];
+	printf("Lookup Table Diagnostics:" ZT_EOL_S);
+	printf("  Lookup Table Entries:  %u (ZT+IP combinations)" ZT_EOL_S, (unsigned int)diag.value("peerStatsTableSize", 0));
+	printf("    Unique ZT Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueZTAddresses", 0));
+	printf("    Unique IP Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueIPAddresses", 0));
+
+	std::string allPeersStr;
+	if (diag.contains("allPeersCount")) {
+		if (diag["allPeersCount"].is_string()) {
+			allPeersStr = diag["allPeersCount"].get<std::string>();
+		}
+		else {
+			allPeersStr = std::to_string((unsigned int)diag["allPeersCount"]);
+		}
+	}
+	else {
+		allPeersStr = "unknown";
+	}
+	printf("  AllPeers (topology):   %s" ZT_EOL_S, allPeersStr.c_str());
+	printf("  Port Tracking Entries: %u incoming, %u outgoing" ZT_EOL_S, (unsigned int)diag.value("seenIncomingPeerPortsSize", 0), (unsigned int)diag.value("seenOutgoingPeerPortsSize", 0));
+}
+
+static void cliStatsPrintPortConfiguration(const nlohmann::json& j)
+{
+	if (! j.contains("portConfiguration")) {
+		return;
+	}
+	const auto& portConfig = j["portConfiguration"];
+	const uint32_t primaryPort = portConfig["primaryPort"];
+	const uint32_t secondaryPort = portConfig["secondaryPort"];
+	const uint32_t tertiaryPort = portConfig["tertiaryPort"];
+	const bool allowSecondaryPort = portConfig["allowSecondaryPort"];
+
+	std::string secondaryField = "off";
+	if (allowSecondaryPort && secondaryPort > 0) {
+		secondaryField = std::to_string(secondaryPort);
+	}
+	else if (allowSecondaryPort) {
+		secondaryField = "dyn";
+	}
+
+	std::string boundField = "-";
+	if (portConfig.contains("actualBoundPorts") && portConfig["actualBoundPorts"].is_array()) {
+		const auto& actualPorts = portConfig["actualBoundPorts"];
+		std::string bf;
+		for (const auto& port : actualPorts) {
+			if (! bf.empty()) {
+				bf += ",";
+			}
+			bf += std::to_string((unsigned int)port);
+		}
+		if (! bf.empty()) {
+			boundField = bf;
+		}
+	}
+	printf("Port Config: p=%u s=%s t=%u bound=%s" ZT_EOL_S, primaryPort, secondaryField.c_str(), tertiaryPort, boundField.c_str());
+}
+
+static void cliStatsPrintNetworkUsage(const nlohmann::json& j)
+{
+	if (! j.contains("networkUsage") || ! j["networkUsage"].is_object()) {
+		return;
+	}
+	const auto& nu = j["networkUsage"];
+	std::string usageLine;
+	if (nu.contains("perNetwork") && nu["perNetwork"].is_array()) {
+		for (const auto& row : nu["perNetwork"]) {
+			const std::string name = row.value("name", "");
+			const std::string nwid = row.value("nwid", "");
+			const std::string label = ! name.empty() ? name : nwid;
+			const uint64_t in = row.value("incoming", 0ULL);
+			const uint64_t out = row.value("outgoing", 0ULL);
+			if ((in == 0ULL) && (out == 0ULL)) {
+				continue;
+			}
+			if (! usageLine.empty())
+				usageLine += ", ";
+			usageLine += label + "=" + cliStatsFormatBytesCompact(in) + ":" + cliStatsFormatBytesCompact(out);
+		}
+	}
+	if (! usageLine.empty()) {
+		printf("Net Usage:   %s" ZT_EOL_S ZT_EOL_S, usageLine.c_str());
+	}
+}
+
+static void cliStatsPrintPeerTable(const nlohmann::json& j)
+{
+	if (! j.contains("peersByZtAddressAndIP") || ! j["peersByZtAddressAndIP"].is_array()) {
+		return;
+	}
+
+	struct StatsRow {
+		uint64_t pairTotal;
+		std::string ipAddress;
+		std::string ztaddr;
+		std::string peerRole;
+		bool isPrivateIp;
+		std::string countryFlag;
+		std::string rxBytesStr;
+		std::string txBytesStr;
+		std::string lastSeenStr;
+		std::string portUsage;
+	};
+	std::vector<StatsRow> rows;
+	rows.reserve(j["peersByZtAddressAndIP"].size());
+
+	auto isLikelyIpLiteral = [](const std::string& ip) -> bool {
+		if (ip.empty())
+			return false;
+		for (char c : ip) {
+			if (! std::isxdigit((unsigned char)c) && c != '.' && c != ':') {
+				return false;
+			}
+		}
+		return true;
+	};
+	auto isPrivateIpLiteral = [](const std::string& ip) -> bool {
+		InetAddress a(ip.c_str());
+		if (a.isV4()) {
+			char b[64];
+			a.ipOnly().toIpString(b);
+			unsigned int o1 = 0, o2 = 0, o3 = 0, o4 = 0;
+			if (sscanf(b, "%u.%u.%u.%u", &o1, &o2, &o3, &o4) == 4) {
+				if (o1 == 10)
+					return true;
+				if ((o1 == 172) && (o2 >= 16) && (o2 <= 31))
+					return true;
+				if ((o1 == 192) && (o2 == 168))
+					return true;
+				if (o1 == 127)
+					return true;
+				if ((o1 == 169) && (o2 == 254))
+					return true;
+			}
+		}
+		else if (a.isV6()) {
+			char b[64];
+			a.ipOnly().toIpString(b);
+			const std::string s(b);
+			if ((s.size() >= 2) && ((s[0] == 'f') || (s[0] == 'F')) && ((s[1] == 'c') || (s[1] == 'C') || (s[1] == 'd') || (s[1] == 'D')))
+				return true;
+			if ((s.size() >= 4) && (s[0] == 'f' || s[0] == 'F') && (s[1] == 'e' || s[1] == 'E') && (s[2] == '8') && (s[3] == '0'))
+				return true;
+			if (s == "::1")
+				return true;
+		}
+		return false;
+	};
+
+#ifdef ZT_HAVE_MAXMINDDB
+	auto appendUtf8 = [](std::string& out, uint32_t cp) {
+		if (cp <= 0x7F) {
+			out.push_back((char)cp);
+		}
+		else if (cp <= 0x7FF) {
+			out.push_back((char)(0xC0 | ((cp >> 6) & 0x1F)));
+			out.push_back((char)(0x80 | (cp & 0x3F)));
+		}
+		else if (cp <= 0xFFFF) {
+			out.push_back((char)(0xE0 | ((cp >> 12) & 0x0F)));
+			out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+			out.push_back((char)(0x80 | (cp & 0x3F)));
+		}
+		else {
+			out.push_back((char)(0xF0 | ((cp >> 18) & 0x07)));
+			out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
+			out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+			out.push_back((char)(0x80 | (cp & 0x3F)));
+		}
+	};
+
+	auto isoToFlag = [&appendUtf8](const std::string& iso) -> std::string {
+		if (iso.size() != 2)
+			return std::string();
+		char a = (char)std::toupper((unsigned char)iso[0]);
+		char b = (char)std::toupper((unsigned char)iso[1]);
+		if (a < 'A' || a > 'Z' || b < 'A' || b > 'Z')
+			return std::string();
+		std::string out;
+		appendUtf8(out, 0x1F1E6 + (uint32_t)(a - 'A'));
+		appendUtf8(out, 0x1F1E6 + (uint32_t)(b - 'A'));
+		return out;
+	};
+
+	struct GeoIpResolver {
+		bool initialized = false;
+		bool available = false;
+		MMDB_s mmdb;
+
+		GeoIpResolver()
+		{
+			memset(&mmdb, 0, sizeof(mmdb));
+		}
+		~GeoIpResolver()
+		{
+			if (available)
+				MMDB_close(&mmdb);
+		}
+
+		void initOnce()
+		{
+			if (initialized)
+				return;
+			initialized = true;
+			const char* paths[] = { "/var/lib/geoip/GeoLite2-Country.mmdb", "/var/lib/geoip/GeoLite2-City.mmdb", "/usr/share/GeoIP/GeoLite2-Country.mmdb", "/usr/share/GeoIP/GeoLite2-City.mmdb" };
+			const char* selectedPath = nullptr;
+			time_t selectedMtime = 0;
+			for (unsigned int i = 0; i < (sizeof(paths) / sizeof(paths[0])); ++i) {
+				if (::access(paths[i], R_OK) != 0)
+					continue;
+				struct stat st;
+				if (::stat(paths[i], &st) != 0)
+					continue;
+				if (! selectedPath || (st.st_mtime > selectedMtime)) {
+					selectedPath = paths[i];
+					selectedMtime = st.st_mtime;
+				}
+			}
+			if (! selectedPath)
+				return;
+			const int rc = MMDB_open(selectedPath, MMDB_MODE_MMAP, &mmdb);
+			if (rc == MMDB_SUCCESS) {
+				available = true;
+			}
+		}
+
+		std::string countryIso(const std::string& ip)
+		{
+			initOnce();
+			if (! available)
+				return std::string();
+			int gaiError = 0;
+			int mmdbError = 0;
+			MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gaiError, &mmdbError);
+			if (gaiError != 0 || mmdbError != MMDB_SUCCESS || ! result.found_entry) {
+				return std::string();
+			}
+			MMDB_entry_data_s data;
+			int status = MMDB_get_value(&result.entry, &data, "country", "iso_code", nullptr);
+			if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+				return std::string(data.utf8_string, data.data_size);
+			}
+			status = MMDB_get_value(&result.entry, &data, "registered_country", "iso_code", nullptr);
+			if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+				return std::string(data.utf8_string, data.data_size);
+			}
+			status = MMDB_get_value(&result.entry, &data, "represented_country", "iso_code", nullptr);
+			if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+				return std::string(data.utf8_string, data.data_size);
+			}
+			return std::string();
+		}
+	};
+	GeoIpResolver geo;
+#endif
+	std::map<std::string, std::string> countryFlagCache;
+	auto lookupCountryFlag = [&](const std::string& ip) -> std::string {
+		std::map<std::string, std::string>::const_iterator cached = countryFlagCache.find(ip);
+		if (cached != countryFlagCache.end()) {
+			return cached->second;
+		}
+
+		std::string flag;
+		if (isLikelyIpLiteral(ip)) {
+#ifdef ZT_HAVE_MAXMINDDB
+			const std::string iso = geo.countryIso(ip);
+			if (! iso.empty()) {
+				flag = isoToFlag(iso);
+			}
+#endif
+		}
+
+		countryFlagCache[ip] = flag;
+		return flag;
+	};
+
+	auto nextCodepoint = [](const std::string& s, std::size_t& i) -> uint32_t {
+		unsigned char c = (unsigned char)s[i];
+		if (c < 0x80) {
+			++i;
+			return (uint32_t)c;
+		}
+		if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) {
+			uint32_t cp = ((uint32_t)(c & 0x1F) << 6) | (uint32_t)(s[i + 1] & 0x3F);
+			i += 2;
+			return cp;
+		}
+		if ((c & 0xF0) == 0xE0 && i + 2 < s.size()) {
+			uint32_t cp = ((uint32_t)(c & 0x0F) << 12) | ((uint32_t)(s[i + 1] & 0x3F) << 6) | (uint32_t)(s[i + 2] & 0x3F);
+			i += 3;
+			return cp;
+		}
+		if ((c & 0xF8) == 0xF0 && i + 3 < s.size()) {
+			uint32_t cp = ((uint32_t)(c & 0x07) << 18) | ((uint32_t)(s[i + 1] & 0x3F) << 12) | ((uint32_t)(s[i + 2] & 0x3F) << 6) | (uint32_t)(s[i + 3] & 0x3F);
+			i += 4;
+			return cp;
+		}
+		++i;
+		return (uint32_t)c;
+	};
+
+	auto displayWidth = [&](const std::string& s) -> int {
+		int w = 0;
+		static constexpr int ZT_SPIDER_EMOJI_WIDTH = 1;
+		std::vector<uint32_t> cps;
+		for (std::size_t i = 0; i < s.size();) {
+			cps.push_back(nextCodepoint(s, i));
+		}
+		auto isZeroWidth = [](uint32_t cp) -> bool {
+			if ((cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) || (cp >= 0x1DC0 && cp <= 0x1DFF) || (cp >= 0x20D0 && cp <= 0x20FF) || (cp >= 0xFE00 && cp <= 0xFE0F) || cp == 0x200D) {
+				return true;
+			}
+			return false;
+		};
+		for (std::size_t i = 0; i < cps.size(); ++i) {
+			const uint32_t cp = cps[i];
+			if (isZeroWidth(cp)) {
+				continue;
+			}
+			if (cp >= 0x1F1E6 && cp <= 0x1F1FF && i + 1 < cps.size() && cps[i + 1] >= 0x1F1E6 && cps[i + 1] <= 0x1F1FF) {
+				w += 2;
+				++i;
+				continue;
+			}
+			if (cp == 0x1F578) {
+				w += ZT_SPIDER_EMOJI_WIDTH;
+				continue;
+			}
+			if (cp < 0x80) {
+				w += 1;
+			}
+			else if (cp >= 0x1100) {
+				w += 2;
+			}
+			else {
+				w += 1;
+			}
+		}
+		return w;
+	};
+
+	auto padRightDisplay = [&](const std::string& s, int width) -> std::string {
+		const int w = displayWidth(s);
+		if (w >= width)
+			return s;
+		return s + std::string((std::size_t)(width - w), ' ');
+	};
+
+	uint32_t secondaryPort = 0;
+	if (j.contains("portConfiguration")) {
+		const auto& portConfig = j["portConfiguration"];
+		secondaryPort = portConfig.value("secondaryPort", 0U);
+	}
+
+	for (const auto& peerData : j["peersByZtAddressAndIP"]) {
+		std::string ztaddr = peerData.value("ztAddress", "");
+		if (ztaddr == "0000000000") {
+			ztaddr.clear();
+		}
+		const std::string ipAddressRaw = peerData.value("ipAddress", "-");
+		const std::string peerRole = peerData.value("peerRole", "unknown");
+		const std::string countryFlag = lookupCountryFlag(ipAddressRaw);
+
+		const uint64_t pairBytesIncoming = peerData.value("pairBytesIncoming", 0ULL);
+		const uint64_t pairBytesOutgoing = peerData.value("pairBytesOutgoing", 0ULL);
+		const uint64_t displayBytesIncoming = peerData.value("displayBytesIncoming", 0ULL);
+		const uint64_t displayBytesOutgoing = peerData.value("displayBytesOutgoing", 0ULL);
+		const std::string rxSource = peerData.value("rxSource", "?");
+		const std::string txSource = peerData.value("txSource", "?");
+		const uint64_t lastSeen = peerData.value("lastSeen", 0ULL);
+
+		const std::string rxBytesStr = cliStatsFormatBytesCompact(pairBytesIncoming) + "/" + cliStatsFormatBytesCompact(displayBytesIncoming) + rxSource;
+		const std::string txBytesStr = cliStatsFormatBytesCompact(pairBytesOutgoing) + "/" + cliStatsFormatBytesCompact(displayBytesOutgoing) + txSource;
+		const std::string lastSeenStr = cliStatsFormatAge(lastSeen);
+
+		const uint64_t primaryIn = peerData.value("primaryIncoming", 0ULL);
+		const uint64_t primaryOut = peerData.value("primaryOutgoing", 0ULL);
+		const uint64_t secondaryIn = (secondaryPort > 0) ? peerData.value("secondaryIncoming", 0ULL) : 0ULL;
+		const uint64_t secondaryOut = (secondaryPort > 0) ? peerData.value("secondaryOutgoing", 0ULL) : 0ULL;
+		const uint64_t tertiaryIn = peerData.value("tertiaryIncoming", 0ULL);
+		const uint64_t tertiaryOut = peerData.value("tertiaryOutgoing", 0ULL);
+		const uint64_t overlayPacketsIn = peerData.value("overlayPacketsIncoming", 0ULL);
+		const uint64_t overlayPacketsOut = peerData.value("overlayPacketsOutgoing", 0ULL);
+
+		std::string portUsage;
+		if (peerRole == "overlay") {
+			portUsage = cliStatsFormatBytesCompact(overlayPacketsIn) + ":" + cliStatsFormatBytesCompact(overlayPacketsOut);
+		}
+		else {
+			portUsage = cliStatsFormatBytesCompact(primaryIn) + ":" + cliStatsFormatBytesCompact(primaryOut) + ", " + cliStatsFormatBytesCompact(secondaryIn) + ":" + cliStatsFormatBytesCompact(secondaryOut) + ", "
+						+ cliStatsFormatBytesCompact(tertiaryIn) + ":" + cliStatsFormatBytesCompact(tertiaryOut);
+		}
+
+		StatsRow row;
+		row.pairTotal = pairBytesIncoming + pairBytesOutgoing;
+		row.ipAddress = ipAddressRaw;
+		row.ztaddr = ztaddr;
+		row.peerRole = peerRole;
+		row.isPrivateIp = isPrivateIpLiteral(ipAddressRaw);
+		row.countryFlag = countryFlag;
+		row.rxBytesStr = rxBytesStr;
+		row.txBytesStr = txBytesStr;
+		row.lastSeenStr = lastSeenStr;
+		row.portUsage = portUsage;
+		rows.push_back(row);
+	}
+
+	std::sort(rows.begin(), rows.end(), [](const StatsRow& a, const StatsRow& b) { return a.pairTotal > b.pairTotal; });
+
+	auto roleEmoji = [](const std::string& role) -> const char* {
+		if (role == "planet")
+			return "🪐";
+		if (role == "moon")
+			return "🌙";
+		return "";
+	};
+
+	struct RenderedRow {
+		std::string ipCol;
+		std::string ztCol;
+		std::string rxCol;
+		std::string txCol;
+		std::string seenCol;
+		std::string portUsageCol;
+	};
+	std::vector<RenderedRow> renderedRows;
+	renderedRows.reserve(rows.size());
+
+	int ipColWidth = displayWidth("IP Address");
+	int ztColWidth = displayWidth("ZT Address");
+	int rxColWidth = displayWidth("RX Bytes");
+	int txColWidth = displayWidth("TX Bytes");
+	int seenColWidth = displayWidth("Seen");
+
+	for (const auto& row : rows) {
+		const char* icon = roleEmoji(row.peerRole);
+		std::string ipCol = row.ipAddress;
+		if (row.peerRole == "overlay") {
+			ipCol = std::string("🕸️  ") + row.ipAddress;
+		}
+		else if (row.isPrivateIp) {
+			ipCol = std::string("🏠 ") + row.ipAddress;
+		}
+		else if (! row.countryFlag.empty()) {
+			ipCol = row.countryFlag + " " + row.ipAddress;
+		}
+		std::string ztCol = row.ztaddr;
+		if (! row.ztaddr.empty() && icon[0] != '\0') {
+			ztCol = std::string(icon) + row.ztaddr;
+		}
+
+		RenderedRow rr;
+		rr.ipCol = ipCol;
+		rr.ztCol = ztCol;
+		rr.rxCol = row.rxBytesStr;
+		rr.txCol = row.txBytesStr;
+		rr.seenCol = row.lastSeenStr;
+		rr.portUsageCol = row.portUsage;
+		renderedRows.push_back(rr);
+
+		ipColWidth = std::max(ipColWidth, displayWidth(rr.ipCol));
+		ztColWidth = std::max(ztColWidth, displayWidth(rr.ztCol));
+		rxColWidth = std::max(rxColWidth, displayWidth(rr.rxCol));
+		txColWidth = std::max(txColWidth, displayWidth(rr.txCol));
+		seenColWidth = std::max(seenColWidth, displayWidth(rr.seenCol));
+	}
+
+	printf(
+		"%s %s %s %s %s %s" ZT_EOL_S,
+		padRightDisplay("IP Address", ipColWidth).c_str(),
+		padRightDisplay("ZT Address", ztColWidth).c_str(),
+		padRightDisplay("RX Bytes", rxColWidth).c_str(),
+		padRightDisplay("TX Bytes", txColWidth).c_str(),
+		padRightDisplay("Seen", seenColWidth).c_str(),
+		"Port Usage");
+	printf(
+		"%s %s %s %s %s %s" ZT_EOL_S,
+		std::string((std::size_t)ipColWidth, '-').c_str(),
+		std::string((std::size_t)ztColWidth, '-').c_str(),
+		std::string((std::size_t)rxColWidth, '-').c_str(),
+		std::string((std::size_t)txColWidth, '-').c_str(),
+		std::string((std::size_t)seenColWidth, '-').c_str(),
+		"----------");
+
+	for (const auto& rr : renderedRows) {
+		printf(
+			"%s %s %s %s %s %s" ZT_EOL_S,
+			padRightDisplay(rr.ipCol, ipColWidth).c_str(),
+			padRightDisplay(rr.ztCol, ztColWidth).c_str(),
+			padRightDisplay(rr.rxCol, rxColWidth).c_str(),
+			padRightDisplay(rr.txCol, txColWidth).c_str(),
+			padRightDisplay(rr.seenCol, seenColWidth).c_str(),
+			rr.portUsageCol.c_str());
+	}
 }
 
 #ifdef __WINDOWS__
@@ -1504,562 +2049,23 @@ static int cli(int argc, char** argv)
 			return 1;
 		}
 
-		if (scode == 200) {
-			if (json) {
-				printf("%s" ZT_EOL_S, OSUtils::jsonDump(j).c_str());
-			}
-			else {
-				printf("200 stats - Peer Port Usage Statistics" ZT_EOL_S);
-
-				// Total peer count is now shown in diagnostics section below
-
-				// Show diagnostic information about lookup table sizes
-				if (j.contains("diagnostics")) {
-					auto& diag = j["diagnostics"];
-					printf("Lookup Table Diagnostics:" ZT_EOL_S);
-					printf("  Lookup Table Entries:  %u (ZT+IP combinations)" ZT_EOL_S, (unsigned int)diag.value("peerStatsTableSize", 0));
-					printf("    Unique ZT Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueZTAddresses", 0));
-					printf("    Unique IP Addresses: %u" ZT_EOL_S, (unsigned int)diag.value("uniqueIPAddresses", 0));
-					// Check if allPeersCount is a string or number and format accordingly
-					std::string allPeersStr;
-					if (diag.contains("allPeersCount")) {
-						if (diag["allPeersCount"].is_string()) {
-							allPeersStr = diag["allPeersCount"].get<std::string>();
-						}
-						else {
-							allPeersStr = std::to_string((unsigned int)diag["allPeersCount"]);
-						}
-					}
-					else {
-						allPeersStr = "unknown";
-					}
-					printf("  AllPeers (topology):   %s" ZT_EOL_S, allPeersStr.c_str());
-					printf("  Port Tracking Entries: %u incoming, %u outgoing" ZT_EOL_S, (unsigned int)diag.value("seenIncomingPeerPortsSize", 0), (unsigned int)diag.value("seenOutgoingPeerPortsSize", 0));
-				}
-				printf(ZT_EOL_S);
-
-				auto formatBytesCompact = [](uint64_t bytes) -> std::string {
-					char buf[32];
-					if (bytes >= (1024ULL * 1024ULL * 1024ULL)) {
-						double v = bytes / (1024.0 * 1024.0 * 1024.0);
-						snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fg" : "%.1fg", v);
-					}
-					else if (bytes >= (1024ULL * 1024ULL)) {
-						double v = bytes / (1024.0 * 1024.0);
-						snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fm" : "%.1fm", v);
-					}
-					else if (bytes >= 1024ULL) {
-						double v = bytes / 1024.0;
-						snprintf(buf, sizeof(buf), (v >= 10.0) ? "%.0fk" : "%.1fk", v);
-					}
-					else {
-						snprintf(buf, sizeof(buf), "%llu", (unsigned long long)bytes);
-					}
-					return std::string(buf);
-				};
-
-				// Show port configuration (concise one-line format)
-				if (j.contains("portConfiguration")) {
-					auto& portConfig = j["portConfiguration"];
-					uint32_t primaryPort = portConfig["primaryPort"];
-					uint32_t secondaryPort = portConfig["secondaryPort"];
-					uint32_t tertiaryPort = portConfig["tertiaryPort"];
-					bool allowSecondaryPort = portConfig["allowSecondaryPort"];
-
-					std::string secondaryField = "off";
-					if (allowSecondaryPort && secondaryPort > 0) {
-						secondaryField = std::to_string(secondaryPort);
-					}
-					else if (allowSecondaryPort) {
-						secondaryField = "dyn";
-					}
-
-					std::string boundField = "-";
-					if (portConfig.contains("actualBoundPorts") && portConfig["actualBoundPorts"].is_array()) {
-						auto actualPorts = portConfig["actualBoundPorts"];
-						std::string bf;
-						for (auto& port : actualPorts) {
-							if (! bf.empty()) {
-								bf += ",";
-							}
-							bf += std::to_string((unsigned int)port);
-						}
-						if (! bf.empty()) {
-							boundField = bf;
-						}
-					}
-					printf("Port Config: p=%u s=%s t=%u bound=%s" ZT_EOL_S, primaryPort, secondaryField.c_str(), tertiaryPort, boundField.c_str());
-				}
-
-				// Show non-zero per-network overlay packet usage as label=in:out.
-				if (j.contains("networkUsage") && j["networkUsage"].is_object()) {
-					auto& nu = j["networkUsage"];
-					std::string usageLine;
-					if (nu.contains("perNetwork") && nu["perNetwork"].is_array()) {
-						for (const auto& row : nu["perNetwork"]) {
-							const std::string name = row.value("name", "");
-							const std::string nwid = row.value("nwid", "");
-							const std::string label = ! name.empty() ? name : nwid;
-							const uint64_t in = row.value("incoming", 0ULL);
-							const uint64_t out = row.value("outgoing", 0ULL);
-							if ((in == 0ULL) && (out == 0ULL)) {
-								continue;
-							}
-							if (! usageLine.empty())
-								usageLine += ", ";
-							usageLine += label + "=" + formatBytesCompact(in) + ":" + formatBytesCompact(out);
-						}
-					}
-					if (! usageLine.empty()) {
-						printf("Net Usage:   %s" ZT_EOL_S ZT_EOL_S, usageLine.c_str());
-					}
-				}
-
-				auto formatAge = [](uint64_t lastSeenMs) -> std::string {
-					if (lastSeenMs == 0)
-						return "never";
-					uint64_t now = OSUtils::now();
-					if (now <= lastSeenMs)
-						return "0s";
-					uint64_t secondsAgo = (now - lastSeenMs) / 1000;
-					char buf[32];
-					if (secondsAgo < 60) {
-						snprintf(buf, sizeof(buf), "%lus", (unsigned long)secondsAgo);
-					}
-					else if (secondsAgo < 3600) {
-						snprintf(buf, sizeof(buf), "%lum%lus", (unsigned long)(secondsAgo / 60), (unsigned long)(secondsAgo % 60));
-					}
-					else if (secondsAgo < 86400) {
-						snprintf(buf, sizeof(buf), "%luh%lum", (unsigned long)(secondsAgo / 3600), (unsigned long)((secondsAgo % 3600) / 60));
-					}
-					else {
-						snprintf(buf, sizeof(buf), "%lud%luh", (unsigned long)(secondsAgo / 86400), (unsigned long)((secondsAgo % 86400) / 3600));
-					}
-					return std::string(buf);
-				};
-
-				// Process per-IP peer data from the /stats endpoint, then sort by pair RX+TX descending.
-				if (j.contains("peersByZtAddressAndIP") && j["peersByZtAddressAndIP"].is_array()) {
-					struct StatsRow {
-						uint64_t pairTotal;
-						std::string ipAddress;
-						std::string ztaddr;
-						std::string peerRole;
-						bool isPrivateIp;
-						std::string countryFlag;
-						std::string rxBytesStr;
-						std::string txBytesStr;
-						std::string lastSeenStr;
-						std::string portUsage;
-					};
-					std::vector<StatsRow> rows;
-					rows.reserve(j["peersByZtAddressAndIP"].size());
-
-					auto isLikelyIpLiteral = [](const std::string& ip) -> bool {
-						if (ip.empty())
-							return false;
-						for (char c : ip) {
-							if (! std::isxdigit((unsigned char)c) && c != '.' && c != ':') {
-								return false;
-							}
-						}
-						return true;
-					};
-					auto isPrivateIpLiteral = [](const std::string& ip) -> bool {
-						InetAddress a(ip.c_str());
-						if (a.isV4()) {
-							char b[64];
-							a.ipOnly().toIpString(b);
-							unsigned int o1 = 0, o2 = 0, o3 = 0, o4 = 0;
-							if (sscanf(b, "%u.%u.%u.%u", &o1, &o2, &o3, &o4) == 4) {
-								if (o1 == 10)
-									return true;
-								if ((o1 == 172) && (o2 >= 16) && (o2 <= 31))
-									return true;
-								if ((o1 == 192) && (o2 == 168))
-									return true;
-								if (o1 == 127)
-									return true;
-								if ((o1 == 169) && (o2 == 254))
-									return true;
-							}
-						}
-						else if (a.isV6()) {
-							char b[64];
-							a.ipOnly().toIpString(b);
-							const std::string s(b);
-							if ((s.size() >= 2) && ((s[0] == 'f') || (s[0] == 'F')) && ((s[1] == 'c') || (s[1] == 'C') || (s[1] == 'd') || (s[1] == 'D')))
-								return true;
-							if ((s.size() >= 4) && (s[0] == 'f' || s[0] == 'F') && (s[1] == 'e' || s[1] == 'E') && (s[2] == '8') && (s[3] == '0'))
-								return true;
-							if (s == "::1")
-								return true;
-						}
-						return false;
-					};
-
-#ifdef ZT_HAVE_MAXMINDDB
-					auto appendUtf8 = [](std::string& out, uint32_t cp) {
-						if (cp <= 0x7F) {
-							out.push_back((char)cp);
-						}
-						else if (cp <= 0x7FF) {
-							out.push_back((char)(0xC0 | ((cp >> 6) & 0x1F)));
-							out.push_back((char)(0x80 | (cp & 0x3F)));
-						}
-						else if (cp <= 0xFFFF) {
-							out.push_back((char)(0xE0 | ((cp >> 12) & 0x0F)));
-							out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
-							out.push_back((char)(0x80 | (cp & 0x3F)));
-						}
-						else {
-							out.push_back((char)(0xF0 | ((cp >> 18) & 0x07)));
-							out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
-							out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
-							out.push_back((char)(0x80 | (cp & 0x3F)));
-						}
-					};
-
-					auto isoToFlag = [&appendUtf8](const std::string& iso) -> std::string {
-						if (iso.size() != 2)
-							return std::string();
-						char a = (char)std::toupper((unsigned char)iso[0]);
-						char b = (char)std::toupper((unsigned char)iso[1]);
-						if (a < 'A' || a > 'Z' || b < 'A' || b > 'Z')
-							return std::string();
-						std::string out;
-						appendUtf8(out, 0x1F1E6 + (uint32_t)(a - 'A'));
-						appendUtf8(out, 0x1F1E6 + (uint32_t)(b - 'A'));
-						return out;
-					};
-
-					struct GeoIpResolver {
-						bool initialized = false;
-						bool available = false;
-						MMDB_s mmdb;
-
-						GeoIpResolver()
-						{
-							memset(&mmdb, 0, sizeof(mmdb));
-						}
-						~GeoIpResolver()
-						{
-							if (available)
-								MMDB_close(&mmdb);
-						}
-
-						void initOnce()
-						{
-							if (initialized)
-								return;
-							initialized = true;
-							const char* paths[] = { "/var/lib/geoip/GeoLite2-Country.mmdb", "/var/lib/geoip/GeoLite2-City.mmdb", "/usr/share/GeoIP/GeoLite2-Country.mmdb", "/usr/share/GeoIP/GeoLite2-City.mmdb" };
-							const char* selectedPath = nullptr;
-							time_t selectedMtime = 0;
-							for (unsigned int i = 0; i < (sizeof(paths) / sizeof(paths[0])); ++i) {
-								if (::access(paths[i], R_OK) != 0)
-									continue;
-								struct stat st;
-								if (::stat(paths[i], &st) != 0)
-									continue;
-								if (! selectedPath || (st.st_mtime > selectedMtime)) {
-									selectedPath = paths[i];
-									selectedMtime = st.st_mtime;
-								}
-							}
-							if (! selectedPath)
-								return;
-							const int rc = MMDB_open(selectedPath, MMDB_MODE_MMAP, &mmdb);
-							if (rc == MMDB_SUCCESS) {
-								available = true;
-							}
-						}
-
-						std::string countryIso(const std::string& ip)
-						{
-							initOnce();
-							if (! available)
-								return std::string();
-							int gaiError = 0;
-							int mmdbError = 0;
-							MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gaiError, &mmdbError);
-							if (gaiError != 0 || mmdbError != MMDB_SUCCESS || ! result.found_entry) {
-								return std::string();
-							}
-							MMDB_entry_data_s data;
-							int status = MMDB_get_value(&result.entry, &data, "country", "iso_code", nullptr);
-							if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
-								return std::string(data.utf8_string, data.data_size);
-							}
-							status = MMDB_get_value(&result.entry, &data, "registered_country", "iso_code", nullptr);
-							if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
-								return std::string(data.utf8_string, data.data_size);
-							}
-							status = MMDB_get_value(&result.entry, &data, "represented_country", "iso_code", nullptr);
-							if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
-								return std::string(data.utf8_string, data.data_size);
-							}
-							return std::string();
-						}
-					};
-					GeoIpResolver geo;
-#endif
-					std::map<std::string, std::string> countryFlagCache;
-					auto lookupCountryFlag = [&](const std::string& ip) -> std::string {
-						std::map<std::string, std::string>::const_iterator cached = countryFlagCache.find(ip);
-						if (cached != countryFlagCache.end()) {
-							return cached->second;
-						}
-
-						std::string flag;
-						if (isLikelyIpLiteral(ip)) {
-#ifdef ZT_HAVE_MAXMINDDB
-							const std::string iso = geo.countryIso(ip);
-							if (! iso.empty()) {
-								flag = isoToFlag(iso);
-							}
-#endif
-						}
-
-						countryFlagCache[ip] = flag;
-						return flag;
-					};
-
-					auto nextCodepoint = [](const std::string& s, std::size_t& i) -> uint32_t {
-						unsigned char c = (unsigned char)s[i];
-						if (c < 0x80) {
-							++i;
-							return (uint32_t)c;
-						}
-						if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) {
-							uint32_t cp = ((uint32_t)(c & 0x1F) << 6) | (uint32_t)(s[i + 1] & 0x3F);
-							i += 2;
-							return cp;
-						}
-						if ((c & 0xF0) == 0xE0 && i + 2 < s.size()) {
-							uint32_t cp = ((uint32_t)(c & 0x0F) << 12) | ((uint32_t)(s[i + 1] & 0x3F) << 6) | (uint32_t)(s[i + 2] & 0x3F);
-							i += 3;
-							return cp;
-						}
-						if ((c & 0xF8) == 0xF0 && i + 3 < s.size()) {
-							uint32_t cp = ((uint32_t)(c & 0x07) << 18) | ((uint32_t)(s[i + 1] & 0x3F) << 12) | ((uint32_t)(s[i + 2] & 0x3F) << 6) | (uint32_t)(s[i + 3] & 0x3F);
-							i += 4;
-							return cp;
-						}
-						++i;
-						return (uint32_t)c;
-					};
-
-					auto displayWidth = [&](const std::string& s) -> int {
-						int w = 0;
-						static constexpr int ZT_SPIDER_EMOJI_WIDTH = 1;	  // Terminal-specific override for U+1F578
-						std::vector<uint32_t> cps;
-						for (std::size_t i = 0; i < s.size();) {
-							cps.push_back(nextCodepoint(s, i));
-						}
-						auto isZeroWidth = [](uint32_t cp) -> bool {
-							// Common combining marks and emoji formatting code points.
-							if ((cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) || (cp >= 0x1DC0 && cp <= 0x1DFF) || (cp >= 0x20D0 && cp <= 0x20FF) || (cp >= 0xFE00 && cp <= 0xFE0F) || cp == 0x200D) {
-								return true;
-							}
-							return false;
-						};
-						for (std::size_t i = 0; i < cps.size(); ++i) {
-							const uint32_t cp = cps[i];
-							if (isZeroWidth(cp)) {
-								continue;
-							}
-							// Regional indicator pair (country flag) renders as one 2-cell glyph.
-							if (cp >= 0x1F1E6 && cp <= 0x1F1FF && i + 1 < cps.size() && cps[i + 1] >= 0x1F1E6 && cps[i + 1] <= 0x1F1FF) {
-								w += 2;
-								++i;
-								continue;
-							}
-							if (cp == 0x1F578) {   // spider-web emoji
-								w += ZT_SPIDER_EMOJI_WIDTH;
-								continue;
-							}
-							if (cp < 0x80) {
-								w += 1;
-							}
-							else if (cp >= 0x1100) {
-								w += 2;
-							}
-							else {
-								w += 1;
-							}
-						}
-						return w;
-					};
-
-					auto padRightDisplay = [&](const std::string& s, int width) -> std::string {
-						const int w = displayWidth(s);
-						if (w >= width)
-							return s;
-						return s + std::string((std::size_t)(width - w), ' ');
-					};
-
-					for (auto& peerData : j["peersByZtAddressAndIP"]) {
-						std::string ztaddr = peerData.value("ztAddress", "");
-						if (ztaddr == "0000000000") {
-							ztaddr.clear();
-						}
-						std::string ipAddressRaw = peerData.value("ipAddress", "-");
-						std::string ipAddress = ipAddressRaw;
-						std::string peerRole = peerData.value("peerRole", "unknown");
-						std::string countryFlag = lookupCountryFlag(ipAddressRaw);
-
-						// Pair bytes and chosen aggregate bytes
-						uint64_t pairBytesIncoming = peerData.value("pairBytesIncoming", 0ULL);
-						uint64_t pairBytesOutgoing = peerData.value("pairBytesOutgoing", 0ULL);
-						uint64_t displayBytesIncoming = peerData.value("displayBytesIncoming", 0ULL);
-						uint64_t displayBytesOutgoing = peerData.value("displayBytesOutgoing", 0ULL);
-						std::string rxSource = peerData.value("rxSource", "?");
-						std::string txSource = peerData.value("txSource", "?");
-
-						// Last seen timestamps
-						uint64_t lastSeen = peerData.value("lastSeen", 0ULL);
-
-						// Format statistics for display
-						std::string rxBytesStr = formatBytesCompact(pairBytesIncoming) + "/" + formatBytesCompact(displayBytesIncoming) + rxSource;
-						std::string txBytesStr = formatBytesCompact(pairBytesOutgoing) + "/" + formatBytesCompact(displayBytesOutgoing) + txSource;
-
-						std::string lastSeenStr = formatAge(lastSeen);
-
-						uint32_t secondaryPort = 0;
-
-						if (j.contains("portConfiguration")) {
-							auto& portConfig = j["portConfiguration"];
-							secondaryPort = portConfig.value("secondaryPort", 0U);
-						}
-
-						uint64_t primaryIn = peerData.value("primaryIncoming", 0ULL);
-						uint64_t primaryOut = peerData.value("primaryOutgoing", 0ULL);
-						uint64_t secondaryIn = (secondaryPort > 0) ? peerData.value("secondaryIncoming", 0ULL) : 0ULL;
-						uint64_t secondaryOut = (secondaryPort > 0) ? peerData.value("secondaryOutgoing", 0ULL) : 0ULL;
-						uint64_t tertiaryIn = peerData.value("tertiaryIncoming", 0ULL);
-						uint64_t tertiaryOut = peerData.value("tertiaryOutgoing", 0ULL);
-						uint64_t overlayPacketsIn = peerData.value("overlayPacketsIncoming", 0ULL);
-						uint64_t overlayPacketsOut = peerData.value("overlayPacketsOutgoing", 0ULL);
-
-						std::string portUsage;
-						if (peerRole == "overlay") {
-							portUsage = formatBytesCompact(overlayPacketsIn) + ":" + formatBytesCompact(overlayPacketsOut);
-						}
-						else {
-							portUsage = formatBytesCompact(primaryIn) + ":" + formatBytesCompact(primaryOut) + ", " + formatBytesCompact(secondaryIn) + ":" + formatBytesCompact(secondaryOut) + ", " + formatBytesCompact(tertiaryIn) + ":"
-										+ formatBytesCompact(tertiaryOut);
-						}
-
-						StatsRow row;
-						row.pairTotal = pairBytesIncoming + pairBytesOutgoing;
-						row.ipAddress = ipAddress;
-						row.ztaddr = ztaddr;
-						row.peerRole = peerRole;
-						row.isPrivateIp = isPrivateIpLiteral(ipAddressRaw);
-						row.countryFlag = countryFlag;
-						row.rxBytesStr = rxBytesStr;
-						row.txBytesStr = txBytesStr;
-						row.lastSeenStr = lastSeenStr;
-						row.portUsage = portUsage;
-						rows.push_back(row);
-					}
-
-					std::sort(rows.begin(), rows.end(), [](const StatsRow& a, const StatsRow& b) { return a.pairTotal > b.pairTotal; });
-
-					auto roleEmoji = [](const std::string& role) -> const char* {
-						if (role == "planet")
-							return "🪐";
-						if (role == "moon")
-							return "🌙";
-						return "";
-					};
-
-					struct RenderedRow {
-						std::string ipCol;
-						std::string ztCol;
-						std::string rxCol;
-						std::string txCol;
-						std::string lastSeenCol;
-						std::string portUsageCol;
-					};
-					std::vector<RenderedRow> renderedRows;
-					renderedRows.reserve(rows.size());
-
-					int ipColWidth = displayWidth("IP Address");
-					int ztColWidth = displayWidth("ZT Address");
-					int rxColWidth = displayWidth("RX Bytes");
-					int txColWidth = displayWidth("TX Bytes");
-					int lastSeenColWidth = displayWidth("Seen");
-
-					for (const auto& row : rows) {
-						const char* icon = roleEmoji(row.peerRole);
-						std::string ipCol = row.ipAddress;
-						if (row.peerRole == "overlay") {
-							ipCol = std::string("🕸️  ") + row.ipAddress;
-						}
-						else if (row.isPrivateIp) {
-							ipCol = std::string("🏠 ") + row.ipAddress;
-						}
-						else if (! row.countryFlag.empty()) {
-							ipCol = row.countryFlag + " " + row.ipAddress;
-						}
-						std::string ztCol = row.ztaddr;
-						if (row.ztaddr.length() > 0 && icon[0] != '\0') {
-							ztCol = std::string(icon) + row.ztaddr;
-						}
-
-						RenderedRow rr;
-						rr.ipCol = ipCol;
-						rr.ztCol = ztCol;
-						rr.rxCol = row.rxBytesStr;
-						rr.txCol = row.txBytesStr;
-						rr.lastSeenCol = row.lastSeenStr;
-						rr.portUsageCol = row.portUsage;
-						renderedRows.push_back(rr);
-
-						ipColWidth = std::max(ipColWidth, displayWidth(rr.ipCol));
-						ztColWidth = std::max(ztColWidth, displayWidth(rr.ztCol));
-						rxColWidth = std::max(rxColWidth, displayWidth(rr.rxCol));
-						txColWidth = std::max(txColWidth, displayWidth(rr.txCol));
-						lastSeenColWidth = std::max(lastSeenColWidth, displayWidth(rr.lastSeenCol));
-					}
-
-					printf(
-						"%s %s %s %s %s %s" ZT_EOL_S,
-						padRightDisplay("IP Address", ipColWidth).c_str(),
-						padRightDisplay("ZT Address", ztColWidth).c_str(),
-						padRightDisplay("RX Bytes", rxColWidth).c_str(),
-						padRightDisplay("TX Bytes", txColWidth).c_str(),
-						padRightDisplay("Seen", lastSeenColWidth).c_str(),
-						"Port Usage");
-					printf(
-						"%s %s %s %s %s %s" ZT_EOL_S,
-						std::string((std::size_t)ipColWidth, '-').c_str(),
-						std::string((std::size_t)ztColWidth, '-').c_str(),
-						std::string((std::size_t)rxColWidth, '-').c_str(),
-						std::string((std::size_t)txColWidth, '-').c_str(),
-						std::string((std::size_t)lastSeenColWidth, '-').c_str(),
-						"----------");
-
-					for (const auto& rr : renderedRows) {
-						printf(
-							"%s %s %s %s %s %s" ZT_EOL_S,
-							padRightDisplay(rr.ipCol, ipColWidth).c_str(),
-							padRightDisplay(rr.ztCol, ztColWidth).c_str(),
-							padRightDisplay(rr.rxCol, rxColWidth).c_str(),
-							padRightDisplay(rr.txCol, txColWidth).c_str(),
-							padRightDisplay(rr.lastSeenCol, lastSeenColWidth).c_str(),
-							rr.portUsageCol.c_str());
-					}	// loop through peersByZtAddressAndIP
-				}	// if j.contains("peersByZtAddressAndIP
-			}	// else if json
-			return 0;
-		}
-		else {	 // if scode == 200
+		if (scode != 200) {
 			printf("%u %s %s" ZT_EOL_S, scode, command.c_str(), responseBody.c_str());
 			return 1;
 		}
+
+		if (json) {
+			printf("%s" ZT_EOL_S, OSUtils::jsonDump(j).c_str());
+			return 0;
+		}
+
+		printf("200 stats - Peer Port Usage Statistics" ZT_EOL_S);
+		cliStatsPrintDiagnostics(j);
+		printf(ZT_EOL_S);
+		cliStatsPrintPortConfiguration(j);
+		cliStatsPrintNetworkUsage(j);
+		cliStatsPrintPeerTable(j);
+		return 0;
 	}
 	else if (command == "findzt" || command == "findztaddr") {
 		if (arg1.empty()) {
@@ -2107,18 +2113,6 @@ static int cli(int argc, char** argv)
 			printf("200 findzt %s %s (network %s, observed)" ZT_EOL_S, targetIp.c_str(), ztAddress.c_str(), networkId.c_str());
 		}
 		return 0;
-	}
-	else if (command == "metrics") {
-		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/metrics", requestHeaders, responseHeaders, responseBody);
-		if (scode == 200) {
-			printf("System Metrics:" ZT_EOL_S);
-			printf("%s" ZT_EOL_S, responseBody.c_str());
-		}
-		else {
-			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
-			printf("Metrics may be disabled; set \"enableMetrics\": true in local.conf if needed." ZT_EOL_S);
-			return 1;
-		}
 	}
 	else if (command == "monitor-list") {
 		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/monitor", requestHeaders, responseHeaders, responseBody);
