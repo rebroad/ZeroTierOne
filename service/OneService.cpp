@@ -1058,13 +1058,6 @@ class OneServiceImpl : public OneService {
 	std::set<uint64_t> _monitoredNetworks;
 	Mutex _monitorTargets_m;
 
-	// Observed overlay (inside ZT network) IP associations by (nwid, ztAddr).
-	std::map<std::pair<uint64_t, Address>, std::map<InetAddress, uint64_t> > _observedOverlayIPs;
-	Mutex _observedOverlayIPs_m;
-	static constexpr std::size_t ZT_MAX_OBSERVED_OVERLAY_PEERS = 16384;
-	static constexpr std::size_t ZT_MAX_OBSERVED_IPS_PER_PEER = 8;
-	static constexpr uint64_t ZT_OVERLAY_ASSOC_REFRESH_MS = 30000ULL;
-
 	struct OverlayPacketDirCounts {
 		uint64_t incoming;
 		uint64_t outgoing;
@@ -1096,7 +1089,7 @@ class OneServiceImpl : public OneService {
 		{
 		}
 	};
-	std::map<std::pair<Address, InetAddress>, OverlayPairStats> _overlayPairStats;
+	std::map<std::pair<uint64_t, std::pair<Address, InetAddress> >, OverlayPairStats> _overlayPairStats;
 	Mutex _overlayPairStats_m;
 
 	// end member variables ----------------------------------------------------
@@ -2903,30 +2896,37 @@ class OneServiceImpl : public OneService {
 			}
 
 			{
-				Mutex::Lock _l(_observedOverlayIPs_m);
-				for (std::map<std::pair<uint64_t, Address>, std::map<InetAddress, uint64_t> >::const_iterator it = _observedOverlayIPs.begin(); it != _observedOverlayIPs.end(); ++it) {
+				std::map<std::pair<uint64_t, Address>, std::set<InetAddress> > grouped;
+				Mutex::Lock _l(_overlayPairStats_m);
+				for (std::map<std::pair<uint64_t, std::pair<Address, InetAddress> >, OverlayPairStats>::const_iterator it = _overlayPairStats.begin(); it != _overlayPairStats.end(); ++it) {
 					const uint64_t nwid = it->first.first;
-					const Address& ztAddr = it->first.second;
-					const std::map<InetAddress, uint64_t>& ips = it->second;
-
+					const Address& ztAddr = it->first.second.first;
+					const InetAddress ipAddr = it->first.second.second.ipOnly();
+					if ((! ztAddr) || (! ipAddr)) {
+						continue;
+					}
 					if (hasZt && (ztAddr != queryZt)) {
 						continue;
 					}
-					if (hasIp && (ips.find(queryIp) == ips.end())) {
+					if (hasIp && (ipAddr != queryIp)) {
 						continue;
 					}
-
+					grouped[std::make_pair(nwid, ztAddr)].insert(ipAddr);
+				}
+				for (std::map<std::pair<uint64_t, Address>, std::set<InetAddress> >::const_iterator it = grouped.begin(); it != grouped.end(); ++it) {
+					const uint64_t nwid = it->first.first;
+					const Address& ztAddr = it->first.second;
+					const std::set<InetAddress>& ips = it->second;
 					char nwidBuf[32], ztBuf[16];
 					OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)nwid);
 					ztAddr.toString(ztBuf);
-
 					json row = json::object();
 					row["networkId"] = nwidBuf;
 					row["ztAddress"] = ztBuf;
 					row["ips"] = json::array();
-					for (std::map<InetAddress, uint64_t>::const_iterator ip = ips.begin(); ip != ips.end(); ++ip) {
+					for (std::set<InetAddress>::const_iterator ip = ips.begin(); ip != ips.end(); ++ip) {
 						char ipBuf[64];
-						ip->first.toIpString(ipBuf);
+						ip->toIpString(ipBuf);
 						row["ips"].push_back(std::string(ipBuf));
 					}
 					results.push_back(row);
@@ -3197,7 +3197,15 @@ class OneServiceImpl : public OneService {
 				std::map<std::pair<Address, InetAddress>, OverlayPairStats> overlayPairs;
 				{
 					Mutex::Lock _ol(_overlayPairStats_m);
-					overlayPairs = _overlayPairStats;
+					for (std::map<std::pair<uint64_t, std::pair<Address, InetAddress> >, OverlayPairStats>::const_iterator it = _overlayPairStats.begin(); it != _overlayPairStats.end(); ++it) {
+						const std::pair<Address, InetAddress> key = it->first.second;
+						OverlayPairStats& agg = overlayPairs[key];
+						agg.bytesIncoming += it->second.bytesIncoming;
+						agg.bytesOutgoing += it->second.bytesOutgoing;
+						agg.packetsIncoming += it->second.packetsIncoming;
+						agg.packetsOutgoing += it->second.packetsOutgoing;
+						agg.lastSeen = std::max<uint64_t>(agg.lastSeen, it->second.lastSeen);
+					}
 				}
 
 				std::map<InetAddress, uint64_t> overlayIpIncomingBytes, overlayIpOutgoingBytes;
@@ -5582,37 +5590,6 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
-	bool _recordObservedOverlayIP(uint64_t nwid, const Address& ztAddr, const InetAddress& ipAddr, uint64_t now)
-	{
-		if ((! ztAddr) || (! ipAddr)) {
-			return false;
-		}
-		const InetAddress ipOnly = ipAddr.ipOnly();
-		Mutex::Lock _l(_observedOverlayIPs_m);
-		const std::pair<uint64_t, Address> key = std::make_pair(nwid, ztAddr);
-		std::map<std::pair<uint64_t, Address>, std::map<InetAddress, uint64_t> >::iterator entry = _observedOverlayIPs.find(key);
-		if (entry == _observedOverlayIPs.end()) {
-			if (_observedOverlayIPs.size() >= ZT_MAX_OBSERVED_OVERLAY_PEERS) {
-				return false;
-			}
-			entry = _observedOverlayIPs.insert(std::make_pair(key, std::map<InetAddress, uint64_t>())).first;
-		}
-		std::map<InetAddress, uint64_t>& ips = entry->second;
-		std::map<InetAddress, uint64_t>::iterator ipIt = ips.find(ipOnly);
-		if (ipIt == ips.end()) {
-			if (ips.size() >= ZT_MAX_OBSERVED_IPS_PER_PEER) {
-				return false;
-			}
-			ips[ipOnly] = now;
-			return true;
-		}
-		if ((now - ipIt->second) >= ZT_OVERLAY_ASSOC_REFRESH_MS) {
-			ipIt->second = now;
-			return true;
-		}
-		return false;
-	}
-
 	std::string _sanitizeForFilename(const std::string& raw)
 	{
 		std::string out;
@@ -5842,7 +5819,7 @@ class OneServiceImpl : public OneService {
 					return;
 				}
 				Mutex::Lock _ps(_overlayPairStats_m);
-				OverlayPairStats& ps = _overlayPairStats[std::make_pair(zt, ip.ipOnly())];
+				OverlayPairStats& ps = _overlayPairStats[std::make_pair(nwid, std::make_pair(zt, ip.ipOnly()))];
 				if (outgoing) {
 					ps.bytesOutgoing += (uint64_t)len;
 					++ps.packetsOutgoing;
@@ -5858,14 +5835,6 @@ class OneServiceImpl : public OneService {
 			if ((srcZt != dstZt) || (srcIp.ipOnly() != dstIp.ipOnly())) {
 				recordOverlayEndpointPair(dstZt, dstIp);
 			}
-		}
-
-		// Always learn overlay associations, even when no monitor target is configured.
-		if (srcZt) {
-			_recordObservedOverlayIP(nwid, srcZt, srcIp, now);
-		}
-		if (dstZt) {
-			_recordObservedOverlayIP(nwid, dstZt, dstIp, now);
 		}
 
 		std::set<std::string> monitorLogPaths;
