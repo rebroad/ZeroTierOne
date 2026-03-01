@@ -5436,7 +5436,7 @@ class OneServiceImpl : public OneService {
 			case Packet::VERB_PATH_NEGOTIATION_REQUEST:
 				return "path_negotiation_request";
 			default:
-				return "unknown";
+				return nullptr;
 		}
 	}
 
@@ -5541,18 +5541,24 @@ class OneServiceImpl : public OneService {
 			if (! monitorLogPaths.empty()) {
 				const uint64_t now = OSUtils::now();
 				const bool isZtPacket = (packetData && (packetSize >= ZT_PROTO_MIN_PACKET_LENGTH));
-				const unsigned int rawVerb = (isZtPacket ? (((const unsigned char*)packetData)[ZT_PACKET_IDX_VERB] & 0x1fU) : 0xffU);
+				const bool canDecodeVerb = (authenticated && ztAddr && isZtPacket);
+				unsigned int rawVerb = 0xffU;
 				char packetTypeBuf[32];
 				const char* packetType = "non_zt_or_short";
-				if (isZtPacket) {
+				if (canDecodeVerb) {
+					rawVerb = (((const unsigned char*)packetData)[ZT_PACKET_IDX_VERB] & 0x1fU);
 					const char* knownType = _packetVerbName(rawVerb);
-					if (strcmp(knownType, "unknown") == 0) {
+					if (! knownType) {
 						OSUtils::ztsnprintf(packetTypeBuf, sizeof(packetTypeBuf), "unknown_0x%02x", rawVerb);
 						packetType = packetTypeBuf;
 					}
 					else {
 						packetType = knownType;
 					}
+				}
+				else if (isZtPacket) {
+					// For unauthenticated packets, don't infer verb/type from header bytes.
+					packetType = "unattributed";
 				}
 				char ztBuf[16], ipBuf[64];
 				if (ztAddr) {
@@ -5564,37 +5570,28 @@ class OneServiceImpl : public OneService {
 				keyIP.toIpString(ipBuf);
 
 				char line[512];
+				char verbField[16] = { 0 };
+				char bytesField[32] = { 0 };
+				if (canDecodeVerb) {
+					OSUtils::ztsnprintf(verbField, sizeof(verbField), " verb=0x%02x", rawVerb);
+				}
 				if (packetSize != 1432UL) {
-					OSUtils::ztsnprintf(
-						line,
-						sizeof(line),
-						"ts=%llu scope=underlay_packet dir=%s type=%s verb=0x%02x zt=%s ip=%s bytes=%lu ok=%u auth=%u logical=%u\n",
-						(unsigned long long)now,
-						incoming ? "in" : "out",
-						packetType,
-						rawVerb,
-						ztBuf,
-						ipBuf,
-						packetSize,
-						successful ? 1U : 0U,
-						(authenticated && ztAddr) ? 1U : 0U,
-						countLogical ? 1U : 0U);
+					OSUtils::ztsnprintf(bytesField, sizeof(bytesField), " bytes=%lu", packetSize);
 				}
-				else {
-					OSUtils::ztsnprintf(
-						line,
-						sizeof(line),
-						"ts=%llu scope=underlay_packet dir=%s type=%s verb=0x%02x zt=%s ip=%s ok=%u auth=%u logical=%u\n",
-						(unsigned long long)now,
-						incoming ? "in" : "out",
-						packetType,
-						rawVerb,
-						ztBuf,
-						ipBuf,
-						successful ? 1U : 0U,
-						(authenticated && ztAddr) ? 1U : 0U,
-						countLogical ? 1U : 0U);
-				}
+				OSUtils::ztsnprintf(
+					line,
+					sizeof(line),
+					"ts=%llu scope=underlay_packet dir=%s type=%s%s zt=%s ip=%s%s ok=%u auth=%u logical=%u\n",
+					(unsigned long long)now,
+					incoming ? "in" : "out",
+					packetType,
+					verbField,
+					ztBuf,
+					ipBuf,
+					bytesField,
+					successful ? 1U : 0U,
+					(authenticated && ztAddr) ? 1U : 0U,
+					countLogical ? 1U : 0U);
 				_appendMonitorLine(monitorLogPaths, line);
 			}
 
