@@ -69,7 +69,10 @@ MMDB_LIB:=$(firstword $(wildcard /usr/lib/libmaxminddb.so /usr/lib/libmaxminddb.
 MMDB_PKG:=$(shell pkg-config --exists libmaxminddb >/dev/null 2>&1 && echo 1 || true)
 MMDB_AVAILABLE:=$(if $(MMDB_HEADER),$(if $(or $(MMDB_LIB),$(MMDB_PKG)),1,))
 ifneq ($(MMDB_AVAILABLE),)
+	override DEFS+=-DZT_ENABLE_MAXMINDDB=1
 	LDLIBS+=-lmaxminddb
+else
+	override DEFS+=-DZT_NO_MAXMINDDB=1
 endif
 
 # Use bundled http-parser since distribution versions are NOT API-stable or compatible!

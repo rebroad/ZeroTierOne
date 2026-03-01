@@ -97,7 +97,7 @@
 #include <thread>	// TODO needed?
 #include <vector>	// TODO needed?
 
-#if defined(__has_include)
+#if ! defined(ZT_NO_MAXMINDDB) && defined(__has_include)
 #if __has_include(<maxminddb.h>)
 #include <maxminddb.h>
 #define ZT_HAVE_MAXMINDDB 1
