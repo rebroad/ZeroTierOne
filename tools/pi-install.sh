@@ -88,7 +88,7 @@ echo "Building zerotier-one for ARMv7 in container"
   -e CARGO_NET_RETRY=10 \
   -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
   "$DOCKER_PI_BUILD_IMAGE" \
-  bash -lc "set -euo pipefail; mkdir -p \"\$CARGO_HOME\"; rm -rf \"$PI_BUILD_OBJ_DIR\"; mkdir -p \"$PI_BUILD_DIR\"; cd /src; make BUILD_OBJ_DIR=\"$PI_BUILD_OBJ_DIR\" one; cp -f zerotier-one \"/src/$PI_BUILD_DIR/zerotier-one\""
+  bash -lc "set -euo pipefail; mkdir -p \"\$CARGO_HOME\"; mkdir -p \"$PI_BUILD_DIR\" \"$PI_BUILD_OBJ_DIR\"; cd /src; make BUILD_OBJ_DIR=\"$PI_BUILD_OBJ_DIR\" one; cp -f zerotier-one \"/src/$PI_BUILD_DIR/zerotier-one\""
 
 if [ ! -x "$PI_BUILD_BIN" ]; then
   echo "error: build did not produce executable: $PI_BUILD_BIN" >&2
