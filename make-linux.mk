@@ -67,9 +67,18 @@ endif
 MMDB_HEADER:=$(firstword $(wildcard /usr/include/maxminddb.h /usr/local/include/maxminddb.h /usr/include/*/maxminddb.h))
 MMDB_LIB:=$(firstword $(wildcard /usr/lib/libmaxminddb.so /usr/lib/libmaxminddb.a /usr/lib/*/libmaxminddb.so /usr/lib/*/libmaxminddb.a /lib/*/libmaxminddb.so /lib/*/libmaxminddb.a))
 MMDB_PKG:=$(shell pkg-config --exists libmaxminddb >/dev/null 2>&1 && echo 1 || true)
+MMDB_PKG_CFLAGS:=$(shell pkg-config --cflags libmaxminddb 2>/dev/null || true)
+MMDB_INCLUDE_DIR:=$(patsubst %/maxminddb.h,%,$(MMDB_HEADER))
 MMDB_AVAILABLE:=$(if $(MMDB_HEADER),$(if $(or $(MMDB_LIB),$(MMDB_PKG)),1,))
 ifneq ($(MMDB_AVAILABLE),)
 	override DEFS+=-DZT_ENABLE_MAXMINDDB=1
+ifneq ($(strip $(MMDB_PKG_CFLAGS)),)
+	override INCLUDES+=$(MMDB_PKG_CFLAGS)
+else
+ifneq ($(MMDB_INCLUDE_DIR),/usr/include)
+	override INCLUDES+=-I$(MMDB_INCLUDE_DIR)
+endif
+endif
 	LDLIBS+=-lmaxminddb
 else
 	override DEFS+=-DZT_NO_MAXMINDDB=1
@@ -445,8 +454,10 @@ DEP_FILES=$(CORE_OBJS:.o=.d) $(ONE_OBJS:.o=.d) $(ONE_MAIN_OBJ:.o=.d) $(SELFTEST_
 # Build signature tracking:
 # Rebuild objects automatically when compiler or build flags change.
 # Do not include git HEAD; otherwise every commit forces a full object rebuild.
+REBUILD ?= 1
 BUILD_SIGNATURE=$(shell printf "%s\n%s\n%s\n%s\n%s\n" "$(CC)" "$(CXX)" "$(CFLAGS)" "$(CXXFLAGS)" "$(DEFS) $(INCLUDES)" | sha256sum | awk '{print $$1}')
 
+ifneq ($(REBUILD),0)
 $(BUILD_SIGNATURE_FILE): FORCE
 	@mkdir -p $(dir $@)
 	@sig='$(BUILD_SIGNATURE)'; \
@@ -456,6 +467,7 @@ $(BUILD_SIGNATURE_FILE): FORCE
 	fi
 
 $(CORE_OBJS) $(ONE_OBJS) $(ONE_MAIN_OBJ) $(SELFTEST_MAIN_OBJ): $(BUILD_SIGNATURE_FILE)
+endif
 
 ifneq ($(strip $(BUILD_OBJ_DIR)),)
 $(BUILD_OBJ_DIR)/%.o: %.cpp
