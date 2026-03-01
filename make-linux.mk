@@ -9,7 +9,7 @@ ifeq ($(origin CXX),default)
 	CXX:=$(shell if [ -e /opt/rh/devtoolset-8/root/usr/bin/g++ ]; then echo /opt/rh/devtoolset-8/root/usr/bin/g++; else echo $(CXX); fi)
 endif
 
-INCLUDES?=-Irustybits/target -isystem ext -Iext/prometheus-cpp-lite-1.0/core/include -Iext-prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include -Iext/prometheus-cpp-lite-1.0/simpleapi/include
+INCLUDES?=-Irustybits/target -isystem ext -Iext/prometheus-cpp-lite-1.0/core/include -Iext/prometheus-cpp-lite-1.0/3rdparty/http-client-lite/include -Iext/prometheus-cpp-lite-1.0/simpleapi/include
 DEFS?=
 LDLIBS?=
 DESTDIR?=
@@ -359,11 +359,13 @@ OTEL_VERSION=1.21.0
 ifeq (${ZT_OTEL},1)
 	OTEL_INSTALL_DIR=ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall
 	override DEFS+=-DZT_OPENTELEMETRY_ENABLED=1
-	INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override CXXFLAGS+=-I${OTEL_INSTALL_DIR}/include
 	LDLIBS+=-L${OTEL_INSTALL_DIR}/lib -lopentelemetry_exporter_in_memory_metric -lopentelemetry_exporter_in_memory -lopentelemetry_exporter_ostream_logs -lopentelemetry_exporter_ostream_metrics -lopentelemetry_exporter_ostream_span -lopentelemetry_exporter_otlp_grpc  -lopentelemetry_exporter_otlp_grpc_client -lopentelemetry_exporter_otlp_grpc_log -lopentelemetry_exporter_otlp_grpc_metrics -lopentelemetry_otlp_recordable -lopentelemetry_common -lopentelemetry_trace -lopentelemetry_common -lopentelemetry_resources -lopentelemetry_logs -lopentelemetry_metrics -lopentelemetry_proto -lopentelemetry_proto_grpc -lopentelemetry_version -lprotobuf -lgrpc++
 else
 	OTEL_INSTALL_DIR=ext/opentelemetry-cpp-api-only
-	INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override CXXFLAGS+=-I${OTEL_INSTALL_DIR}/include
 endif
 
 # Disable software updates by default on Linux since that is normally done with package management
@@ -631,7 +633,7 @@ docker-build-remote-install-binary: docker-build-ubuntu2204
 		-v "$(CURDIR):/src" \
 		-w /src \
 		$(DOCKER_REMOTE_BUILD_IMAGE) \
-		bash -lc "set -eu; export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; rm -rf \"/src/$(REMOTE_BUILD_OBJ_DIR)\"; mkdir -p \"/src/$(REMOTE_BUILD_DIR)\"; cd /src; make BUILD_OBJ_DIR=$(REMOTE_BUILD_OBJ_DIR) one; cp -f zerotier-one /src/$(REMOTE_BUILD_BIN)"
+		bash -lc "set -eu; export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; mkdir -p \"/src/$(REMOTE_BUILD_DIR)\" \"/src/$(REMOTE_BUILD_OBJ_DIR)\"; cd /src; make REBUILD=$(REBUILD) BUILD_OBJ_DIR=$(REMOTE_BUILD_OBJ_DIR) one; cp -f zerotier-one /src/$(REMOTE_BUILD_BIN)"
 
 .PHONY: remote-install
 remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT)

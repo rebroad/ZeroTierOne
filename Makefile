@@ -50,4 +50,4 @@ windows-install:
 	tools/windows-cross/remote-install.sh "$(REMOTE_HOST)" "$(WINDOWS_INSTALLER)"
 
 pi-install:
-	tools/pi-install.sh "$(PI_HOST)" "$(PI_INSTALL_STAGE_DIR)"
+	REBUILD="$(REBUILD)" tools/pi-install.sh "$(PI_HOST)" "$(PI_INSTALL_STAGE_DIR)"

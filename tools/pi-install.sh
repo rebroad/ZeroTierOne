@@ -16,6 +16,7 @@ DOCKER_CARGO_HOME="${DOCKER_CARGO_HOME:-/src/.cache/cargo-pi3}"
 PI_BUILD_DIR="${PI_BUILD_DIR:-build/pi-armv7}"
 PI_BUILD_OBJ_DIR="${PI_BUILD_OBJ_DIR:-$PI_BUILD_DIR/obj}"
 PI_BUILD_BIN="$ROOT_DIR/$PI_BUILD_DIR/zerotier-one"
+REBUILD="${REBUILD:-1}"
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
 
@@ -87,8 +88,9 @@ echo "Building zerotier-one for ARMv7 in container"
   -e CARGO_HTTP_TIMEOUT=120 \
   -e CARGO_NET_RETRY=10 \
   -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+  -e REBUILD="$REBUILD" \
   "$DOCKER_PI_BUILD_IMAGE" \
-  bash -lc "set -euo pipefail; mkdir -p \"\$CARGO_HOME\"; mkdir -p \"$PI_BUILD_DIR\" \"$PI_BUILD_OBJ_DIR\"; cd /src; make BUILD_OBJ_DIR=\"$PI_BUILD_OBJ_DIR\" one; cp -f zerotier-one \"/src/$PI_BUILD_DIR/zerotier-one\""
+  bash -lc "set -euo pipefail; mkdir -p \"\$CARGO_HOME\"; mkdir -p \"$PI_BUILD_DIR\" \"$PI_BUILD_OBJ_DIR\"; cd /src; make REBUILD=\"$REBUILD\" BUILD_OBJ_DIR=\"$PI_BUILD_OBJ_DIR\" one; cp -f zerotier-one \"/src/$PI_BUILD_DIR/zerotier-one\""
 
 if [ ! -x "$PI_BUILD_BIN" ]; then
   echo "error: build did not produce executable: $PI_BUILD_BIN" >&2
