@@ -101,6 +101,12 @@
 #if __has_include(<maxminddb.h>)
 #include <maxminddb.h>
 #define ZT_HAVE_MAXMINDDB 1
+#elif __has_include(<arm-linux-gnueabihf/maxminddb.h>)
+#include <arm-linux-gnueabihf/maxminddb.h>
+#define ZT_HAVE_MAXMINDDB 1
+#elif __has_include(<aarch64-linux-gnu/maxminddb.h>)
+#include <aarch64-linux-gnu/maxminddb.h>
+#define ZT_HAVE_MAXMINDDB 1
 #elif __has_include(<x86_64-linux-gnu/maxminddb.h>)
 #include <x86_64-linux-gnu/maxminddb.h>
 #define ZT_HAVE_MAXMINDDB 1
