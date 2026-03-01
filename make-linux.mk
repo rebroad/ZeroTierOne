@@ -483,6 +483,12 @@ $(BUILD_OBJ_DIR)/%.o: %.c
 $(BUILD_OBJ_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Lowercase .s is plain assembly; keep only assembler-safe arch/opt/PIC flags.
+ASM_CFLAGS=$(filter -O% -g -fPIC -fPIE -m%,$(CFLAGS))
+$(BUILD_OBJ_DIR)/%.o: %.s
+	@mkdir -p $(dir $@)
+	$(CC) $(ASM_CFLAGS) -c -o $@ $<
 endif
 
 # Non-executable stack
@@ -633,7 +639,7 @@ docker-build-remote-install-binary: docker-build-ubuntu2204
 		-v "$(CURDIR):/src" \
 		-w /src \
 		$(DOCKER_REMOTE_BUILD_IMAGE) \
-		bash -lc "set -eu; export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"$$CARGO_HOME\"; mkdir -p \"/src/$(REMOTE_BUILD_DIR)\" \"/src/$(REMOTE_BUILD_OBJ_DIR)\"; cd /src; make REBUILD=$(REBUILD) BUILD_OBJ_DIR=$(REMOTE_BUILD_OBJ_DIR) one; cp -f zerotier-one /src/$(REMOTE_BUILD_BIN)"
+		bash -lc "set -eu; export CARGO_HOME=$(DOCKER_CARGO_HOME) CARGO_HTTP_TIMEOUT=120 CARGO_NET_RETRY=10 CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse; mkdir -p \"\$$CARGO_HOME\"; mkdir -p \"/src/$(REMOTE_BUILD_DIR)\" \"/src/$(REMOTE_BUILD_OBJ_DIR)\"; cd /src; make REBUILD=$(REBUILD) BUILD_OBJ_DIR=$(REMOTE_BUILD_OBJ_DIR) one; cp -f zerotier-one /src/$(REMOTE_BUILD_BIN)"
 
 .PHONY: remote-install
 remote-install: docker-build-remote-install-binary tools/$(REMOTE_INSTALL_SCRIPT)
