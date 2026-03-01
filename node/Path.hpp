@@ -207,7 +207,10 @@ class Path {
 	/**
 	 * Set the local port for this path - TODO is this function needed?
 	 */
-	inline void setLocalPort(unsigned int port) { _localPort = port; }
+	inline void setLocalPort(unsigned int port)
+	{
+		_localPort = port;
+	}
 
 	/**
 	 * @return Physical address

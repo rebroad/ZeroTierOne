@@ -244,7 +244,7 @@ bool bearerTokenValid(const std::string authHeader, const std::string& checkToke
 }
 
 // Helper function for consistent authentication - use standard x-zt1-auth method like all other endpoints
-bool isAuthenticated(const httplib::Request &req, const std::string &authToken)
+bool isAuthenticated(const httplib::Request& req, const std::string& authToken)
 {
 	if (req.has_header("x-zt1-auth")) {
 		std::string token = req.get_header_value("x-zt1-auth");
@@ -956,11 +956,11 @@ class OneServiceImpl : public OneService {
 		std::map<unsigned int, uint64_t> wireOutgoingPortCounts;   // port -> wire outgoing count
 
 		// TIER 2: Authenticated port usage (TRUSTED - cryptographically verified packets only)
-		std::map<unsigned int, uint64_t> incomingPortCounts;       // port -> auth incoming count
-		std::map<unsigned int, uint64_t> outgoingPortCounts;       // port -> auth outgoing count
+		std::map<unsigned int, uint64_t> incomingPortCounts;   // port -> auth incoming count
+		std::map<unsigned int, uint64_t> outgoingPortCounts;   // port -> auth outgoing count
 
-		InetAddress ipAddr;									       // The specific IP address for this stats entry
-		Address ztAddr;										       // The specific ZT address for this stats entry
+		InetAddress ipAddr;	  // The specific IP address for this stats entry
+		Address ztAddr;		  // The specific ZT address for this stats entry
 
 		// Original packet tracking (successful ZT protocol exchanges)
 		uint64_t totalIncoming;
@@ -977,32 +977,46 @@ class OneServiceImpl : public OneService {
 		uint64_t WireBytesOutgoingOK;	// Wire packet bytes successfully sent
 
 		// TIER 2: Protocol-level stats (TRUSTED - cryptographically verified only)
-		uint64_t AuthBytesIncoming;		// Only authenticated incoming bytes
-		uint64_t AuthBytesOutgoing;		// Only authenticated outgoing bytes
+		uint64_t AuthBytesIncoming;	  // Only authenticated incoming bytes
+		uint64_t AuthBytesOutgoing;	  // Only authenticated outgoing bytes
 
 		// Attack detection metrics
-		uint64_t lastAttackDetected;	// Timestamp of last detected attack
-		uint64_t attackEventCount;		// Number of times divergence detected
-		double maxDivergenceRatio;		// Highest wire:auth ratio seen
-		uint64_t suspiciousPacketCount;	// Packets that failed authentication
-		uint64_t lastDivergenceCheck;	// Last time we checked for divergence
+		uint64_t lastAttackDetected;	  // Timestamp of last detected attack
+		uint64_t attackEventCount;		  // Number of times divergence detected
+		double maxDivergenceRatio;		  // Highest wire:auth ratio seen
+		uint64_t suspiciousPacketCount;	  // Packets that failed authentication
+		uint64_t lastDivergenceCheck;	  // Last time we checked for divergence
 
 		// Time tracking for last communication (use authenticated packets only)
-		uint64_t lastAuthIncomingSeen;	// Last authenticated incoming packet
-		uint64_t lastAuthOutgoingSeen;	// Last authenticated outgoing packet
+		uint64_t lastAuthIncomingSeen;	 // Last authenticated incoming packet
+		uint64_t lastAuthOutgoingSeen;	 // Last authenticated outgoing packet
 
-		PeerStats() : totalIncoming(0), totalOutgoing(0), firstIncomingSeen(0), firstOutgoingSeen(0)
-					, lastIncomingSeen(0), lastOutgoingSeen(0)
-					, WireBytesIncoming(0), WireBytesOutgoing(0)
-					, WireBytesIncomingOK(0), WireBytesOutgoingOK(0)
-					, AuthBytesIncoming(0), AuthBytesOutgoing(0)
-					, lastAttackDetected(0), attackEventCount(0), maxDivergenceRatio(0.0)
-					, suspiciousPacketCount(0), lastDivergenceCheck(0)
-					, lastAuthIncomingSeen(0), lastAuthOutgoingSeen(0) {}
+		PeerStats()
+			: totalIncoming(0)
+			, totalOutgoing(0)
+			, firstIncomingSeen(0)
+			, firstOutgoingSeen(0)
+			, lastIncomingSeen(0)
+			, lastOutgoingSeen(0)
+			, WireBytesIncoming(0)
+			, WireBytesOutgoing(0)
+			, WireBytesIncomingOK(0)
+			, WireBytesOutgoingOK(0)
+			, AuthBytesIncoming(0)
+			, AuthBytesOutgoing(0)
+			, lastAttackDetected(0)
+			, attackEventCount(0)
+			, maxDivergenceRatio(0.0)
+			, suspiciousPacketCount(0)
+			, lastDivergenceCheck(0)
+			, lastAuthIncomingSeen(0)
+			, lastAuthOutgoingSeen(0)
+		{
+		}
 	};
-	std::map<std::pair<Address, InetAddress>, PeerStats> _peerStats; // Track by ZT address + IP address (port always 0)
-	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int>> _seenIncomingPeerPorts; // For first-time incoming logging
-	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int>> _seenOutgoingPeerPorts; // For first-time outgoing logging
+	std::map<std::pair<Address, InetAddress>, PeerStats> _peerStats;							  // Track by ZT address + IP address (port always 0)
+	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int> > _seenIncomingPeerPorts;	  // For first-time incoming logging
+	std::set<std::pair<std::pair<Address, InetAddress>, unsigned int> > _seenOutgoingPeerPorts;	  // For first-time outgoing logging
 	Mutex _peerStats_m;
 
 	// Peer introduction tracking for misbehavior detection
@@ -1015,14 +1029,16 @@ class OneServiceImpl : public OneService {
 		uint32_t failedAttempts;		  // How many connection attempts failed
 		uint64_t lastConnectionAttempt;	  // When we last tried to connect
 		bool hasEverConnected;			  // Whether this IP ever successfully connected
-		PeerIntroduction() : firstIntroduced(0), lastIntroduced(0), introductionCount(0), failedAttempts(0), lastConnectionAttempt(0), hasEverConnected(false) {}
+		PeerIntroduction() : firstIntroduced(0), lastIntroduced(0), introductionCount(0), failedAttempts(0), lastConnectionAttempt(0), hasEverConnected(false)
+		{
+		}
 	};
 	std::map<InetAddress, PeerIntroduction> _peerIntroductions;
 	Mutex _peerIntroductions_m;
 
 	// Track first-time events for debugging
-	std::set<Address> _seenPeerFileAccess;		  // Track first peer file access per ZT address
-	std::set<std::pair<Address, InetAddress> > _seenPacketSent;	  // Track first packet sent per ZT address + IP
+	std::set<Address> _seenPeerFileAccess;							  // Track first peer file access per ZT address
+	std::set<std::pair<Address, InetAddress> > _seenPacketSent;		  // Track first packet sent per ZT address + IP
 	std::set<std::pair<Address, InetAddress> > _seenPacketReceived;	  // Track first packet received per ZT address + IP
 	Mutex _firstTimeEvents_m;
 
@@ -2328,7 +2344,7 @@ class OneServiceImpl : public OneService {
 			setContent(req, res, out.dump());
 		};
 		_controlPlane.Delete(moonPath, moonDelete);
-		_controlPlaneV6.Delete(moonPath, moonDelete); // TODO - needed? (not in upstream)
+		_controlPlaneV6.Delete(moonPath, moonDelete);	// TODO - needed? (not in upstream)
 
 		auto networkListGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
 			auto provider = opentelemetry::trace::Provider::GetTracerProvider();
@@ -2671,9 +2687,8 @@ class OneServiceImpl : public OneService {
 		_controlPlane.Get(metricsPath, metricsGet);
 		_controlPlaneV6.Get(metricsPath, metricsGet);
 
-
 		// GET /stats - peer port and bandwidth usage statistics
-		auto statsGet = [&, setContent](const httplib::Request &req, httplib::Response &res) {
+		auto statsGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
 			json stats = json::object();
 
 			// Add port configuration information
@@ -2699,10 +2714,10 @@ class OneServiceImpl : public OneService {
 			// Step 1: Aggregate stats by IP address and by ZT address separately
 			std::map<InetAddress, uint64_t> ipIncomingBytes, ipOutgoingBytes, ipLastSeen;
 			std::map<Address, uint64_t> ztIncomingBytes, ztOutgoingBytes, ztLastSeen;
-			std::vector<std::pair<std::pair<Address, InetAddress>, PeerStats>> sortedPeers;
+			std::vector<std::pair<std::pair<Address, InetAddress>, PeerStats> > sortedPeers;
 
 			{
-				Mutex::Lock _l(_peerStats_m); // TODO - is lock-free an option?
+				Mutex::Lock _l(_peerStats_m);	// TODO - is lock-free an option?
 				for (const auto& peerEntry : _peerStats) {
 					sortedPeers.push_back(peerEntry);
 
@@ -2712,7 +2727,7 @@ class OneServiceImpl : public OneService {
 
 					// Aggregate by IP address (use wire-level stats as they include all traffic)
 					// BUT exclude IP stats for infrastructure IPs (PLANET/MOON addresses)
-					if (!_isInfrastructureIP(ipAddr)) {
+					if (! _isInfrastructureIP(ipAddr)) {
 						ipIncomingBytes[ipAddr] += peerStats.WireBytesIncoming;
 						ipOutgoingBytes[ipAddr] += peerStats.WireBytesOutgoing;
 						ipLastSeen[ipAddr] = std::max(ipLastSeen[ipAddr], peerStats.lastAuthIncomingSeen);
@@ -2734,7 +2749,7 @@ class OneServiceImpl : public OneService {
 			}
 
 			// Step 2: Pre-calculate display values once before sorting
-			std::map<std::pair<Address, InetAddress>, std::tuple<uint64_t, uint64_t, std::string, std::string>> displayValues;
+			std::map<std::pair<Address, InetAddress>, std::tuple<uint64_t, uint64_t, std::string, std::string> > displayValues;
 
 			for (const auto& peerEntry : sortedPeers) {
 				const std::pair<Address, InetAddress>& peerKey = peerEntry.first;
@@ -2755,7 +2770,8 @@ class OneServiceImpl : public OneService {
 					displayRx = ztRx;
 					displayTx = ztTx;
 					rxSource = txSource = "z";
-				} else {
+				}
+				else {
 					bool rxFromIP = ipRx >= ztRx;
 					bool txFromIP = ipTx >= ztTx;
 					displayRx = rxFromIP ? ipRx : ztRx;
@@ -2768,14 +2784,13 @@ class OneServiceImpl : public OneService {
 			}
 
 			// Sort by pre-calculated display values
-			std::sort(sortedPeers.begin(), sortedPeers.end(),
-				[&displayValues](const auto& a, const auto& b) {
-					const auto& valA = displayValues[a.first];
-					const auto& valB = displayValues[b.first];
-					uint64_t totalA = std::get<0>(valA) + std::get<1>(valA); // displayRx + displayTx
-					uint64_t totalB = std::get<0>(valB) + std::get<1>(valB);
-					return totalA > totalB;
-				});
+			std::sort(sortedPeers.begin(), sortedPeers.end(), [&displayValues](const auto& a, const auto& b) {
+				const auto& valA = displayValues[a.first];
+				const auto& valB = displayValues[b.first];
+				uint64_t totalA = std::get<0>(valA) + std::get<1>(valA);   // displayRx + displayTx
+				uint64_t totalB = std::get<0>(valB) + std::get<1>(valB);
+				return totalA > totalB;
+			});
 
 			json peerStats = json::array();
 			for (const auto& peerEntry : sortedPeers) {
@@ -2801,8 +2816,8 @@ class OneServiceImpl : public OneService {
 				peerStat["ipAddress"] = std::string(ipAddrStr);
 				peerStat["displayBytesIncoming"] = displayRx;
 				peerStat["displayBytesOutgoing"] = displayTx;
-				peerStat["rxSource"] = rxSource;  // "i" = from IP stats, "z" = from ZT address stats
-				peerStat["txSource"] = txSource;  // "i" = from IP stats, "z" = from ZT address stats
+				peerStat["rxSource"] = rxSource;   // "i" = from IP stats, "z" = from ZT address stats
+				peerStat["txSource"] = txSource;   // "i" = from IP stats, "z" = from ZT address stats
 
 				// Only include entries with valid ZT address (filter out null ZT addresses)
 				if (ztAddr) {
@@ -2823,8 +2838,8 @@ class OneServiceImpl : public OneService {
 				std::set<InetAddress> uniqueIPs;
 				std::set<Address> uniqueZTAddresses;
 				for (const auto& entry : _peerStats) {
-					uniqueIPs.insert(entry.first.second);        // IP address (InetAddress)
-					uniqueZTAddresses.insert(entry.first.first); // ZT address
+					uniqueIPs.insert(entry.first.second);		   // IP address (InetAddress)
+					uniqueZTAddresses.insert(entry.first.first);   // ZT address
 				}
 				stats["diagnostics"]["uniqueIPAddresses"] = uniqueIPs.size();
 				stats["diagnostics"]["uniqueZTAddresses"] = uniqueZTAddresses.size();
@@ -2833,16 +2848,18 @@ class OneServiceImpl : public OneService {
 			// Add allPeers count for comparison
 			if (_node) {
 				try {
-					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node*>(_node)->_RR);
+					const RuntimeEnvironment* RR = &(reinterpret_cast<const Node*>(_node)->_RR);
 					if (RR && RR->topology) {
 						// NOTE: _node->peers()->peerCount would be identical (calls allPeers() internally)
-						std::vector<std::pair<Address, SharedPtr<Peer>>> allPeers = RR->topology->allPeers();
+						std::vector<std::pair<Address, SharedPtr<Peer> > > allPeers = RR->topology->allPeers();
 						stats["diagnostics"]["allPeersCount"] = allPeers.size();
 					}
-				} catch (...) {
+				}
+				catch (...) {
 					stats["diagnostics"]["allPeersCount"] = "unavailable";
 				}
-			} else {
+			}
+			else {
 				stats["diagnostics"]["allPeersCount"] = "node_not_ready";
 			}
 
@@ -2850,7 +2867,6 @@ class OneServiceImpl : public OneService {
 		};
 		_controlPlane.Get("/stats", statsGet);
 		_controlPlaneV6.Get("/stats", statsGet);
-
 
 		auto exceptionHandler = [&, setContent](const httplib::Request& req, httplib::Response& res, std::exception_ptr ep) {
 			auto provider = opentelemetry::trace::Provider::GetTracerProvider();
@@ -2939,7 +2955,7 @@ class OneServiceImpl : public OneService {
 			exit(-1);
 		}
 
-		_controlPlane.set_logger([](const httplib::Request &req, const httplib::Response &res) {
+		_controlPlane.set_logger([](const httplib::Request& req, const httplib::Response& res) {
 			// Only log errors and non-standard requests to reduce verbosity
 			if (res.status > 200 || (req.path != "/peer" && req.path != "/stats" && req.path != "/status")) {
 				fprintf(stderr, "INFO: control plane: %s %s %d" ZT_EOL_S, req.method.c_str(), req.path.c_str(), res.status);
@@ -3533,16 +3549,22 @@ class OneServiceImpl : public OneService {
 			// TIER 2: Authenticated packet tracking and port usage happens in Peer::received() after validation
 
 			// Log traffic on unexpected ports for debugging (still useful for wire-level analysis)
-			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort ||
-								(_allowSecondaryPort && localPort == _ports[1]));
+			bool isKnownPort = (localPort == _primaryPort || localPort == _tertiaryPort || (_allowSecondaryPort && localPort == _ports[1]));
 
-			if (!isKnownPort) {
+			if (! isKnownPort) {
 				char ztAddrBuf[16], ipBuf[64];
 				originPeerZTAddr.toString(ztAddrBuf);
 				fromAddress.toIpString(ipBuf);
-				fprintf(stderr, "UNEXPECTED_PORT: Received packet from %s (%s) on port %u (Primary: %u, Secondary: %s%u, Tertiary: %u)" ZT_EOL_S,
-					ztAddrBuf, ipBuf, localPort, _primaryPort,
-					_allowSecondaryPort ? "" : "disabled/", _allowSecondaryPort ? _ports[1] : 0, _tertiaryPort);
+				fprintf(
+					stderr,
+					"UNEXPECTED_PORT: Received packet from %s (%s) on port %u (Primary: %u, Secondary: %s%u, Tertiary: %u)" ZT_EOL_S,
+					ztAddrBuf,
+					ipBuf,
+					localPort,
+					_primaryPort,
+					_allowSecondaryPort ? "" : "disabled/",
+					_allowSecondaryPort ? _ports[1] : 0,
+					_tertiaryPort);
 			}
 		}
 
@@ -4260,9 +4282,9 @@ class OneServiceImpl : public OneService {
 		if (type == ZT_STATE_OBJECT_PEER) {
 			Address peerAddr(id[0]);
 			{
-				Mutex::Lock _l(_firstTimeEvents_m); // TODO - really necessary?!
+				Mutex::Lock _l(_firstTimeEvents_m);	  // TODO - really necessary?!
 				if (_seenPeerFileAccess.find(peerAddr) == _seenPeerFileAccess.end()) {
-					_seenPeerFileAccess.insert(peerAddr); // TODO - create housekeeping to remove old entries
+					_seenPeerFileAccess.insert(peerAddr);	// TODO - create housekeeping to remove old entries
 					char peerBuf[16];
 					peerAddr.toString(peerBuf);
 					fprintf(stderr, "PEER_FILE_ACCESS: %s (%.10llx.peer)" ZT_EOL_S, peerBuf, (unsigned long long)id[0]);
@@ -4296,11 +4318,11 @@ class OneServiceImpl : public OneService {
 		// Log initial outgoing packet attempts and track wire packet metrics
 		try {
 			// Check for null pointer to prevent crashes
-			if (!addr) {
+			if (! addr) {
 				return -1;
 			}
 
-			const uint8_t *packetData = reinterpret_cast<const uint8_t *>(data);
+			const uint8_t* packetData = reinterpret_cast<const uint8_t*>(data);
 			Address ztAddr;
 			const InetAddress ipAddr(addr);
 			char ipBuf[64];
@@ -4308,15 +4330,17 @@ class OneServiceImpl : public OneService {
 
 			// Extract peer address from packet data
 			if (len > 12) {
-				ztAddr.setTo(packetData + 8, 5); // TODO - we're doing this later in this function again!!
-			} else {
-				ztAddr.zero(); // TODO we should ideally avoid doing this - can we fetch it from tier 2?
+				ztAddr.setTo(packetData + 8, 5);   // TODO - we're doing this later in this function again!!
+			}
+			else {
+				ztAddr.zero();	 // TODO we should ideally avoid doing this - can we fetch it from tier 2?
 			}
 
 			// Unified Layer 7 processing: Statistics + Logging
 			unsigned int localPort = _getLocalPortSafely(localSocket);
-			_handlePacketAtLayer7(ztAddr, ipAddr, localPort, len, false, true); // false = outgoing packet
-		} catch (...) {
+			_handlePacketAtLayer7(ztAddr, ipAddr, localPort, len, false, true);	  // false = outgoing packet
+		}
+		catch (...) {
 			// Ignore errors in logging
 		}
 #ifdef ZT_TCP_FALLBACK_RELAY
@@ -4652,30 +4676,45 @@ class OneServiceImpl : public OneService {
 		// Determine peer type for more informative logging (for the target peer, not the introducer)
 		const char* targetPeerType = "UNKNOWN";
 		const char* introducerType = "UNKNOWN";
-		const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+		const RuntimeEnvironment* RR = &(reinterpret_cast<const Node*>(_node)->_RR);
 
 		ZT_PeerRole targetRole = RR->topology->role(targetPeerAddr);
 		switch (targetRole) {
-			case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
-			case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
-			case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
-			default: targetPeerType = "UNKNOWN"; break;
+			case ZT_PEER_ROLE_PLANET:
+				targetPeerType = "PLANET";
+				break;
+			case ZT_PEER_ROLE_MOON:
+				targetPeerType = "MOON";
+				break;
+			case ZT_PEER_ROLE_LEAF:
+				targetPeerType = "LEAF";
+				break;
+			default:
+				targetPeerType = "UNKNOWN";
+				break;
 		}
 
 		ZT_PeerRole introducerRole = RR->topology->role(introducedBy);
 		switch (introducerRole) {
-			case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
-			case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
-			case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
-			default: introducerType = "UNKNOWN"; break;
+			case ZT_PEER_ROLE_PLANET:
+				introducerType = "PLANET";
+				break;
+			case ZT_PEER_ROLE_MOON:
+				introducerType = "MOON";
+				break;
+			case ZT_PEER_ROLE_LEAF:
+				introducerType = "LEAF";
+				break;
+			default:
+				introducerType = "UNKNOWN";
+				break;
 		}
 
 		if (intro.introductionCount == 1) {
-			fprintf(stderr, "PEER_INTRO: %s (%s %s) introduced by %s %s" ZT_EOL_S,
-				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf);
-		} else if (intro.introductionCount%100 == 2) {
-			fprintf(stderr, "PEER_INTRO: %s (%s %s) re-introduced by %s %s (count: %u)" ZT_EOL_S,
-				ipBuf, targetPeerType, targetBuf, introducerType, addrBuf, intro.introductionCount);
+			fprintf(stderr, "PEER_INTRO: %s (%s %s) introduced by %s %s" ZT_EOL_S, ipBuf, targetPeerType, targetBuf, introducerType, addrBuf);
+		}
+		else if (intro.introductionCount % 100 == 2) {
+			fprintf(stderr, "PEER_INTRO: %s (%s %s) re-introduced by %s %s (count: %u)" ZT_EOL_S, ipBuf, targetPeerType, targetBuf, introducerType, addrBuf, intro.introductionCount);
 		}
 	}
 
@@ -4695,18 +4734,19 @@ class OneServiceImpl : public OneService {
 
 			if (successful) {
 				intro.hasEverConnected = true;
-			} else {
+			}
+			else {
 				intro.failedAttempts++;
 
 				// Enhanced failure detection with context awareness
-				if (intro.failedAttempts >= 5 && !intro.hasEverConnected) {
+				if (intro.failedAttempts >= 5 && ! intro.hasEverConnected) {
 					char ipBuf[64], introducerBuf[16], targetBuf[16];
 					targetIP.toString(ipBuf);
 					intro.introducedBy.toString(introducerBuf);
 					intro.targetPeerAddr.toString(targetBuf);
 
 					// Check if target peer is already connected via different path
-					const RuntimeEnvironment *RR = &(reinterpret_cast<const Node *>(_node)->_RR);
+					const RuntimeEnvironment* RR = &(reinterpret_cast<const Node*>(_node)->_RR);
 					SharedPtr<Peer> existingPeer = RR->topology->getPeer(nullptr, intro.targetPeerAddr);
 					bool targetConnectedElsewhere = (existingPeer && existingPeer->isAlive(now));
 
@@ -4716,29 +4756,43 @@ class OneServiceImpl : public OneService {
 
 					ZT_PeerRole targetRole = RR->topology->role(intro.targetPeerAddr);
 					switch (targetRole) {
-						case ZT_PEER_ROLE_PLANET: targetPeerType = "PLANET"; break;
-						case ZT_PEER_ROLE_MOON: targetPeerType = "MOON"; break;
-						case ZT_PEER_ROLE_LEAF: targetPeerType = "LEAF"; break;
-						default: targetPeerType = "UNKNOWN"; break;
+						case ZT_PEER_ROLE_PLANET:
+							targetPeerType = "PLANET";
+							break;
+						case ZT_PEER_ROLE_MOON:
+							targetPeerType = "MOON";
+							break;
+						case ZT_PEER_ROLE_LEAF:
+							targetPeerType = "LEAF";
+							break;
+						default:
+							targetPeerType = "UNKNOWN";
+							break;
 					}
 
 					ZT_PeerRole introducerRole = RR->topology->role(intro.introducedBy);
 					switch (introducerRole) {
-						case ZT_PEER_ROLE_PLANET: introducerType = "PLANET"; break;
-						case ZT_PEER_ROLE_MOON: introducerType = "MOON"; break;
-						case ZT_PEER_ROLE_LEAF: introducerType = "LEAF"; break;
-						default: introducerType = "UNKNOWN"; break;
+						case ZT_PEER_ROLE_PLANET:
+							introducerType = "PLANET";
+							break;
+						case ZT_PEER_ROLE_MOON:
+							introducerType = "MOON";
+							break;
+						case ZT_PEER_ROLE_LEAF:
+							introducerType = "LEAF";
+							break;
+						default:
+							introducerType = "UNKNOWN";
+							break;
 					}
 
-					if (!targetConnectedElsewhere) {
-						fprintf(stderr, "PEER_INTRO_FAILING: IP %s (%s %s) introduced by %s %s failed %u connection attempts without success" ZT_EOL_S,
-							ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
+					if (! targetConnectedElsewhere) {
+						fprintf(stderr, "PEER_INTRO_FAILING: IP %s (%s %s) introduced by %s %s failed %u connection attempts without success" ZT_EOL_S, ipBuf, targetPeerType, targetBuf, introducerType, introducerBuf, intro.failedAttempts);
 					}
 				}
 			}
 		}
 	}
-
 
 	/**
 	 * Collect all active UDP ports
@@ -4751,13 +4805,16 @@ class OneServiceImpl : public OneService {
 	 * @return Vector of active UDP ports (empty during early initialization)
 	 */
 	std::vector<unsigned int> _collectUdpPorts() const
-	{ // TODO - document when this is run, and called by which functions
+	{	// TODO - document when this is run, and called by which functions
 		std::vector<unsigned int> udpPorts;
 
 		// Add all active ports
-		if (_ports[0] != 0) udpPorts.push_back(_ports[0]); // Primary port
-		if (_ports[1] != 0) udpPorts.push_back(_ports[1]); // Secondary port
-		if (_ports[2] != 0) udpPorts.push_back(_ports[2]); // Tertiary port (UPnP/NAT-PMP)
+		if (_ports[0] != 0)
+			udpPorts.push_back(_ports[0]);	 // Primary port
+		if (_ports[1] != 0)
+			udpPorts.push_back(_ports[1]);	 // Secondary port
+		if (_ports[2] != 0)
+			udpPorts.push_back(_ports[2]);	 // Tertiary port (UPnP/NAT-PMP)
 
 		// If no ports are available yet, use the configured primary port
 		if (udpPorts.empty()) {
@@ -4772,57 +4829,66 @@ class OneServiceImpl : public OneService {
 
 	// Attack detection through divergence analysis
 	// Helper function to check if a ZT address is a PLANET or MOON (infrastructure node)
-	bool _isInfrastructureNode(const Address& ztAddr) {
-		if (!_node) return false;
+	bool _isInfrastructureNode(const Address& ztAddr)
+	{
+		if (! _node)
+			return false;
 
 		try {
 			const Node* node = reinterpret_cast<const Node*>(_node);
-			if (!node || !node->online()) {
+			if (! node || ! node->online()) {
 				return false;
 			}
 
-			const RuntimeEnvironment *RR = &(node->_RR);
-			if (!RR || !RR->topology) {
+			const RuntimeEnvironment* RR = &(node->_RR);
+			if (! RR || ! RR->topology) {
 				return false;
 			}
 
 			ZT_PeerRole role = RR->topology->role(ztAddr);
 			return (role == ZT_PEER_ROLE_PLANET || role == ZT_PEER_ROLE_MOON);
-		} catch (...) {
+		}
+		catch (...) {
 			// Ignore errors during node initialization
 			return false;
 		}
 	}
 
 	// Add an IP address to the infrastructure lookup table - TODO needed? Didn't upstream already have a way to do this?
-	void _addInfrastructureIP(const InetAddress& ipAddr) {
+	void _addInfrastructureIP(const InetAddress& ipAddr)
+	{
 		Mutex::Lock _l(_infrastructureIPs_m);
 		_infrastructureIPs.insert(ipAddr);
 	}
 
 	// Check if an IP address is in the infrastructure lookup table
-	bool _isInfrastructureIP(const InetAddress& ipAddr) {
+	bool _isInfrastructureIP(const InetAddress& ipAddr)
+	{
 		Mutex::Lock _l(_infrastructureIPs_m);
 		return _infrastructureIPs.find(ipAddr) != _infrastructureIPs.end();
 	}
 
 	// Safe port lookup that won't crash if socket info isn't available
-	unsigned int _getLocalPortSafely(int64_t localSocket) {
-		if (localSocket == -1) return 0;
+	unsigned int _getLocalPortSafely(int64_t localSocket)
+	{
+		if (localSocket == -1)
+			return 0;
 
 		try {
-			return Phy<OneServiceImpl *>::getLocalPort((PhySocket *)((uintptr_t)localSocket));
-		} catch (...) {
+			return Phy<OneServiceImpl*>::getLocalPort((PhySocket*)((uintptr_t)localSocket));
+		}
+		catch (...) {
 			// Gracefully handle any errors in port lookup
 			return 0;
 		}
 	}
 
 	// Unified Layer 7 function: Statistics + Logging
-	void _handlePacketAtLayer7(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort,
-							  unsigned long packetSize, bool incoming, bool successful) {
+	void _handlePacketAtLayer7(Address ztAddr, const InetAddress& ipAddr, unsigned int localPort, unsigned long packetSize, bool incoming, bool successful)
+	{
 		// Skip processing during early initialization
-		if (!_node) return;
+		if (! _node)
+			return;
 
 		try {
 			// Use IP address with port set to 0 for consistent tracking
@@ -4839,11 +4905,12 @@ class OneServiceImpl : public OneService {
 				if (incoming) {
 					stats.totalIncoming++;
 					stats.lastIncomingSeen = OSUtils::now();
-				} else {
+				}
+				else {
 					stats.totalOutgoing++;
 					stats.lastOutgoingSeen = OSUtils::now();
 				}
-				stats.ipAddr = ipAddr;  // Store the full InetAddress
+				stats.ipAddr = ipAddr;	 // Store the full InetAddress
 
 				// Track first packet for infrastructure detection
 				if (stats.totalIncoming == 1) {
@@ -4863,7 +4930,8 @@ class OneServiceImpl : public OneService {
 					_seenPacketReceived.insert(packetKey);
 					shouldLog = true;
 				}
-			} else {
+			}
+			else {
 				if (_seenPacketSent.find(packetKey) == _seenPacketSent.end()) {
 					_seenPacketSent.insert(packetKey);
 					shouldLog = true;
@@ -4876,56 +4944,58 @@ class OneServiceImpl : public OneService {
 				ipAddr.toIpString(ipBuf);
 
 				if (incoming) {
-					fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S,
-						packetSize, ipBuf, ztBuf, localPort);
-				} else {
-					fprintf(stderr, "PACKET_TO: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S,
-						packetSize, ipBuf, ztBuf, localPort);
+					fprintf(stderr, "PACKET_FROM: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S, packetSize, ipBuf, ztBuf, localPort);
+				}
+				else {
+					fprintf(stderr, "PACKET_TO: size=%lu remote=%s peer=%s port=%u" ZT_EOL_S, packetSize, ipBuf, ztBuf, localPort);
 				}
 			}
-
-		} catch (...) {
+		}
+		catch (...) {
 			// Ignore errors in packet processing - not critical
 		}
 	}
 
 	// Get a copy of the infrastructure IPs (for stats endpoints)
-	std::set<InetAddress> _getInfrastructureIPs() { // TODO - when is this used and by which functions?
+	std::set<InetAddress> _getInfrastructureIPs()
+	{	// TODO - when is this used and by which functions?
 		Mutex::Lock _l(_infrastructureIPs_m);
-		return _infrastructureIPs;  // Return copy
+		return _infrastructureIPs;	 // Return copy
 	}
 
 	// Helper function to look up all ZT addresses associated with an IP address
-	std::vector<Address> _getZtAddressesForIP(const InetAddress& ipAddr) {
+	std::vector<Address> _getZtAddressesForIP(const InetAddress& ipAddr)
+	{
 		std::vector<Address> ztAddresses;
 		Mutex::Lock _l(_peerStats_m);
 
 		for (const auto& entry : _peerStats) {
-			if (entry.first.second.ipsEqual(ipAddr)) {  // Match IP address (ignoring port)
-				ztAddresses.push_back(entry.first.first);  // Add ZT address
+			if (entry.first.second.ipsEqual(ipAddr)) {		// Match IP address (ignoring port)
+				ztAddresses.push_back(entry.first.first);	// Add ZT address
 			}
 		}
-		return ztAddresses; // TODO - which functions are using this?
+		return ztAddresses;	  // TODO - which functions are using this?
 	}
 
 	// Helper function to look up all IP addresses associated with a ZT address
-	std::vector<InetAddress> _getIPAddressesForZtAddr(const Address& ztAddr) {
+	std::vector<InetAddress> _getIPAddressesForZtAddr(const Address& ztAddr)
+	{
 		std::vector<InetAddress> ipAddresses;
 		Mutex::Lock _l(_peerStats_m);
 
 		for (const auto& entry : _peerStats) {
-			if (entry.first.first == ztAddr) {  // Match ZT address
-				ipAddresses.push_back(entry.first.second);  // Add IP address
+			if (entry.first.first == ztAddr) {				 // Match ZT address
+				ipAddresses.push_back(entry.first.second);	 // Add IP address
 			}
 		}
-		return ipAddresses; // TODO - which functions are using this?
+		return ipAddresses;	  // TODO - which functions are using this?
 	}
 
-	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& ipAddr,
-								   PeerStats& stats, uint64_t now) {
+	void _checkForAttackDivergence(const Address& ztAddr, const InetAddress& ipAddr, PeerStats& stats, uint64_t now)
+	{
 		// TODO - this is called from _trackWirePacket()
-		if (!ztAddr) { // isZero() is equivalent to !ztAddr since Address has bool operator
-			return; // Skip attack detection for zero addresses until we understand the false positives
+		if (! ztAddr) {	  // isZero() is equivalent to !ztAddr since Address has bool operator
+			return;		  // Skip attack detection for zero addresses until we understand the false positives
 		}
 
 		// Calculate divergence ratios (byte-based analysis only since we removed packet counts)
@@ -4933,8 +5003,9 @@ class OneServiceImpl : public OneService {
 
 		if (stats.AuthBytesIncoming > 0) {
 			incomingByteRatio = (double)stats.WireBytesIncoming / (double)stats.AuthBytesIncoming;
-		} else if (stats.WireBytesIncoming > 10000) { // TODO - why?!!
-			incomingByteRatio = 999.0; // High number to indicate suspicious activity
+		}
+		else if (stats.WireBytesIncoming > 10000) {	  // TODO - why?!!
+			incomingByteRatio = 999.0;				  // High number to indicate suspicious activity
 		}
 
 		// Update maximum divergence ratio seen
@@ -4943,9 +5014,9 @@ class OneServiceImpl : public OneService {
 		}
 
 		// Define attack thresholds
-		const double MINOR_ATTACK_THRESHOLD = 2.0;    // 2:1 ratio indicates possible attack
-		const double MAJOR_ATTACK_THRESHOLD = 5.0;   // 5:1 ratio indicates definite attack
-		const uint64_t MIN_BYTES_FOR_ANALYSIS = 1000; // Need minimum sample size (1KB)
+		const double MINOR_ATTACK_THRESHOLD = 2.0;		// 2:1 ratio indicates possible attack
+		const double MAJOR_ATTACK_THRESHOLD = 5.0;		// 5:1 ratio indicates definite attack
+		const uint64_t MIN_BYTES_FOR_ANALYSIS = 1000;	// Need minimum sample size (1KB)
 
 		// Only analyze if we have sufficient data
 		if (stats.WireBytesIncoming < MIN_BYTES_FOR_ANALYSIS) {
@@ -4958,7 +5029,8 @@ class OneServiceImpl : public OneService {
 		if (incomingByteRatio >= MAJOR_ATTACK_THRESHOLD) {
 			attackDetected = true;
 			attackSeverity = "MAJOR";
-		} else if (incomingByteRatio >= MINOR_ATTACK_THRESHOLD) {
+		}
+		else if (incomingByteRatio >= MINOR_ATTACK_THRESHOLD) {
 			attackDetected = true;
 			attackSeverity = "MINOR";
 		}
@@ -4972,14 +5044,20 @@ class OneServiceImpl : public OneService {
 			ztAddr.toString(ztAddrStr);
 			ipAddr.toIpString(ipAddrStr);
 
-			fprintf(stderr, "ATTACK_DETECTED: %s attack on peer %s from IP %s - "
-							"Wire/Auth byte ratio: %.1f:1 - "
-							"Wire: %llu bytes, Auth: %llu bytes, "
-							"Suspicious: %llu packets, Events: %llu" ZT_EOL_S,
-				attackSeverity, ztAddrStr, ipAddrStr, incomingByteRatio,
+			fprintf(
+				stderr,
+				"ATTACK_DETECTED: %s attack on peer %s from IP %s - "
+				"Wire/Auth byte ratio: %.1f:1 - "
+				"Wire: %llu bytes, Auth: %llu bytes, "
+				"Suspicious: %llu packets, Events: %llu" ZT_EOL_S,
+				attackSeverity,
+				ztAddrStr,
+				ipAddrStr,
+				incomingByteRatio,
 				(unsigned long long)stats.WireBytesIncoming,
 				(unsigned long long)stats.AuthBytesIncoming,
-				(unsigned long long)stats.suspiciousPacketCount, (unsigned long long)stats.attackEventCount);
+				(unsigned long long)stats.suspiciousPacketCount,
+				(unsigned long long)stats.attackEventCount);
 
 			// For major attacks, consider additional defensive measures
 			if (incomingByteRatio >= MAJOR_ATTACK_THRESHOLD) {
@@ -4989,7 +5067,7 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
-}; // End of OneServiceImpl class
+};	 // End of OneServiceImpl class
 
 static int SnodeVirtualNetworkConfigFunction(ZT_Node* node, void* uptr, void* tptr, uint64_t nwid, void** nuptr, enum ZT_VirtualNetworkConfigOperation op, const ZT_VirtualNetworkConfig* nwconf)
 {

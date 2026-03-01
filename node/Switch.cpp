@@ -143,7 +143,7 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 									// Fragmented packet head was successfully decoded and authenticated
 									if (authenticatedPeerAddr) {
 										*authenticatedPeerAddr = rq->frag0.source();
-									} // TODO - is this right?
+									}	// TODO - is this right?
 									rq->timestamp = 0;	 // packet decoded, free entry
 								}
 								else {
@@ -235,7 +235,7 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 								// Fragmented packet was successfully decoded and authenticated
 								if (authenticatedPeerAddr) {
 									*authenticatedPeerAddr = rq->frag0.source();
-								} // TODO - is this right?
+								}	// TODO - is this right?
 								rq->timestamp = 0;	 // packet decoded, free entry
 							}
 							else {
@@ -256,8 +256,9 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 						// Packet was successfully decoded and authenticated
 						if (authenticatedPeerAddr) {
 							*authenticatedPeerAddr = packet.source();
-						} // TODO - is this right?
-					} else {
+						}	// TODO - is this right?
+					}
+					else {
 						RXQueueEntry* const rq = _nextRXQueueEntry();
 						Mutex::Lock rql(rq->lock);
 						rq->flowId = flowId;

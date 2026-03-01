@@ -214,23 +214,33 @@ Node::~Node()
 	::free(RR->rtmem);
 }
 
-ZT_ResultCode Node::processWirePacket(void* tptr, int64_t now, int64_t localSocket, const struct sockaddr_storage* remoteAddress, const void* packetData, unsigned int packetLength, volatile int64_t* nextBackgroundTaskDeadline, Address *sourcePeerAddress, unsigned int localPort)
+ZT_ResultCode Node::processWirePacket(
+	void* tptr,
+	int64_t now,
+	int64_t localSocket,
+	const struct sockaddr_storage* remoteAddress,
+	const void* packetData,
+	unsigned int packetLength,
+	volatile int64_t* nextBackgroundTaskDeadline,
+	Address* sourcePeerAddress,
+	unsigned int localPort)
 {
 	_now = now;
 
 	// Process packet and get authenticated peer address if available
 	Address authenticatedPeerAddr;
-	RR->sw->onRemotePacket(tptr,localSocket, *(reinterpret_cast<const InetAddress *>(remoteAddress)), packetData, packetLength, localPort, &authenticatedPeerAddr);
+	RR->sw->onRemotePacket(tptr, localSocket, *(reinterpret_cast<const InetAddress*>(remoteAddress)), packetData, packetLength, localPort, &authenticatedPeerAddr);
 
 	// Return the authenticated peer address if available, otherwise try to extract from packet
 	if (sourcePeerAddress) {
 		if (authenticatedPeerAddr) {
 			*sourcePeerAddress = authenticatedPeerAddr;
-		} else if (packetLength >= ZT_PROTO_MIN_PACKET_LENGTH) {
-			// Fallback: extract from packet header (less reliable)
-			sourcePeerAddress->setTo(reinterpret_cast<const uint8_t *>(packetData) + 13, ZT_ADDRESS_LENGTH);
 		}
-	} // TODO inform calling process whether it was authenticated or not.
+		else if (packetLength >= ZT_PROTO_MIN_PACKET_LENGTH) {
+			// Fallback: extract from packet header (less reliable)
+			sourcePeerAddress->setTo(reinterpret_cast<const uint8_t*>(packetData) + 13, ZT_ADDRESS_LENGTH);
+		}
+	}	// TODO inform calling process whether it was authenticated or not.
 
 	return ZT_RESULT_OK;
 }
@@ -979,9 +989,9 @@ enum ZT_ResultCode
 ZT_Node_processWirePacket(ZT_Node* node, void* tptr, int64_t now, int64_t localSocket, const struct sockaddr_storage* remoteAddress, const void* packetData, unsigned int packetLength, volatile int64_t* nextBackgroundTaskDeadline)
 {
 	try {
-		return reinterpret_cast<ZeroTier::Node*>(node)->processWirePacket(tptr, now, localSocket, remoteAddress, packetData, packetLength, nextBackgroundTaskDeadline, nullptr, 0); // TODO - nullptr and 0 - is this correct?
+		return reinterpret_cast<ZeroTier::Node*>(node)->processWirePacket(tptr, now, localSocket, remoteAddress, packetData, packetLength, nextBackgroundTaskDeadline, nullptr, 0);	  // TODO - nullptr and 0 - is this correct?
 	}
-	catch (std::bad_alloc &exc) {
+	catch (std::bad_alloc& exc) {
 		return ZT_RESULT_FATAL_ERROR_OUT_OF_MEMORY;
 	}
 	catch (...) {

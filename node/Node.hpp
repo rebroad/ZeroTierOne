@@ -58,7 +58,16 @@ class Node : public NetworkController::Sender {
 
 	// Public API Functions ----------------------------------------------------
 
-	ZT_ResultCode processWirePacket(void *tptr, int64_t now, int64_t localSocket, const struct sockaddr_storage *remoteAddress, const void *packetData, unsigned int packetLength, volatile int64_t *nextBackgroundTaskDeadline, Address *sourcePeerAddress = nullptr, unsigned int localPort = 0);
+	ZT_ResultCode processWirePacket(
+		void* tptr,
+		int64_t now,
+		int64_t localSocket,
+		const struct sockaddr_storage* remoteAddress,
+		const void* packetData,
+		unsigned int packetLength,
+		volatile int64_t* nextBackgroundTaskDeadline,
+		Address* sourcePeerAddress = nullptr,
+		unsigned int localPort = 0);
 	ZT_ResultCode processVirtualNetworkFrame(
 		void* tptr,
 		int64_t now,

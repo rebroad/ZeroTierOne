@@ -35,7 +35,16 @@ class SecurityMonitor;
  */
 class RuntimeEnvironment {
   public:
-	RuntimeEnvironment(Node *n) : node(n) ,localNetworkController((NetworkController*)0) ,rtmem((void*)0) ,sw((Switch*)0) ,mc((Multicaster*)0) ,topology((Topology*)0) ,sa((SelfAwareness*)0) ,peerEventCallback((PeerEventCallback)0) ,peerEventCallbackUserPtr((void*)0)
+	RuntimeEnvironment(Node* n)
+		: node(n)
+		, localNetworkController((NetworkController*)0)
+		, rtmem((void*)0)
+		, sw((Switch*)0)
+		, mc((Multicaster*)0)
+		, topology((Topology*)0)
+		, sa((SelfAwareness*)0)
+		, peerEventCallback((PeerEventCallback)0)
+		, peerEventCallbackUserPtr((void*)0)
 	{
 		publicIdentityStr[0] = (char)0;
 		secretIdentityStr[0] = (char)0;
@@ -77,10 +86,10 @@ class RuntimeEnvironment {
 
 	// Unified peer event callback for all peer-related events
 	enum PeerEventType {
-		PEER_EVENT_INTRODUCTION,    // Peer introduced another peer's IP
-		PEER_EVENT_CONNECTION_ATTEMPT, // Connection attempt made to introduced IP
-		PEER_EVENT_OUTGOING_PACKET, // Outgoing packet sent to peer (for port tracking)
-		PEER_EVENT_AUTHENTICATED_PACKET // Authenticated packet received from peer (for TIER 2 tracking)
+		PEER_EVENT_INTRODUCTION,		  // Peer introduced another peer's IP
+		PEER_EVENT_CONNECTION_ATTEMPT,	  // Connection attempt made to introduced IP
+		PEER_EVENT_OUTGOING_PACKET,		  // Outgoing packet sent to peer (for port tracking)
+		PEER_EVENT_AUTHENTICATED_PACKET	  // Authenticated packet received from peer (for TIER 2 tracking)
 	};
 
 	typedef void (*PeerEventCallback)(void* userPtr, PeerEventType eventType, const InetAddress& peerAddress, const Address& peerZtAddr, const Address& introducerZtAddr, bool successful, unsigned int packetSize);

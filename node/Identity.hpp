@@ -16,9 +16,9 @@
 #include "SHA512.hpp"
 #include "Utils.hpp"
 
+#include <atomic>
 #include <stdio.h>
 #include <stdlib.h>
-#include <atomic>
 
 #define ZT_IDENTITY_STRING_BUFFER_LENGTH 384
 
@@ -97,7 +97,7 @@ class Identity {
 	 * @param attemptCounter Optional counter incremented once per valid non-reserved candidate identity
 	 * @return True if a matching identity was generated, false if canceled via stopFlag
 	 */
-	bool generateVanity(uint64_t vanityPrefix,int vanityBits,const std::atomic<bool> *stopFlag = (const std::atomic<bool> *)0,std::atomic<uint64_t> *attemptCounter = (std::atomic<uint64_t> *)0);
+	bool generateVanity(uint64_t vanityPrefix, int vanityBits, const std::atomic<bool>* stopFlag = (const std::atomic<bool>*)0, std::atomic<uint64_t>* attemptCounter = (std::atomic<uint64_t>*)0);
 
 	/**
 	 * Check the validity of this identity's pairing of key to address
