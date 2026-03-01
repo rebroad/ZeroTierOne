@@ -63,8 +63,12 @@ else
 endif
 
 # Optional in-process GeoIP (used by zerotier-cli stats country flags)
-MMDB_HEADER:=$(firstword $(wildcard /usr/include/maxminddb.h /usr/include/*-linux-gnu/maxminddb.h))
-ifneq ($(MMDB_HEADER),)
+# Require both a header and some evidence of linkable library presence.
+MMDB_HEADER:=$(firstword $(wildcard /usr/include/maxminddb.h /usr/local/include/maxminddb.h /usr/include/*-linux-gnu/maxminddb.h))
+MMDB_LIB:=$(firstword $(wildcard /usr/lib/libmaxminddb.so /usr/lib/libmaxminddb.a /usr/lib/*/libmaxminddb.so /usr/lib/*/libmaxminddb.a /usr/lib/*-linux-gnu/libmaxminddb.so /usr/lib/*-linux-gnu/libmaxminddb.a /lib/*/libmaxminddb.so /lib/*-linux-gnu/libmaxminddb.so))
+MMDB_PKG:=$(shell pkg-config --exists libmaxminddb >/dev/null 2>&1 && echo 1 || true)
+MMDB_AVAILABLE:=$(if $(MMDB_HEADER),$(if $(or $(MMDB_LIB),$(MMDB_PKG)),1,))
+ifneq ($(MMDB_AVAILABLE),)
 	LDLIBS+=-lmaxminddb
 endif
 
