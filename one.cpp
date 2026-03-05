@@ -80,6 +80,7 @@
 #include "version.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>	// TODO needed?
 #include <cctype>	// TODO needed?
 #include <chrono>	// TODO needed?
@@ -136,9 +137,7 @@ static OneService* volatile zt1Service = (OneService*)0;
 #endif
 
 static inline const char* nativeBuildMode()
-{
-	return ZT_NATIVE_BUILD ? "native" : "portable";
-}
+{ return ZT_NATIVE_BUILD ? "native" : "portable"; }
 
 #ifdef __LINUX__
 static bool readUnsignedLongLongFromFile(const char* path, unsigned long long& v)
@@ -210,17 +209,16 @@ static LinuxThermalSample readLinuxThermalSample()
 
 static void cliPrintHelp(const char* pn, FILE* out)
 {
-	fprintf(
-		out,
-		"%s version %d.%d.%d build %d (platform %d arch %d, %s build)" ZT_EOL_S,
-		PROGRAM_NAME,
-		ZEROTIER_ONE_VERSION_MAJOR,
-		ZEROTIER_ONE_VERSION_MINOR,
-		ZEROTIER_ONE_VERSION_REVISION,
-		ZEROTIER_ONE_VERSION_BUILD,
-		ZT_BUILD_PLATFORM,
-		ZT_BUILD_ARCHITECTURE,
-		nativeBuildMode());
+	fprintf(out,
+			"%s version %d.%d.%d build %d (platform %d arch %d, %s build)" ZT_EOL_S,
+			PROGRAM_NAME,
+			ZEROTIER_ONE_VERSION_MAJOR,
+			ZEROTIER_ONE_VERSION_MINOR,
+			ZEROTIER_ONE_VERSION_REVISION,
+			ZEROTIER_ONE_VERSION_BUILD,
+			ZT_BUILD_PLATFORM,
+			ZT_BUILD_ARCHITECTURE,
+			nativeBuildMode());
 	fprintf(out, COPYRIGHT_NOTICE ZT_EOL_S LICENSE_GRANT ZT_EOL_S);
 	fprintf(out, ZT_EOL_S "Usage: %s [-switches] <command/path> [<args>]" ZT_EOL_S "" ZT_EOL_S, pn);
 	fprintf(out, "Available switches:" ZT_EOL_S);
@@ -511,17 +509,197 @@ static void cliStatsPrintPeerTable(const nlohmann::json& j)
 
 	struct GeoIpResolver {
 		bool initialized = false;
-		bool available = false;
+		bool torGeoIp4Available = false;
+		bool torGeoIp6Available = false;
+#ifdef ZT_HAVE_MAXMINDDB
+		bool mmdbAvailable = false;
 		MMDB_s mmdb;
+#endif
+		struct TorGeoIp4Range {
+			uint32_t start;
+			uint32_t end;
+			std::string iso;
+		};
+		struct TorGeoIp6Range {
+			std::array<uint8_t, 16> start;
+			std::array<uint8_t, 16> end;
+			std::string iso;
+		};
+		std::vector<TorGeoIp4Range> torGeoIp4;
+		std::vector<TorGeoIp6Range> torGeoIp6;
 
 		GeoIpResolver()
 		{
+#ifdef ZT_HAVE_MAXMINDDB
 			memset(&mmdb, 0, sizeof(mmdb));
+#endif
 		}
 		~GeoIpResolver()
 		{
-			if (available)
+#ifdef ZT_HAVE_MAXMINDDB
+			if (mmdbAvailable)
 				MMDB_close(&mmdb);
+#endif
+		}
+
+		static bool isIso2(const std::string& iso)
+		{
+			if (iso.size() != 2)
+				return false;
+			char a = (char)std::toupper((unsigned char)iso[0]);
+			char b = (char)std::toupper((unsigned char)iso[1]);
+			return (a >= 'A' && a <= 'Z' && b >= 'A' && b <= 'Z');
+		}
+
+		static std::string normalizeIso2(const std::string& iso)
+		{
+			if (! isIso2(iso))
+				return std::string();
+			std::string out = iso;
+			out[0] = (char)std::toupper((unsigned char)out[0]);
+			out[1] = (char)std::toupper((unsigned char)out[1]);
+			return out;
+		}
+
+		bool loadTorGeoIp4(const char* path)
+		{
+			std::ifstream in(path);
+			if (! in.is_open())
+				return false;
+			std::string line;
+			while (std::getline(in, line)) {
+				if (line.empty() || line[0] == '#')
+					continue;
+				const std::size_t c1 = line.find(',');
+				if (c1 == std::string::npos)
+					continue;
+				const std::size_t c2 = line.find(',', c1 + 1);
+				if (c2 == std::string::npos)
+					continue;
+
+				const std::string startStr = line.substr(0, c1);
+				const std::string endStr = line.substr(c1 + 1, c2 - (c1 + 1));
+				const std::string iso = normalizeIso2(line.substr(c2 + 1));
+				if (iso.empty())
+					continue;
+
+				char* endPtr = nullptr;
+				errno = 0;
+				const unsigned long long startUll = strtoull(startStr.c_str(), &endPtr, 10);
+				if (errno != 0 || ! endPtr || *endPtr != '\0' || startUll > 0xFFFFFFFFULL)
+					continue;
+				errno = 0;
+				const unsigned long long endUll = strtoull(endStr.c_str(), &endPtr, 10);
+				if (errno != 0 || ! endPtr || *endPtr != '\0' || endUll > 0xFFFFFFFFULL || endUll < startUll)
+					continue;
+
+				TorGeoIp4Range r;
+				r.start = (uint32_t)startUll;
+				r.end = (uint32_t)endUll;
+				r.iso = iso;
+				torGeoIp4.push_back(r);
+			}
+
+			if (torGeoIp4.empty())
+				return false;
+
+			std::sort(torGeoIp4.begin(), torGeoIp4.end(), [](const TorGeoIp4Range& a, const TorGeoIp4Range& b) {
+				if (a.start != b.start)
+					return a.start < b.start;
+				return a.end < b.end;
+			});
+			return true;
+		}
+
+		bool loadTorGeoIp6(const char* path)
+		{
+			std::ifstream in(path);
+			if (! in.is_open())
+				return false;
+			std::string line;
+			while (std::getline(in, line)) {
+				if (line.empty() || line[0] == '#')
+					continue;
+				const std::size_t c1 = line.find(',');
+				if (c1 == std::string::npos)
+					continue;
+				const std::size_t c2 = line.find(',', c1 + 1);
+				if (c2 == std::string::npos)
+					continue;
+
+				const std::string startStr = line.substr(0, c1);
+				const std::string endStr = line.substr(c1 + 1, c2 - (c1 + 1));
+				const std::string iso = normalizeIso2(line.substr(c2 + 1));
+				if (iso.empty())
+					continue;
+
+				InetAddress startAddr(startStr.c_str());
+				InetAddress endAddr(endStr.c_str());
+				if (! startAddr.isV6() || ! endAddr.isV6())
+					continue;
+
+				TorGeoIp6Range r;
+				memcpy(r.start.data(), startAddr.rawIpData(), 16);
+				memcpy(r.end.data(), endAddr.rawIpData(), 16);
+				if (memcmp(r.start.data(), r.end.data(), 16) > 0)
+					continue;
+				r.iso = iso;
+				torGeoIp6.push_back(r);
+			}
+
+			if (torGeoIp6.empty())
+				return false;
+
+			std::sort(torGeoIp6.begin(), torGeoIp6.end(), [](const TorGeoIp6Range& a, const TorGeoIp6Range& b) {
+				const int cmpStart = memcmp(a.start.data(), b.start.data(), 16);
+				if (cmpStart != 0)
+					return (cmpStart < 0);
+				return (memcmp(a.end.data(), b.end.data(), 16) < 0);
+			});
+			return true;
+		}
+
+		std::string lookupTorCountryIso(const InetAddress& addr) const
+		{
+			if (addr.isV4() && torGeoIp4Available) {
+				const uint32_t ip = Utils::ntoh(*(reinterpret_cast<const uint32_t*>(addr.rawIpData())));
+				std::size_t lo = 0;
+				std::size_t hi = torGeoIp4.size();
+				while (lo < hi) {
+					const std::size_t mid = lo + ((hi - lo) / 2);
+					if (torGeoIp4[mid].start <= ip) {
+						lo = mid + 1;
+					}
+					else {
+						hi = mid;
+					}
+				}
+				if (lo > 0) {
+					const TorGeoIp4Range& r = torGeoIp4[lo - 1];
+					if (ip <= r.end)
+						return r.iso;
+				}
+			}
+			else if (addr.isV6() && torGeoIp6Available) {
+				const uint8_t* ip = reinterpret_cast<const uint8_t*>(addr.rawIpData());
+				std::size_t lo = 0;
+				std::size_t hi = torGeoIp6.size();
+				while (lo < hi) {
+					const std::size_t mid = lo + ((hi - lo) / 2);
+					if (memcmp(torGeoIp6[mid].start.data(), ip, 16) <= 0) {
+						lo = mid + 1;
+					}
+					else {
+						hi = mid;
+					}
+				}
+				if (lo > 0) {
+					const TorGeoIp6Range& r = torGeoIp6[lo - 1];
+					if (memcmp(ip, r.end.data(), 16) <= 0)
+						return r.iso;
+				}
+			}
+			return std::string();
 		}
 
 		void initOnce()
@@ -529,6 +707,7 @@ static void cliStatsPrintPeerTable(const nlohmann::json& j)
 			if (initialized)
 				return;
 			initialized = true;
+#ifdef ZT_HAVE_MAXMINDDB
 			const char* paths[] = {
 				"/var/lib/geoip/GeoLite2-Country.mmdb",
 				"/var/lib/geoip/GeoLite2-City.mmdb",
@@ -542,41 +721,54 @@ static void cliStatsPrintPeerTable(const nlohmann::json& j)
 			for (unsigned int i = 0; i < (sizeof(paths) / sizeof(paths[0])); ++i) {
 				const int rc = MMDB_open(paths[i], MMDB_MODE_MMAP, &mmdb);
 				if (rc == MMDB_SUCCESS) {
-					available = true;
+					mmdbAvailable = true;
 					break;
 				}
+			}
+#endif
+			bool needTorFallback = true;
+#ifdef ZT_HAVE_MAXMINDDB
+			needTorFallback = (! mmdbAvailable);
+#endif
+			if (needTorFallback) {
+				torGeoIp4Available = loadTorGeoIp4("/usr/share/tor/geoip");
+				torGeoIp6Available = loadTorGeoIp6("/usr/share/tor/geoip6");
 			}
 		}
 
 		std::string countryIso(const std::string& ip)
 		{
 			initOnce();
-			if (! available)
+			InetAddress addr(ip.c_str());
+			if (! addr.isV4() && ! addr.isV6())
 				return std::string();
-			int gaiError = 0;
-			int mmdbError = 0;
-			MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gaiError, &mmdbError);
-			if (gaiError != 0 || mmdbError != MMDB_SUCCESS || ! result.found_entry) {
-				return std::string();
+#ifdef ZT_HAVE_MAXMINDDB
+			if (mmdbAvailable) {
+				int gaiError = 0;
+				int mmdbError = 0;
+				MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gaiError, &mmdbError);
+				if (gaiError != 0 || mmdbError != MMDB_SUCCESS || ! result.found_entry) {
+					return std::string();
+				}
+				MMDB_entry_data_s data;
+				int status = MMDB_get_value(&result.entry, &data, "country", "iso_code", nullptr);
+				if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+					return std::string(data.utf8_string, data.data_size);
+				}
+				status = MMDB_get_value(&result.entry, &data, "registered_country", "iso_code", nullptr);
+				if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+					return std::string(data.utf8_string, data.data_size);
+				}
+				status = MMDB_get_value(&result.entry, &data, "represented_country", "iso_code", nullptr);
+				if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
+					return std::string(data.utf8_string, data.data_size);
+				}
 			}
-			MMDB_entry_data_s data;
-			int status = MMDB_get_value(&result.entry, &data, "country", "iso_code", nullptr);
-			if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
-				return std::string(data.utf8_string, data.data_size);
-			}
-			status = MMDB_get_value(&result.entry, &data, "registered_country", "iso_code", nullptr);
-			if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
-				return std::string(data.utf8_string, data.data_size);
-			}
-			status = MMDB_get_value(&result.entry, &data, "represented_country", "iso_code", nullptr);
-			if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2) {
-				return std::string(data.utf8_string, data.data_size);
-			}
-			return std::string();
+#endif
+			return lookupTorCountryIso(addr);
 		}
 	};
 	GeoIpResolver geo;
-#endif
 	std::map<std::string, std::string> countryFlagCache;
 	auto lookupCountryFlag = [&](const std::string& ip) -> std::string {
 		std::map<std::string, std::string>::const_iterator cached = countryFlagCache.find(ip);
@@ -586,12 +778,10 @@ static void cliStatsPrintPeerTable(const nlohmann::json& j)
 
 		std::string flag;
 		if (isLikelyIpLiteral(ip)) {
-#ifdef ZT_HAVE_MAXMINDDB
 			const std::string iso = geo.countryIso(ip);
 			if (! iso.empty()) {
 				flag = isoToFlag(iso);
 			}
-#endif
 		}
 
 		countryFlagCache[ip] = flag;
@@ -789,32 +979,29 @@ static void cliStatsPrintPeerTable(const nlohmann::json& j)
 		seenColWidth = std::max(seenColWidth, displayWidth(rr.seenCol));
 	}
 
-	printf(
-		"%s %s %s %s %s %s" ZT_EOL_S,
-		padRightDisplay("IP Address", ipColWidth).c_str(),
-		padRightDisplay("ZT Address", ztColWidth).c_str(),
-		padRightDisplay("RX Bytes", rxColWidth).c_str(),
-		padRightDisplay("TX Bytes", txColWidth).c_str(),
-		padRightDisplay("Seen", seenColWidth).c_str(),
-		"Port Usage");
-	printf(
-		"%s %s %s %s %s %s" ZT_EOL_S,
-		std::string((std::size_t)ipColWidth, '-').c_str(),
-		std::string((std::size_t)ztColWidth, '-').c_str(),
-		std::string((std::size_t)rxColWidth, '-').c_str(),
-		std::string((std::size_t)txColWidth, '-').c_str(),
-		std::string((std::size_t)seenColWidth, '-').c_str(),
-		"----------");
+	printf("%s %s %s %s %s %s" ZT_EOL_S,
+		   padRightDisplay("IP Address", ipColWidth).c_str(),
+		   padRightDisplay("ZT Address", ztColWidth).c_str(),
+		   padRightDisplay("RX Bytes", rxColWidth).c_str(),
+		   padRightDisplay("TX Bytes", txColWidth).c_str(),
+		   padRightDisplay("Seen", seenColWidth).c_str(),
+		   "Port Usage");
+	printf("%s %s %s %s %s %s" ZT_EOL_S,
+		   std::string((std::size_t)ipColWidth, '-').c_str(),
+		   std::string((std::size_t)ztColWidth, '-').c_str(),
+		   std::string((std::size_t)rxColWidth, '-').c_str(),
+		   std::string((std::size_t)txColWidth, '-').c_str(),
+		   std::string((std::size_t)seenColWidth, '-').c_str(),
+		   "----------");
 
 	for (const auto& rr : renderedRows) {
-		printf(
-			"%s %s %s %s %s %s" ZT_EOL_S,
-			padRightDisplay(rr.ipCol, ipColWidth).c_str(),
-			padRightDisplay(rr.ztCol, ztColWidth).c_str(),
-			padRightDisplay(rr.rxCol, rxColWidth).c_str(),
-			padRightDisplay(rr.txCol, txColWidth).c_str(),
-			padRightDisplay(rr.seenCol, seenColWidth).c_str(),
-			rr.portUsageCol.c_str());
+		printf("%s %s %s %s %s %s" ZT_EOL_S,
+			   padRightDisplay(rr.ipCol, ipColWidth).c_str(),
+			   padRightDisplay(rr.ztCol, ztColWidth).c_str(),
+			   padRightDisplay(rr.rxCol, rxColWidth).c_str(),
+			   padRightDisplay(rr.txCol, txColWidth).c_str(),
+			   padRightDisplay(rr.seenCol, seenColWidth).c_str(),
+			   rr.portUsageCol.c_str());
 	}
 }
 
@@ -1302,45 +1489,41 @@ static int cli(int argc, char** argv)
 						printf("Packets Per Link       : %d\n", (int)OSUtils::jsonInt(j["packetsPerLink"], 0));
 						nlohmann::json& p = j["paths"];
 						if (p.is_array()) {
-							printf(
-								"\nidx"
-								"                  interface"
-								"                                  "
-								"path               socket             local port\n");
+							printf("\nidx"
+								   "                  interface"
+								   "                                  "
+								   "path               socket             local port\n");
 							for (int i = 0; i < 120; i++) {
 								printf("-");
 							}
 							printf("\n");
 							for (nlohmann::json::size_type i = 0; i < p.size(); ++i) {
-								printf(
-									"%2d: %26s %51s %.16llx %12d\n",
-									(int)i,
-									OSUtils::jsonString(p[i]["ifname"], "-").c_str(),
-									OSUtils::jsonString(p[i]["address"], "-").c_str(),
-									(unsigned long long)OSUtils::jsonInt(p[i]["localSocket"], 0),
-									(uint16_t)OSUtils::jsonInt(p[i]["localPort"], 0));
+								printf("%2d: %26s %51s %.16llx %12d\n",
+									   (int)i,
+									   OSUtils::jsonString(p[i]["ifname"], "-").c_str(),
+									   OSUtils::jsonString(p[i]["address"], "-").c_str(),
+									   (unsigned long long)OSUtils::jsonInt(p[i]["localSocket"], 0),
+									   (uint16_t)OSUtils::jsonInt(p[i]["localPort"], 0));
 							}
-							printf(
-								"\nidx     lat      pdv    "
-								"capacity    qual      "
-								"rx_age      tx_age  eligible  bonded   flows\n");
+							printf("\nidx     lat      pdv    "
+								   "capacity    qual      "
+								   "rx_age      tx_age  eligible  bonded   flows\n");
 							for (int i = 0; i < 120; i++) {
 								printf("-");
 							}
 							printf("\n");
 							for (nlohmann::json::size_type i = 0; i < p.size(); ++i) {
-								printf(
-									"%2d: %8.2f %8.2f %10d %7.4f %11d %11d %9d %7d %7d\n",
-									(int)i,
-									OSUtils::jsonDouble(p[i]["latencyMean"], 0),
-									OSUtils::jsonDouble(p[i]["latencyVariance"], 0),
-									(int)OSUtils::jsonInt(p[i]["givenLinkSpeed"], 0),
-									OSUtils::jsonDouble(p[i]["relativeQuality"], 0),
-									(int)OSUtils::jsonInt(p[i]["lastInAge"], 0),
-									(int)OSUtils::jsonInt(p[i]["lastOutAge"], 0),
-									(int)OSUtils::jsonInt(p[i]["eligible"], 0),
-									(int)OSUtils::jsonInt(p[i]["bonded"], 0),
-									(int)OSUtils::jsonInt(p[i]["assignedFlowCount"], 0));
+								printf("%2d: %8.2f %8.2f %10d %7.4f %11d %11d %9d %7d %7d\n",
+									   (int)i,
+									   OSUtils::jsonDouble(p[i]["latencyMean"], 0),
+									   OSUtils::jsonDouble(p[i]["latencyVariance"], 0),
+									   (int)OSUtils::jsonInt(p[i]["givenLinkSpeed"], 0),
+									   OSUtils::jsonDouble(p[i]["relativeQuality"], 0),
+									   (int)OSUtils::jsonInt(p[i]["lastInAge"], 0),
+									   (int)OSUtils::jsonInt(p[i]["lastOutAge"], 0),
+									   (int)OSUtils::jsonInt(p[i]["eligible"], 0),
+									   (int)OSUtils::jsonInt(p[i]["bonded"], 0),
+									   (int)OSUtils::jsonInt(p[i]["assignedFlowCount"], 0));
 							}
 						}
 					}
@@ -1460,15 +1643,14 @@ static int cli(int argc, char** argv)
 							if (aa.length() == 0)
 								aa = "-";
 							const std::string status = OSUtils::jsonString(n["status"], "-");
-							printf(
-								"200 listnetworks %s %s %s %s %s %s %s" ZT_EOL_S,
-								OSUtils::jsonString(n["nwid"], "-").c_str(),
-								OSUtils::jsonString(n["name"], "-").c_str(),
-								OSUtils::jsonString(n["mac"], "-").c_str(),
-								status.c_str(),
-								OSUtils::jsonString(n["type"], "-").c_str(),
-								OSUtils::jsonString(n["portDeviceName"], "-").c_str(),
-								aa.c_str());
+							printf("200 listnetworks %s %s %s %s %s %s %s" ZT_EOL_S,
+								   OSUtils::jsonString(n["nwid"], "-").c_str(),
+								   OSUtils::jsonString(n["name"], "-").c_str(),
+								   OSUtils::jsonString(n["mac"], "-").c_str(),
+								   status.c_str(),
+								   OSUtils::jsonString(n["type"], "-").c_str(),
+								   OSUtils::jsonString(n["portDeviceName"], "-").c_str(),
+								   aa.c_str());
 							if (OSUtils::jsonBool(n["ssoEnabled"], false)) {
 								uint64_t authenticationExpiryTime = n["authenticationExpiryTime"];
 								if (status == "AUTHENTICATION_REQUIRED") {
@@ -1895,16 +2077,15 @@ static int cli(int argc, char** argv)
 				dump << "MTU: " << curAddr->Mtu << ZT_EOL_S;
 				dump << "MAC: ";
 				char macBuffer[64] = {};
-				snprintf(
-					macBuffer,
-					sizeof(macBuffer),
-					"%02x:%02x:%02x:%02x:%02x:%02x",
-					curAddr->PhysicalAddress[0],
-					curAddr->PhysicalAddress[1],
-					curAddr->PhysicalAddress[2],
-					curAddr->PhysicalAddress[3],
-					curAddr->PhysicalAddress[4],
-					curAddr->PhysicalAddress[5]);
+				snprintf(macBuffer,
+						 sizeof(macBuffer),
+						 "%02x:%02x:%02x:%02x:%02x:%02x",
+						 curAddr->PhysicalAddress[0],
+						 curAddr->PhysicalAddress[1],
+						 curAddr->PhysicalAddress[2],
+						 curAddr->PhysicalAddress[3],
+						 curAddr->PhysicalAddress[4],
+						 curAddr->PhysicalAddress[5]);
 				dump << macBuffer << ZT_EOL_S;
 				dump << "Type: " << curAddr->IfType << ZT_EOL_S;
 				dump << "Addresses:" << ZT_EOL_S;
@@ -3339,9 +3520,7 @@ static void _sighandlerHup(int sig)
 {
 }
 static void _sighandlerReallyQuit(int sig)
-{
-	exit(0);
-}
+{ exit(0); }
 static void _sighandlerQuit(int sig)
 {
 	alarm(5);	// force exit after 5s
@@ -3378,9 +3557,7 @@ struct cap_data_struct {
 	__u32 inheritable;
 };
 static inline int _zt_capset(cap_header_struct* hdrp, cap_data_struct* datap)
-{
-	return syscall(SYS_capset, hdrp, datap);
-}
+{ return syscall(SYS_capset, hdrp, datap); }
 
 static void _notDropping(const char* procName, const std::string& homeDir)
 {
@@ -3528,17 +3705,16 @@ static void _winPokeAHole()
 		startupInfo.cb = sizeof(startupInfo);
 		memset(&startupInfo, 0, sizeof(STARTUPINFOA));
 		memset(&processInfo, 0, sizeof(PROCESS_INFORMATION));
-		if (CreateProcessA(
-				NULL,
-				(LPSTR)(std::string("C:\\Windows\\System32\\netsh.exe advfirewall firewall delete rule name=\"ZeroTier One\" program=\"") + myPath + "\"").c_str(),
-				NULL,
-				NULL,
-				FALSE,
-				CREATE_NO_WINDOW,
-				NULL,
-				NULL,
-				&startupInfo,
-				&processInfo)) {
+		if (CreateProcessA(NULL,
+						   (LPSTR)(std::string("C:\\Windows\\System32\\netsh.exe advfirewall firewall delete rule name=\"ZeroTier One\" program=\"") + myPath + "\"").c_str(),
+						   NULL,
+						   NULL,
+						   FALSE,
+						   CREATE_NO_WINDOW,
+						   NULL,
+						   NULL,
+						   &startupInfo,
+						   &processInfo)) {
 			WaitForSingleObject(processInfo.hProcess, INFINITE);
 			CloseHandle(processInfo.hProcess);
 			CloseHandle(processInfo.hThread);
@@ -3547,17 +3723,16 @@ static void _winPokeAHole()
 		startupInfo.cb = sizeof(startupInfo);
 		memset(&startupInfo, 0, sizeof(STARTUPINFOA));
 		memset(&processInfo, 0, sizeof(PROCESS_INFORMATION));
-		if (CreateProcessA(
-				NULL,
-				(LPSTR)(std::string("C:\\Windows\\System32\\netsh.exe advfirewall firewall add rule name=\"ZeroTier One\" dir=in action=allow program=\"") + myPath + "\" enable=yes").c_str(),
-				NULL,
-				NULL,
-				FALSE,
-				CREATE_NO_WINDOW,
-				NULL,
-				NULL,
-				&startupInfo,
-				&processInfo)) {
+		if (CreateProcessA(NULL,
+						   (LPSTR)(std::string("C:\\Windows\\System32\\netsh.exe advfirewall firewall add rule name=\"ZeroTier One\" dir=in action=allow program=\"") + myPath + "\" enable=yes").c_str(),
+						   NULL,
+						   NULL,
+						   FALSE,
+						   CREATE_NO_WINDOW,
+						   NULL,
+						   NULL,
+						   &startupInfo,
+						   &processInfo)) {
 			WaitForSingleObject(processInfo.hProcess, INFINITE);
 			CloseHandle(processInfo.hProcess);
 			CloseHandle(processInfo.hThread);
@@ -3566,17 +3741,16 @@ static void _winPokeAHole()
 		startupInfo.cb = sizeof(startupInfo);
 		memset(&startupInfo, 0, sizeof(STARTUPINFOA));
 		memset(&processInfo, 0, sizeof(PROCESS_INFORMATION));
-		if (CreateProcessA(
-				NULL,
-				(LPSTR)(std::string("C:\\Windows\\System32\\netsh.exe advfirewall firewall add rule name=\"ZeroTier One\" dir=out action=allow program=\"") + myPath + "\" enable=yes").c_str(),
-				NULL,
-				NULL,
-				FALSE,
-				CREATE_NO_WINDOW,
-				NULL,
-				NULL,
-				&startupInfo,
-				&processInfo)) {
+		if (CreateProcessA(NULL,
+						   (LPSTR)(std::string("C:\\Windows\\System32\\netsh.exe advfirewall firewall add rule name=\"ZeroTier One\" dir=out action=allow program=\"") + myPath + "\" enable=yes").c_str(),
+						   NULL,
+						   NULL,
+						   FALSE,
+						   CREATE_NO_WINDOW,
+						   NULL,
+						   NULL,
+						   &startupInfo,
+						   &processInfo)) {
 			WaitForSingleObject(processInfo.hProcess, INFINITE);
 			CloseHandle(processInfo.hProcess);
 			CloseHandle(processInfo.hThread);
