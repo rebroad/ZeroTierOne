@@ -22,6 +22,11 @@ include objects.mk
 # regenerate object files when included headers change.
 DEPFLAGS?=-MMD -MP
 
+# SMART mode retries known dependency/toolchain breakages automatically.
+# Set SMART=0 to disable and keep strict one-shot behavior.
+SMART ?= 1
+RUSTYBITS_TIME_FALLBACK ?= 0.3.44
+
 ifeq ($(ZT_CONTROLLER),1)
 	ZT_NONFREE=1
 endif
@@ -584,7 +589,28 @@ ifeq ($(ZT_SSO_SUPPORTED), 1)
 ifeq ($(ZT_EMBEDDED),)
 # zeroidc depends on its Rust source files - let Cargo handle incremental builds
 zeroidc: rustybits/Cargo.toml
-	export PATH=$${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p zeroidc
+	export PATH=$${HOME}/.cargo/bin:$$PATH; \
+	cd rustybits; \
+	if [ "$(SMART)" = "0" ]; then \
+		cargo build $(ZT_CARGO_FLAGS) -p zeroidc; \
+	else \
+		log_file=$$(mktemp); \
+		if cargo build $(ZT_CARGO_FLAGS) -p zeroidc 2>$$log_file; then \
+			cat $$log_file >&2; \
+			rm -f $$log_file; \
+		else \
+			cat $$log_file >&2; \
+			if grep -Eq "time@0\\.3\\.[0-9]+ requires rustc 1\\.88\\.0|time-core@0\\.1\\.[0-9]+ requires rustc 1\\.88\\.0" $$log_file; then \
+				echo "SMART: rustc is older than required by newest time crate; pinning time to $(RUSTYBITS_TIME_FALLBACK) and retrying."; \
+				cargo update -p time --precise $(RUSTYBITS_TIME_FALLBACK); \
+				rm -f $$log_file; \
+				cargo build $(ZT_CARGO_FLAGS) -p zeroidc; \
+			else \
+				rm -f $$log_file; \
+				exit 1; \
+			fi; \
+		fi; \
+	fi
 endif
 else
 zeroidc:
@@ -593,7 +619,28 @@ endif
 ifeq ($(ZT_CONTROLLER), 1)
 # smeeclient depends on its Rust source files - let Cargo handle incremental builds
 smeeclient: rustybits/Cargo.toml
-	export PATH=$${HOME}/.cargo/bin:$$PATH; cd rustybits && cargo build $(ZT_CARGO_FLAGS) -p smeeclient
+	export PATH=$${HOME}/.cargo/bin:$$PATH; \
+	cd rustybits; \
+	if [ "$(SMART)" = "0" ]; then \
+		cargo build $(ZT_CARGO_FLAGS) -p smeeclient; \
+	else \
+		log_file=$$(mktemp); \
+		if cargo build $(ZT_CARGO_FLAGS) -p smeeclient 2>$$log_file; then \
+			cat $$log_file >&2; \
+			rm -f $$log_file; \
+		else \
+			cat $$log_file >&2; \
+			if grep -Eq "time@0\\.3\\.[0-9]+ requires rustc 1\\.88\\.0|time-core@0\\.1\\.[0-9]+ requires rustc 1\\.88\\.0" $$log_file; then \
+				echo "SMART: rustc is older than required by newest time crate; pinning time to $(RUSTYBITS_TIME_FALLBACK) and retrying."; \
+				cargo update -p time --precise $(RUSTYBITS_TIME_FALLBACK); \
+				rm -f $$log_file; \
+				cargo build $(ZT_CARGO_FLAGS) -p smeeclient; \
+			else \
+				rm -f $$log_file; \
+				exit 1; \
+			fi; \
+		fi; \
+	fi
 else
 smeeclient:
 endif
