@@ -472,7 +472,6 @@ static void cliStatsPrintPeerTable(const nlohmann::json& j)
 		return false;
 	};
 
-#ifdef ZT_HAVE_MAXMINDDB
 	auto appendUtf8 = [](std::string& out, uint32_t cp) {
 		if (cp <= 0x7F) {
 			out.push_back((char)cp);
