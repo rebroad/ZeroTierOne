@@ -895,7 +895,7 @@ centos-7-setup: FORCE
 	yum install -y centos-release-scl
 	yum install -y devtoolset-8-gcc devtoolset-8-gcc-c++
 
-.PHONY: ubuntu-setup debian-setup smart-linux-setup
+.PHONY: ubuntu-setup debian-setup smart-linux-setup smart-build smart
 ubuntu-setup debian-setup: FORCE
 	@set -eu; \
 	if ! command -v $(APT_GET) >/dev/null 2>&1; then \
@@ -919,6 +919,12 @@ smart-linux-setup: FORCE
 		debian|linuxmint|pop|neon|elementary|zorin) $(MAKE) debian-setup ;; \
 		*) echo "error: SMART auto-install is only implemented for Debian/Ubuntu family (detected '$$distro_id')"; exit 1 ;; \
 	esac
+
+smart-build: FORCE
+	@smart_tool="$${SMART_TOOL:-$$HOME/bin/smart-build-debian}"; \
+	"$$smart_tool" --name zerotier --log /tmp/zerotier-build.log --sudo-askpass "$$HOME/bin/simple-askpass" -- $(MAKE) SMART=0 one
+
+smart: smart-build
 
 snap-build-local: FORCE
 	snapcraft
