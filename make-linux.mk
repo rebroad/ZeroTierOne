@@ -26,6 +26,8 @@ DEPFLAGS?=-MMD -MP
 # Set SMART=0 to disable and keep strict one-shot behavior.
 SMART ?= 1
 RUSTYBITS_TIME_FALLBACK ?= 0.3.44
+APT_GET ?= apt-get
+SUDO ?= sudo
 
 ifeq ($(ZT_CONTROLLER),1)
 	ZT_NONFREE=1
@@ -605,6 +607,11 @@ zeroidc: rustybits/Cargo.toml
 				cargo update -p time --precise $(RUSTYBITS_TIME_FALLBACK); \
 				rm -f $$log_file; \
 				cargo build $(ZT_CARGO_FLAGS) -p zeroidc; \
+			elif grep -Eq "pkg-config command could not be found|Could not run .*pkg-config.*openssl|Could not find directory of OpenSSL installation|Make sure you also have the development packages of openssl installed" $$log_file; then \
+				echo "SMART: missing pkg-config/OpenSSL build dependencies detected; running distro setup and retrying."; \
+				$(MAKE) -C .. SMART=0 smart-linux-setup; \
+				rm -f $$log_file; \
+				cargo build $(ZT_CARGO_FLAGS) -p zeroidc; \
 			else \
 				rm -f $$log_file; \
 				exit 1; \
@@ -633,6 +640,11 @@ smeeclient: rustybits/Cargo.toml
 			if grep -Eq "time@0\\.3\\.[0-9]+ requires rustc 1\\.88\\.0|time-core@0\\.1\\.[0-9]+ requires rustc 1\\.88\\.0" $$log_file; then \
 				echo "SMART: rustc is older than required by newest time crate; pinning time to $(RUSTYBITS_TIME_FALLBACK) and retrying."; \
 				cargo update -p time --precise $(RUSTYBITS_TIME_FALLBACK); \
+				rm -f $$log_file; \
+				cargo build $(ZT_CARGO_FLAGS) -p smeeclient; \
+			elif grep -Eq "pkg-config command could not be found|Could not run .*pkg-config.*openssl|Could not find directory of OpenSSL installation|Make sure you also have the development packages of openssl installed" $$log_file; then \
+				echo "SMART: missing pkg-config/OpenSSL build dependencies detected; running distro setup and retrying."; \
+				$(MAKE) -C .. SMART=0 smart-linux-setup; \
 				rm -f $$log_file; \
 				cargo build $(ZT_CARGO_FLAGS) -p smeeclient; \
 			else \
@@ -882,6 +894,31 @@ centos-7-setup: FORCE
 	yum install -y gcc gcc-c++ make epel-release git
 	yum install -y centos-release-scl
 	yum install -y devtoolset-8-gcc devtoolset-8-gcc-c++
+
+.PHONY: ubuntu-setup debian-setup smart-linux-setup
+ubuntu-setup debian-setup: FORCE
+	@set -eu; \
+	if ! command -v $(APT_GET) >/dev/null 2>&1; then \
+		echo "error: $(APT_GET) not found; cannot install Debian/Ubuntu dependencies automatically"; \
+		exit 1; \
+	fi; \
+	if [ "$$(id -u)" -eq 0 ]; then \
+		$(APT_GET) update; \
+		$(APT_GET) install -y pkg-config libssl-dev; \
+	else \
+		$(SUDO) $(APT_GET) update; \
+		$(SUDO) $(APT_GET) install -y pkg-config libssl-dev; \
+	fi
+
+smart-linux-setup: FORCE
+	@set -eu; \
+	distro_id=""; \
+	if [ -r /etc/os-release ]; then . /etc/os-release; distro_id="$${ID:-}"; fi; \
+	case "$$distro_id" in \
+		ubuntu) $(MAKE) ubuntu-setup ;; \
+		debian|linuxmint|pop|neon|elementary|zorin) $(MAKE) debian-setup ;; \
+		*) echo "error: SMART auto-install is only implemented for Debian/Ubuntu family (detected '$$distro_id')"; exit 1 ;; \
+	esac
 
 snap-build-local: FORCE
 	snapcraft
