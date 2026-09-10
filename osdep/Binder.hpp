@@ -124,7 +124,12 @@ class Binder {
 	 * @tparam PHY_HANDLER_TYPE Type for Phy<> template
 	 * @tparam INTERFACE_CHECKER Type for class containing shouldBindInterface() method
 	 */
-	template <typename PHY_HANDLER_TYPE, typename INTERFACE_CHECKER> void refresh(Phy<PHY_HANDLER_TYPE>& phy, unsigned int* ports, unsigned int portCount, const std::vector<InetAddress> explicitBind, INTERFACE_CHECKER& ifChecker)
+	template <typename PHY_HANDLER_TYPE, typename INTERFACE_CHECKER>
+	void refresh(Phy<PHY_HANDLER_TYPE>& phy,
+				 unsigned int* ports,
+				 unsigned int portCount,
+				 const std::vector<InetAddress> explicitBind,
+				 INTERFACE_CHECKER& ifChecker)
 	{
 		std::map<InetAddress, std::string> localIfAddrs;
 		PhySocket* udps;
@@ -156,7 +161,10 @@ class Binder {
 
 			char aabuf[32768];
 			ULONG aalen = sizeof(aabuf);
-			if (GetAdaptersAddresses(AF_UNSPEC, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER, (void*)0, reinterpret_cast<PIP_ADAPTER_ADDRESSES>(aabuf), &aalen) == NO_ERROR) {
+			if (GetAdaptersAddresses(AF_UNSPEC,
+									 GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+									 (void*)0, reinterpret_cast<PIP_ADAPTER_ADDRESSES>(aabuf), &aalen)
+				== NO_ERROR) {
 				PIP_ADAPTER_ADDRESSES a = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(aabuf);
 				while (a) {
 					PIP_ADAPTER_UNICAST_ADDRESS ua = a->FirstUnicastAddress;
@@ -210,7 +218,8 @@ class Binder {
 				while (fgets(tmp, sizeof(tmp), procf)) {
 					tmp[255] = 0;
 					char* saveptr = (char*)0;
-					for (char* f = Utils::stok(tmp, " \t\r\n:|", &saveptr); (f); f = Utils::stok((char*)0, " \t\r\n:|", &saveptr)) {
+					for (char* f = Utils::stok(tmp, " \t\r\n:|", &saveptr); (f);
+						 f = Utils::stok((char*)0, " \t\r\n:|", &saveptr)) {
 						if ((strcmp(f, "Inter-") != 0) && (strcmp(f, "face") != 0) && (f[0] != 0))
 							ifnames.insert(f);
 						break;	 // we only want the first field
@@ -234,7 +243,8 @@ class Binder {
 					char* devname = (char*)0;
 					int flags = 0;
 					int n = 0;
-					for (char* f = Utils::stok(tmp, " \t\r\n", &saveptr); (f); f = Utils::stok((char*)0, " \t\r\n", &saveptr)) {
+					for (char* f = Utils::stok(tmp, " \t\r\n", &saveptr); (f);
+						 f = Utils::stok((char*)0, " \t\r\n", &saveptr)) {
 						switch (n++) {
 							case 0:	  // IP in hex
 								Utils::unhex(f, 32, ipbits, 16);
@@ -264,7 +274,8 @@ class Binder {
 								case InetAddress::IP_SCOPE_PRIVATE:
 									for (int x = 0; x < (int)portCount; ++x) {
 										ip.setPort(ports[x]);
-										localIfAddrs.insert(std::pair<InetAddress, std::string>(ip, std::string(devname)));
+										localIfAddrs.insert(
+											std::pair<InetAddress, std::string>(ip, std::string(devname)));
 									}
 									break;
 							}
@@ -382,7 +393,8 @@ class Binder {
 									case InetAddress::IP_SCOPE_PRIVATE:
 										for (int x = 0; x < (int)portCount; ++x) {
 											ip.setPort(ports[x]);
-											localIfAddrs.insert(std::pair<InetAddress, std::string>(ip, std::string(ifa->ifa_name)));
+											localIfAddrs.insert(
+												std::pair<InetAddress, std::string>(ip, std::string(ifa->ifa_name)));
 										}
 										break;
 								}
@@ -418,8 +430,10 @@ class Binder {
 		// Default to binding to wildcard if we can't enumerate addresses
 		if (! interfacesEnumerated && localIfAddrs.empty()) {
 			for (int x = 0; x < (int)portCount; ++x) {
-				localIfAddrs.insert(std::pair<InetAddress, std::string>(InetAddress((uint32_t)0, ports[x]), std::string()));
-				localIfAddrs.insert(std::pair<InetAddress, std::string>(InetAddress((const void*)"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16, ports[x]), std::string()));
+				localIfAddrs.insert(
+					std::pair<InetAddress, std::string>(InetAddress((uint32_t)0, ports[x]), std::string()));
+				localIfAddrs.insert(std::pair<InetAddress, std::string>(
+					InetAddress((const void*)"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16, ports[x]), std::string()));
 			}
 		}
 
@@ -441,7 +455,8 @@ class Binder {
 		}
 
 		// Create new bindings for those not already bound
-		for (std::map<InetAddress, std::string>::const_iterator ii(localIfAddrs.begin()); ii != localIfAddrs.end(); ++ii) {
+		for (std::map<InetAddress, std::string>::const_iterator ii(localIfAddrs.begin()); ii != localIfAddrs.end();
+			 ++ii) {
 			unsigned int bi = 0;
 			while (bi != _bindingCount) {
 				if (_bindings[bi].address == ii->first)
@@ -449,10 +464,12 @@ class Binder {
 				++bi;
 			}
 			if (bi == _bindingCount) {
-				udps = phy.udpBind(reinterpret_cast<const struct sockaddr*>(&(ii->first)), (void*)0, ZT_UDP_DESIRED_BUF_SIZE);
+				udps = phy.udpBind(reinterpret_cast<const struct sockaddr*>(&(ii->first)), (void*)0,
+								   ZT_UDP_DESIRED_BUF_SIZE);
 				if (udps) {
 #ifdef __LINUX__
-					// Bind Linux sockets to their device so routes that we manage do not override physical routes (wish all platforms had this!)
+					// Bind Linux sockets to their device so routes that we manage do not override physical routes (wish
+					// all platforms had this!)
 					if (ii->second.length() > 0) {
 						char tmp[256];
 						Utils::scopy(tmp, sizeof(tmp), ii->second.c_str());
@@ -492,19 +509,37 @@ class Binder {
 	/**
 	 * Send from all bound UDP sockets
 	 */
-	template <typename PHY_HANDLER_TYPE> inline bool udpSendAll(Phy<PHY_HANDLER_TYPE>& phy, const struct sockaddr_storage* addr, const void* data, unsigned int len, unsigned int ttl)
+	template <typename PHY_HANDLER_TYPE, typename SEND_OBSERVER>
+	inline bool udpSendAll(Phy<PHY_HANDLER_TYPE>& phy,
+						   const struct sockaddr_storage* addr,
+						   const void* data,
+						   unsigned int len,
+						   unsigned int ttl,
+						   SEND_OBSERVER observer)
 	{
 		bool r = false;
 		Mutex::Lock _l(_lock);
 		for (unsigned int b = 0, c = _bindingCount; b < c; ++b) {
 			if (ttl)
 				phy.setIp4UdpTtl(_bindings[b].udpSock, ttl);
-			if (phy.udpSend(_bindings[b].udpSock, (const struct sockaddr*)addr, data, len))
+			const bool sent = phy.udpSend(_bindings[b].udpSock, (const struct sockaddr*)addr, data, len);
+			if (sent)
 				r = true;
 			if (ttl)
 				phy.setIp4UdpTtl(_bindings[b].udpSock, 255);
+			observer(_bindings[b].address.port(), sent);
 		}
 		return r;
+	}
+
+	template <typename PHY_HANDLER_TYPE>
+	inline bool udpSendAll(Phy<PHY_HANDLER_TYPE>& phy,
+						   const struct sockaddr_storage* addr,
+						   const void* data,
+						   unsigned int len,
+						   unsigned int ttl)
+	{
+		return udpSendAll(phy, addr, data, len, ttl, [](unsigned int, bool) {});
 	}
 
 	/**

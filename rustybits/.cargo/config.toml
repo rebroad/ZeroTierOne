@@ -1,0 +1,5 @@
+[env]
+# Keep ccache files inside the repo so builds work in restricted environments.
+CCACHE_DIR = { value = ".ccache", relative = true }
+CCACHE_TEMPDIR = { value = ".ccache/tmp", relative = true }
+

@@ -28,7 +28,8 @@
 namespace ZeroTier {
 
 // A memory-hard composition of SHA-512 and Salsa20 for hashcash hashing
-static inline void _computeMemoryHardHash(const void* publicKey, unsigned int publicKeyBytes, void* digest, void* genmem)
+static inline void
+_computeMemoryHardHash(const void* publicKey, unsigned int publicKeyBytes, void* digest, void* genmem)
 {
 	// Digest publicKey[] to obtain initial digest
 	SHA512(digest, publicKey, publicKeyBytes);
@@ -55,7 +56,8 @@ static inline void _computeMemoryHardHash(const void* publicKey, unsigned int pu
 	// Render final digest using genmem as a lookup table
 	for (unsigned long i = 0; i < (ZT_IDENTITY_GEN_MEMORY / sizeof(uint64_t));) {
 		unsigned long idx1 = (unsigned long)(Utils::ntoh(((uint64_t*)genmem)[i++]) % (64 / sizeof(uint64_t)));
-		unsigned long idx2 = (unsigned long)(Utils::ntoh(((uint64_t*)genmem)[i++]) % (ZT_IDENTITY_GEN_MEMORY / sizeof(uint64_t)));
+		unsigned long idx2 =
+			(unsigned long)(Utils::ntoh(((uint64_t*)genmem)[i++]) % (ZT_IDENTITY_GEN_MEMORY / sizeof(uint64_t)));
 		uint64_t tmp = ((uint64_t*)genmem)[idx2];
 		((uint64_t*)genmem)[idx2] = ((uint64_t*)digest)[idx1];
 		((uint64_t*)digest)[idx1] = tmp;
@@ -69,36 +71,106 @@ struct _Identity_generate_cond {
 	_Identity_generate_cond()
 	{
 	}
-	_Identity_generate_cond(unsigned char* sb, char* gm) : digest(sb), genmem(gm)
+	_Identity_generate_cond(unsigned char* sb,
+							char* gm,
+							uint64_t vp,
+							int vb,
+							const std::atomic<bool>* sf,
+							std::atomic<uint64_t>* ac,
+							bool* ab)
+		: digest(sb)
+		, genmem(gm)
+		, vanity(vp)
+		, vanityBits(vb)
+		, stopFlag(sf)
+		, attemptCounter(ac)
+		, aborted(ab)
 	{
 	}
 	inline bool operator()(const ECC::Pair& kp) const
 	{
+		if ((stopFlag) && (stopFlag->load(std::memory_order_relaxed))) {
+			if (aborted) {
+				*aborted = true;
+			}
+			return true;
+		}
+
 		_computeMemoryHardHash(kp.pub.data, ZT_ECC_PUBLIC_KEY_SET_LEN, digest, genmem);
-		return (digest[0] < ZT_IDENTITY_GEN_HASHCASH_FIRST_BYTE_LESS_THAN);
+		if (digest[0] >= ZT_IDENTITY_GEN_HASHCASH_FIRST_BYTE_LESS_THAN) {
+			return false;
+		}
+
+		const uint64_t addr = (((uint64_t)digest[59]) << 32) | (((uint64_t)digest[60]) << 24)
+							  | (((uint64_t)digest[61]) << 16) | (((uint64_t)digest[62]) << 8) | ((uint64_t)digest[63]);
+		if ((! addr) || ((addr >> 32) == ZT_ADDRESS_RESERVED_PREFIX)) {
+			return false;
+		}
+
+		if (attemptCounter) {
+			attemptCounter->fetch_add(1ULL, std::memory_order_relaxed);
+		}
+
+		if ((vanityBits > 0) && ((addr >> (40 - vanityBits)) != vanity)) {
+			return false;
+		}
+
+		return true;
 	}
 	unsigned char* digest;
 	char* genmem;
+	uint64_t vanity;
+	int vanityBits;
+	const std::atomic<bool>* stopFlag;
+	std::atomic<uint64_t>* attemptCounter;
+	bool* aborted;
 };
 
 void Identity::generate()
+{ (void)generateVanity(0ULL, 0, (const std::atomic<bool>*)0, (std::atomic<uint64_t>*)0); }
+
+bool Identity::generateVanity(uint64_t vanityPrefix,
+							  int vanityBits,
+							  const std::atomic<bool>* stopFlag,
+							  std::atomic<uint64_t>* attemptCounter)
 {
+	if (vanityBits < 0) {
+		vanityBits = 0;
+	}
+	else if (vanityBits > 40) {
+		vanityBits = 40;
+	}
+	if (vanityBits <= 0) {
+		vanityPrefix = 0ULL;
+	}
+	else if (vanityBits < 40) {
+		vanityPrefix &= ((1ULL << vanityBits) - 1ULL);
+	}
+	else {
+		vanityPrefix &= 0xffffffffffULL;
+	}
+
 	unsigned char digest[64];
 	char* genmem = new char[ZT_IDENTITY_GEN_MEMORY];
+	bool aborted = false;
 
-	ECC::Pair kp;
-	do {
-		kp = ECC::generateSatisfying(_Identity_generate_cond(digest, genmem));
-		_address.setTo(digest + 59, ZT_ADDRESS_LENGTH);	  // last 5 bytes are address
-	} while (_address.isReserved());
+	ECC::Pair kp = ECC::generateSatisfying(
+		_Identity_generate_cond(digest, genmem, vanityPrefix, vanityBits, stopFlag, attemptCounter, &aborted));
+	if (aborted) {
+		delete[] genmem;
+		return false;
+	}
+
+	_address.setTo(digest + 59, ZT_ADDRESS_LENGTH);	  // last 5 bytes are address
 
 	_publicKey = kp.pub;
 	if (! _privateKey) {
 		_privateKey = new ECC::Private();
 	}
 	*_privateKey = kp.priv;
-
 	delete[] genmem;
+
+	return true;
 }
 
 bool Identity::locallyValidate() const
@@ -115,7 +187,9 @@ bool Identity::locallyValidate() const
 	unsigned char addrb[5];
 	_address.copyTo(addrb, 5);
 
-	return ((digest[0] < ZT_IDENTITY_GEN_HASHCASH_FIRST_BYTE_LESS_THAN) && (digest[59] == addrb[0]) && (digest[60] == addrb[1]) && (digest[61] == addrb[2]) && (digest[62] == addrb[3]) && (digest[63] == addrb[4]));
+	return ((digest[0] < ZT_IDENTITY_GEN_HASHCASH_FIRST_BYTE_LESS_THAN) && (digest[59] == addrb[0])
+			&& (digest[60] == addrb[1]) && (digest[61] == addrb[2]) && (digest[62] == addrb[3])
+			&& (digest[63] == addrb[4]));
 }
 
 char* Identity::toString(bool includePrivate, char buf[ZT_IDENTITY_STRING_BUFFER_LENGTH]) const

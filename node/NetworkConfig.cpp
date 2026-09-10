@@ -50,6 +50,7 @@ NetworkConfig::NetworkConfig()
 	name[0] = 0;
 	memset(specialists, 0, sizeof(uint64_t) * ZT_MAX_NETWORK_SPECIALISTS);
 	memset(routes, 0, sizeof(ZT_VirtualNetworkRoute) * ZT_MAX_NETWORK_ROUTES);
+	std::fill_n(staticIps, ZT_MAX_ZT_ASSIGNED_ADDRESSES, InetAddress());
 	memset(rules, 0, sizeof(ZT_VirtualNetworkRule) * ZT_MAX_NETWORK_RULES);
 	memset(&dns, 0, sizeof(ZT_VirtualNetworkDNS));
 	memset(authenticationURL, 0, sizeof(authenticationURL));
@@ -407,7 +408,8 @@ bool NetworkConfig::fromDictionary(const Dictionary<ZT_NETWORKCONFIG_DICT_CAPACI
 				this->flags |= ZT_NETWORKCONFIG_FLAG_ENABLE_BROADCAST;
 			}
 			this->flags |= ZT_NETWORKCONFIG_FLAG_ENABLE_IPV6_NDP_EMULATION;	  // always enable for old-style netconf
-			this->type = (d.getB(ZT_NETWORKCONFIG_DICT_KEY_PRIVATE_OLD, true)) ? ZT_NETWORK_TYPE_PRIVATE : ZT_NETWORK_TYPE_PUBLIC;
+			this->type = (d.getB(ZT_NETWORKCONFIG_DICT_KEY_PRIVATE_OLD, true)) ? ZT_NETWORK_TYPE_PRIVATE
+																			   : ZT_NETWORK_TYPE_PUBLIC;
 
 			if (d.get(ZT_NETWORKCONFIG_DICT_KEY_IPV4_STATIC_OLD, tmp2, sizeof(tmp2)) > 0) {
 				char* saveptr = (char*)0;
@@ -472,7 +474,8 @@ bool NetworkConfig::fromDictionary(const Dictionary<ZT_NETWORKCONFIG_DICT_CAPACI
 		else {
 			// Otherwise we can use the new fields
 			this->flags = d.getUI(ZT_NETWORKCONFIG_DICT_KEY_FLAGS, 0);
-			this->type = (ZT_VirtualNetworkType)d.getUI(ZT_NETWORKCONFIG_DICT_KEY_TYPE, (uint64_t)ZT_NETWORK_TYPE_PRIVATE);
+			this->type =
+				(ZT_VirtualNetworkType)d.getUI(ZT_NETWORKCONFIG_DICT_KEY_TYPE, (uint64_t)ZT_NETWORK_TYPE_PRIVATE);
 
 			if (d.get(ZT_NETWORKCONFIG_DICT_KEY_COM, *tmp)) {
 				this->com.deserialize(*tmp, 0);
@@ -566,7 +569,9 @@ bool NetworkConfig::fromDictionary(const Dictionary<ZT_NETWORKCONFIG_DICT_CAPACI
 			if (this->ssoVersion == 0) {
 				// implicit flow
 				if (this->ssoEnabled) {
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_AUTHENTICATION_URL, this->authenticationURL, (unsigned int)sizeof(this->authenticationURL)) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_AUTHENTICATION_URL, this->authenticationURL,
+							  (unsigned int)sizeof(this->authenticationURL))
+						> 0) {
 						this->authenticationURL[sizeof(this->authenticationURL) - 1] = 0;	// ensure null terminated
 					}
 					else {
@@ -582,25 +587,37 @@ bool NetworkConfig::fromDictionary(const Dictionary<ZT_NETWORKCONFIG_DICT_CAPACI
 			else if (this->ssoVersion == 1) {
 				// full flow
 				if (this->ssoEnabled) {
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_AUTHENTICATION_URL, this->authenticationURL, (unsigned int)sizeof(this->authenticationURL)) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_AUTHENTICATION_URL, this->authenticationURL,
+							  (unsigned int)sizeof(this->authenticationURL))
+						> 0) {
 						this->authenticationURL[sizeof(this->authenticationURL) - 1] = 0;
 					}
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_ISSUER_URL, this->issuerURL, (unsigned int)sizeof(this->issuerURL)) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_ISSUER_URL, this->issuerURL,
+							  (unsigned int)sizeof(this->issuerURL))
+						> 0) {
 						this->issuerURL[sizeof(this->issuerURL) - 1] = 0;
 					}
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_CENTRAL_ENDPOINT_URL, this->centralAuthURL, (unsigned int)sizeof(this->centralAuthURL)) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_CENTRAL_ENDPOINT_URL, this->centralAuthURL,
+							  (unsigned int)sizeof(this->centralAuthURL))
+						> 0) {
 						this->centralAuthURL[sizeof(this->centralAuthURL) - 1] = 0;
 					}
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_NONCE, this->ssoNonce, (unsigned int)sizeof(this->ssoNonce)) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_NONCE, this->ssoNonce, (unsigned int)sizeof(this->ssoNonce))
+						> 0) {
 						this->ssoNonce[sizeof(this->ssoNonce) - 1] = 0;
 					}
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_STATE, this->ssoState, (unsigned int)sizeof(this->ssoState)) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_STATE, this->ssoState, (unsigned int)sizeof(this->ssoState))
+						> 0) {
 						this->ssoState[sizeof(this->ssoState) - 1] = 0;
 					}
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_CLIENT_ID, this->ssoClientID, (unsigned int)sizeof(this->ssoClientID)) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_CLIENT_ID, this->ssoClientID,
+							  (unsigned int)sizeof(this->ssoClientID))
+						> 0) {
 						this->ssoClientID[sizeof(this->ssoClientID) - 1] = 0;
 					}
-					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_SSO_PROVIDER, this->ssoProvider, (unsigned int)(sizeof(this->ssoProvider))) > 0) {
+					if (d.get(ZT_NETWORKCONFIG_DICT_KEY_SSO_PROVIDER, this->ssoProvider,
+							  (unsigned int)(sizeof(this->ssoProvider)))
+						> 0) {
 						this->ssoProvider[sizeof(this->ssoProvider) - 1] = 0;
 					}
 					else {

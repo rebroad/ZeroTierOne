@@ -80,13 +80,11 @@ typedef void PhySocket;
  *
  * For all platforms:
  *
- * phyOnDatagram(PhySocket *sock,void **uptr,const struct sockaddr *localAddr,const struct sockaddr *from,void *data,unsigned long len)
- * phyOnTcpConnect(PhySocket *sock,void **uptr,bool success)
- * phyOnTcpAccept(PhySocket *sockL,PhySocket *sockN,void **uptrL,void **uptrN,const struct sockaddr *from)
- * phyOnTcpClose(PhySocket *sock,void **uptr)
- * phyOnTcpData(PhySocket *sock,void **uptr,void *data,unsigned long len)
- * phyOnTcpWritable(PhySocket *sock,void **uptr)
- * phyOnFileDescriptorActivity(PhySocket *sock,void **uptr,bool readable,bool writable)
+ * phyOnDatagram(PhySocket *sock,void **uptr,const struct sockaddr *localAddr,const struct sockaddr *from,void
+ * *data,unsigned long len) phyOnTcpConnect(PhySocket *sock,void **uptr,bool success) phyOnTcpAccept(PhySocket
+ * *sockL,PhySocket *sockN,void **uptrL,void **uptrN,const struct sockaddr *from) phyOnTcpClose(PhySocket *sock,void
+ * **uptr) phyOnTcpData(PhySocket *sock,void **uptr,void *data,unsigned long len) phyOnTcpWritable(PhySocket *sock,void
+ * **uptr) phyOnFileDescriptorActivity(PhySocket *sock,void **uptr,bool readable,bool writable)
  *
  * On Linux/OSX/Unix only (not required/used on Windows or elsewhere):
  *
@@ -133,6 +131,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 	};
 
 	struct PhySocketImpl {
+		PhySocketImpl() : type(ZT_PHY_SOCKET_CLOSED), sock(ZT_PHY_SOCKFD_NULL), uptr((void*)0), localPort(0)
+		{ memset(&saddr, 0, sizeof(saddr)); }
 		PhySocketType type;
 		ZT_PHY_SOCKFD_TYPE sock;
 		void* uptr;	  // user-settable pointer
@@ -221,18 +221,14 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 	 * @return Underlying OS-type (usually int or long) file descriptor associated with object
 	 */
 	static inline ZT_PHY_SOCKFD_TYPE getDescriptor(PhySocket* s) throw()
-	{
-		return reinterpret_cast<PhySocketImpl*>(s)->sock;
-	}
+	{ return reinterpret_cast<PhySocketImpl*>(s)->sock; }
 
 	/**
 	 * @param s Socket object
 	 * @return Pointer to user object
 	 */
 	static inline void** getuptr(PhySocket* s) throw()
-	{
-		return &(reinterpret_cast<PhySocketImpl*>(s)->uptr);
-	}
+	{ return &(reinterpret_cast<PhySocketImpl*>(s)->uptr); }
 
 	/**
 	 * Return the local port corresponding to this PhySocket
@@ -242,9 +238,7 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 	 * @return Local port corresponding to this PhySocket
 	 */
 	static inline uint16_t getLocalPort(PhySocket* s) throw()
-	{
-		return reinterpret_cast<PhySocketImpl*>(s)->localPort;
-	}
+	{ return reinterpret_cast<PhySocketImpl*>(s)->localPort; }
 
 	/**
 	 * Cause poll() to stop waiting immediately
@@ -257,7 +251,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 #if defined(_WIN32) || defined(_WIN64)
 		::send(_whackSendSocket, (const char*)this, 1, 0);
 #else
-		(void)(::write(_whackSendSocket, (PhySocket*)this, 1));
+		const ssize_t n = ::write(_whackSendSocket, (PhySocket*)this, 1);
+		(void)n;
 #endif
 	}
 
@@ -265,17 +260,13 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 	 * @return Number of open sockets
 	 */
 	inline unsigned long count() const throw()
-	{
-		return _socks.size();
-	}
+	{ return _socks.size(); }
 
 	/**
 	 * @return Maximum number of sockets allowed
 	 */
 	inline unsigned long maxCount() const throw()
-	{
-		return ZT_PHY_MAX_SOCKETS;
-	}
+	{ return ZT_PHY_MAX_SOCKETS; }
 
 	/**
 	 * Wrap a raw file descriptor in a PhySocket structure
@@ -325,7 +316,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 	 *
 	 * @param localAddress Local endpoint address and port
 	 * @param uptr Initial value of user pointer associated with this socket (default: NULL)
-	 * @param bufferSize Desired socket receive/send buffer size -- will set as close to this as possible (default: 0, leave alone)
+	 * @param bufferSize Desired socket receive/send buffer size -- will set as close to this as possible (default: 0,
+	 * leave alone)
 	 * @return Socket or NULL on failure to bind
 	 */
 	inline PhySocket* udpBind(const struct sockaddr* localAddress, void* uptr = (void*)0, int bufferSize = 0)
@@ -407,7 +399,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 		}
 #endif	 // Windows or not
 
-		if (::bind(s, localAddress, (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in))) {
+		if (::bind(s, localAddress,
+				   (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in))) {
 			ZT_PHY_CLOSE_SOCKET(s);
 			return (PhySocket*)0;
 		}
@@ -442,7 +435,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 		sws.localPort = htons(sin->sin_port);
 #endif
 		memset(&(sws.saddr), 0, sizeof(struct sockaddr_storage));
-		memcpy(&(sws.saddr), localAddress, (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
+		memcpy(&(sws.saddr), localAddress,
+			   (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
 
 		return (PhySocket*)&sws;
 	}
@@ -479,9 +473,15 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 		PhySocketImpl& sws = *(reinterpret_cast<PhySocketImpl*>(sock));
 		bool sent = false;
 #if defined(_WIN32) || defined(_WIN64)
-		sent = ((long)::sendto(sws.sock, reinterpret_cast<const char*>(data), len, 0, remoteAddress, (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in)) == (long)len);
+		sent = ((long)::sendto(sws.sock, reinterpret_cast<const char*>(data), len, 0, remoteAddress,
+							   (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6)
+																	  : sizeof(struct sockaddr_in))
+				== (long)len);
 #else
-		sent = ((long)::sendto(sws.sock, data, len, 0, remoteAddress, (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in)) == (long)len);
+		sent = ((long)::sendto(sws.sock, data, len, 0, remoteAddress,
+							   (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6)
+																	  : sizeof(struct sockaddr_in))
+				== (long)len);
 #endif
 		if (sent) {
 			Metrics::udp_send += len;
@@ -590,7 +590,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 		}
 #endif
 
-		if (::bind(s, localAddress, (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in))) {
+		if (::bind(s, localAddress,
+				   (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in))) {
 			ZT_PHY_CLOSE_SOCKET(s);
 			return (PhySocket*)0;
 		}
@@ -616,7 +617,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 		sws.sock = s;
 		sws.uptr = uptr;
 		memset(&(sws.saddr), 0, sizeof(struct sockaddr_storage));
-		memcpy(&(sws.saddr), localAddress, (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
+		memcpy(&(sws.saddr), localAddress,
+			   (localAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
 
 		return (PhySocket*)&sws;
 	}
@@ -640,10 +642,14 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 	 * @param remoteAddress Remote address
 	 * @param connected Result parameter: set to whether an "instant connect" has occurred (true if yes)
 	 * @param uptr Initial value of uptr for new socket (default: NULL)
-	 * @param callConnectHandler If true, call TCP connect handler even if result is known before function exit (default: true)
+	 * @param callConnectHandler If true, call TCP connect handler even if result is known before function exit
+	 * (default: true)
 	 * @return New socket or NULL on failure
 	 */
-	inline PhySocket* tcpConnect(const struct sockaddr* remoteAddress, bool& connected, void* uptr = (void*)0, bool callConnectHandler = true)
+	inline PhySocket* tcpConnect(const struct sockaddr* remoteAddress,
+								 bool& connected,
+								 void* uptr = (void*)0,
+								 bool callConnectHandler = true)
 	{
 		if (_socks.size() >= ZT_PHY_MAX_SOCKETS)
 			return (PhySocket*)0;
@@ -684,7 +690,9 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 #endif
 
 		connected = true;
-		if (::connect(s, remoteAddress, (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in))) {
+		if (::connect(s, remoteAddress,
+					  (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6)
+															 : sizeof(struct sockaddr_in))) {
 			connected = false;
 #if defined(_WIN32) || defined(_WIN64)
 			if (WSAGetLastError() != WSAEWOULDBLOCK) {
@@ -721,7 +729,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 		sws.sock = s;
 		sws.uptr = uptr;
 		memset(&(sws.saddr), 0, sizeof(struct sockaddr_storage));
-		memcpy(&(sws.saddr), remoteAddress, (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
+		memcpy(&(sws.saddr), remoteAddress,
+			   (remoteAddress->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
 
 		if ((callConnectHandler) && (connected)) {
 			try {
@@ -935,7 +944,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 #if defined(_WIN32) || defined(_WIN64)
 			::recv(_whackReceiveSocket, tmp, 16, 0);
 #else
-			::read(_whackReceiveSocket, tmp, 16);
+			const ssize_t n = ::read(_whackReceiveSocket, tmp, 16);
+			(void)n;
 #endif
 		}
 
@@ -971,7 +981,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 
 				case ZT_PHY_SOCKET_TCP_OUT_CONNECTED:
 				case ZT_PHY_SOCKET_TCP_IN: {
-					ZT_PHY_SOCKFD_TYPE sock = s->sock;	 // if closed, s->sock becomes invalid as s is no longer dereferencable
+					ZT_PHY_SOCKFD_TYPE sock =
+						s->sock;   // if closed, s->sock becomes invalid as s is no longer dereferencable
 					if (FD_ISSET(sock, &rfds)) {
 						long n = (long)::recv(sock, buf, sizeof(buf), 0);
 						if (n <= 0) {
@@ -1030,7 +1041,9 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 								sws.uptr = (void*)0;
 								memcpy(&(sws.saddr), &ss, sizeof(struct sockaddr_storage));
 								try {
-									_handler->phyOnTcpAccept((PhySocket*)&(*s), (PhySocket*)&(_socks.back()), &(s->uptr), &(sws.uptr), (const struct sockaddr*)&(sws.saddr));
+									_handler->phyOnTcpAccept((PhySocket*)&(*s), (PhySocket*)&(_socks.back()),
+															 &(s->uptr), &(sws.uptr),
+															 (const struct sockaddr*)&(sws.saddr));
 								}
 								catch (...) {
 								}
@@ -1068,7 +1081,9 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 									long n = (long)mm[i].msg_len;
 									if (n > 0) {
 										try {
-											_handler->phyOnDatagram((PhySocket*)&(*s), &(s->uptr), (const struct sockaddr*)&(s->saddr), (const struct sockaddr*)&(addrs[i]), bufs[i], (unsigned long)n);
+											_handler->phyOnDatagram(
+												(PhySocket*)&(*s), &(s->uptr), (const struct sockaddr*)&(s->saddr),
+												(const struct sockaddr*)&(addrs[i]), bufs[i], (unsigned long)n);
 										}
 										catch (...) {
 										}
@@ -1086,7 +1101,9 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 							long n = (long)::recvfrom(s->sock, buf, sizeof(buf), 0, (struct sockaddr*)&ss, &slen);
 							if (n > 0) {
 								try {
-									_handler->phyOnDatagram((PhySocket*)&(*s), &(s->uptr), (const struct sockaddr*)&(s->saddr), (const struct sockaddr*)&ss, (void*)buf, (unsigned long)n);
+									_handler->phyOnDatagram((PhySocket*)&(*s), &(s->uptr),
+															(const struct sockaddr*)&(s->saddr),
+															(const struct sockaddr*)&ss, (void*)buf, (unsigned long)n);
 								}
 								catch (...) {
 								}
@@ -1100,7 +1117,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 
 				case ZT_PHY_SOCKET_UNIX_IN: {
 #ifdef __UNIX_LIKE__
-					ZT_PHY_SOCKFD_TYPE sock = s->sock;	 // if closed, s->sock becomes invalid as s is no longer dereferencable
+					ZT_PHY_SOCKFD_TYPE sock =
+						s->sock;   // if closed, s->sock becomes invalid as s is no longer dereferencable
 					if ((FD_ISSET(sock, &wfds)) && (FD_ISSET(sock, &_writefds))) {
 						try {
 							_handler->phyOnUnixWritable((PhySocket*)&(*s), &(s->uptr));
@@ -1146,7 +1164,8 @@ template <typename HANDLER_PTR_TYPE> class Phy {
 								sws.uptr = (void*)0;
 								memcpy(&(sws.saddr), &ss, sizeof(struct sockaddr_storage));
 								try {
-									//_handler->phyOnUnixAccept((PhySocket *)&(*s),(PhySocket *)&(_socks.back()),&(s->uptr),&(sws.uptr));
+									//_handler->phyOnUnixAccept((PhySocket *)&(*s),(PhySocket
+									//*)&(_socks.back()),&(s->uptr),&(sws.uptr));
 								}
 								catch (...) {
 								}

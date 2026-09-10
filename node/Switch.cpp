@@ -26,7 +26,11 @@
 
 namespace ZeroTier {
 
-Switch::Switch(const RuntimeEnvironment* renv) : RR(renv), _lastBeaconResponse(0), _lastCheckedQueues(0), _lastUniteAttempt(8)
+Switch::Switch(const RuntimeEnvironment* renv)
+	: RR(renv)
+	, _lastBeaconResponse(0)
+	, _lastCheckedQueues(0)
+	, _lastUniteAttempt(8)
 {
 }
 
@@ -61,7 +65,13 @@ static bool _ipv6GetPayload(const uint8_t* frameData, unsigned int frameLen, uns
 	return false;	// overflow == invalid
 }
 
-void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAddress& fromAddr, const void* data, unsigned int len)
+void Switch::onRemotePacket(void* tPtr,
+							const int64_t localSocket,
+							const InetAddress& fromAddr,
+							const void* data,
+							unsigned int len,
+							unsigned int localPort,
+							Address* authenticatedPeerAddr)
 {
 	int32_t flowId = ZT_QOS_NO_FLOW;
 	try {
@@ -69,9 +79,12 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 
 		const SharedPtr<Path> path(RR->topology->getPath(localSocket, fromAddr));
 		path->received(now);
+		// Store the local port in the path for use in Peer::received callback
+		path->setLocalPort(localPort);
 
 		if (len > ZT_PROTO_MIN_FRAGMENT_LENGTH) {
-			if (reinterpret_cast<const uint8_t*>(data)[ZT_PACKET_FRAGMENT_IDX_FRAGMENT_INDICATOR] == ZT_PACKET_FRAGMENT_INDICATOR) {
+			if (reinterpret_cast<const uint8_t*>(data)[ZT_PACKET_FRAGMENT_IDX_FRAGMENT_INDICATOR]
+				== ZT_PACKET_FRAGMENT_INDICATOR) {
 				// Handle fragment ----------------------------------------------------
 
 				Packet::Fragment fragment(data, len);
@@ -89,7 +102,8 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 						// Note: we don't bother initiating NAT-t for fragments, since heads will set that off.
 						// It wouldn't hurt anything, just redundant and unnecessary.
 						SharedPtr<Peer> relayTo = RR->topology->getPeer(tPtr, destination);
-						if ((! relayTo) || (! relayTo->sendDirect(tPtr, fragment.data(), fragment.size(), now, false))) {
+						if ((! relayTo)
+							|| (! relayTo->sendDirect(tPtr, fragment.data(), fragment.size(), now, false))) {
 							// Don't know peer or no direct path -- so relay via someone upstream
 							relayTo = RR->topology->getUpstreamPeer(0);
 							if (relayTo) {
@@ -105,7 +119,8 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 					const unsigned int fragmentNumber = fragment.fragmentNumber();
 					const unsigned int totalFragments = fragment.totalFragments();
 
-					if ((totalFragments <= ZT_MAX_PACKET_FRAGMENTS) && (fragmentNumber < ZT_MAX_PACKET_FRAGMENTS) && (fragmentNumber > 0) && (totalFragments > 1)) {
+					if ((totalFragments <= ZT_MAX_PACKET_FRAGMENTS) && (fragmentNumber < ZT_MAX_PACKET_FRAGMENTS)
+						&& (fragmentNumber > 0) && (totalFragments > 1)) {
 						// Fragment appears basically sane. Its fragment number must be
 						// 1 or more, since a Packet with fragmented bit set is fragment 0.
 						// Total fragments must be more than 1, otherwise why are we
@@ -138,10 +153,15 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 								}
 
 								if (rq->frag0.tryDecode(RR, tPtr, flowId)) {
+									// Fragmented packet head was successfully decoded and authenticated
+									if (authenticatedPeerAddr) {
+										*authenticatedPeerAddr = rq->frag0.source();
+									}	// TODO - is this right?
 									rq->timestamp = 0;	 // packet decoded, free entry
 								}
 								else {
-									rq->complete = true;   // set complete flag but leave entry since it probably needs WHOIS or something
+									rq->complete = true;   // set complete flag but leave entry since it probably needs
+														   // WHOIS or something
 								}
 							}
 						}	// else this is a duplicate fragment, ignore
@@ -163,7 +183,8 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 				if (destination != RR->identity.address()) {
 					// RELAY: packet head is for a different node, so maybe send it there if we should relay.
 
-					if ((! RR->topology->amUpstream()) && (! path->trustEstablished(now)) && (source != RR->identity.address())) {
+					if ((! RR->topology->amUpstream()) && (! path->trustEstablished(now))
+						&& (source != RR->identity.address())) {
 						return;
 					}
 
@@ -193,13 +214,18 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 						}
 					}
 				}
-				else if ((reinterpret_cast<const uint8_t*>(data)[ZT_PACKET_IDX_FLAGS] & ZT_PROTO_FLAG_FRAGMENTED) != 0) {
+				else if ((reinterpret_cast<const uint8_t*>(data)[ZT_PACKET_IDX_FLAGS] & ZT_PROTO_FLAG_FRAGMENTED)
+						 != 0) {
 					// RECEIVE: packet head appears to be ours (this is validated in cryptographic auth after assembly)
 
-					const uint64_t packetId =
-						((((uint64_t)reinterpret_cast<const uint8_t*>(data)[0]) << 56) | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[1]) << 48) | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[2]) << 40)
-						 | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[3]) << 32) | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[4]) << 24) | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[5]) << 16)
-						 | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[6]) << 8) | ((uint64_t)reinterpret_cast<const uint8_t*>(data)[7]));
+					const uint64_t packetId = ((((uint64_t)reinterpret_cast<const uint8_t*>(data)[0]) << 56)
+											   | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[1]) << 48)
+											   | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[2]) << 40)
+											   | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[3]) << 32)
+											   | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[4]) << 24)
+											   | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[5]) << 16)
+											   | (((uint64_t)reinterpret_cast<const uint8_t*>(data)[6]) << 8)
+											   | ((uint64_t)reinterpret_cast<const uint8_t*>(data)[7]));
 
 					RXQueueEntry* const rq = _findRXQueueEntry(packetId);
 					Mutex::Lock rql(rq->lock);
@@ -217,7 +243,8 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 					else if (! (rq->haveFragments & 1)) {
 						// If we have other fragments but no head, see if we are complete with the head
 
-						if ((rq->totalFragments > 1) && (Utils::countBits(rq->haveFragments |= 1) == rq->totalFragments)) {
+						if ((rq->totalFragments > 1)
+							&& (Utils::countBits(rq->haveFragments |= 1) == rq->totalFragments)) {
 							// We have all fragments -- assemble and process full Packet
 
 							rq->frag0.init(data, len, path, now);
@@ -226,10 +253,15 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 							}
 
 							if (rq->frag0.tryDecode(RR, tPtr, flowId)) {
+								// Fragmented packet was successfully decoded and authenticated
+								if (authenticatedPeerAddr) {
+									*authenticatedPeerAddr = rq->frag0.source();
+								}	// TODO - is this right?
 								rq->timestamp = 0;	 // packet decoded, free entry
 							}
 							else {
-								rq->complete = true;   // set complete flag but leave entry since it probably needs WHOIS or something
+								rq->complete = true;   // set complete flag but leave entry since it probably needs
+													   // WHOIS or something
 							}
 						}
 						else {
@@ -239,10 +271,17 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 					}	// else this is a duplicate head, ignore
 				}
 				else {
-					// RECEIVE: unfragmented packet appears to be ours (this is validated in cryptographic auth after assembly)
+					// RECEIVE: unfragmented packet appears to be ours (this is validated in cryptographic auth after
+					// assembly)
 
 					IncomingPacket packet(data, len, path, now);
-					if (! packet.tryDecode(RR, tPtr, flowId)) {
+					if (packet.tryDecode(RR, tPtr, flowId)) {
+						// Packet was successfully decoded and authenticated
+						if (authenticatedPeerAddr) {
+							*authenticatedPeerAddr = packet.source();
+						}	// TODO - is this right?
+					}
+					else {
 						RXQueueEntry* const rq = _nextRXQueueEntry();
 						Mutex::Lock rql(rq->lock);
 						rq->flowId = flowId;
@@ -263,7 +302,14 @@ void Switch::onRemotePacket(void* tPtr, const int64_t localSocket, const InetAdd
 	}	// sanity check, should be caught elsewhere
 }
 
-void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, const MAC& from, const MAC& to, unsigned int etherType, unsigned int vlanId, const void* data, unsigned int len)
+void Switch::onLocalEthernet(void* tPtr,
+							 const SharedPtr<Network>& network,
+							 const MAC& from,
+							 const MAC& to,
+							 unsigned int etherType,
+							 unsigned int vlanId,
+							 const void* data,
+							 unsigned int len)
 {
 	if (! network->hasConfig()) {
 		return;
@@ -353,7 +399,9 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 
 		if (to.isBroadcast()) {
 			if ((etherType == ZT_ETHERTYPE_ARP) && (len >= 28)
-				&& ((((const uint8_t*)data)[2] == 0x08) && (((const uint8_t*)data)[3] == 0x00) && (((const uint8_t*)data)[4] == 6) && (((const uint8_t*)data)[5] == 4) && (((const uint8_t*)data)[7] == 0x01))) {
+				&& ((((const uint8_t*)data)[2] == 0x08) && (((const uint8_t*)data)[3] == 0x00)
+					&& (((const uint8_t*)data)[4] == 6) && (((const uint8_t*)data)[5] == 4)
+					&& (((const uint8_t*)data)[7] == 0x01))) {
 				/* IPv4 ARP is one of the few special cases that we impose upon what is
 				 * otherwise a straightforward Ethernet switch emulation. Vanilla ARP
 				 * is dumb old broadcast and simply doesn't scale. ZeroTier multicast
@@ -363,17 +411,20 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 				 * them into multicasts by stuffing the IP address being queried into
 				 * the 32-bit ADI field. In practice this uses our multicast pub/sub
 				 * system to implement a kind of extended/distributed ARP table. */
-				multicastGroup = MulticastGroup::deriveMulticastGroupForAddressResolution(InetAddress(((const unsigned char*)data) + 24, 4, 0));
+				multicastGroup = MulticastGroup::deriveMulticastGroupForAddressResolution(
+					InetAddress(((const unsigned char*)data) + 24, 4, 0));
 			}
 			else if (! network->config().enableBroadcast()) {
 				// Don't transmit broadcasts if this network doesn't want them
-				RR->t->outgoingNetworkFrameDropped(tPtr, network, from, to, etherType, vlanId, len, "broadcast disabled");
+				RR->t->outgoingNetworkFrameDropped(tPtr, network, from, to, etherType, vlanId, len,
+												   "broadcast disabled");
 				return;
 			}
 		}
 		else if ((etherType == ZT_ETHERTYPE_IPV6) && (len >= (40 + 8 + 16))) {
 			// IPv6 NDP emulation for certain very special patterns of private IPv6 addresses -- if enabled
-			if ((network->config().ndpEmulation()) && (reinterpret_cast<const uint8_t*>(data)[6] == 0x3a) && (reinterpret_cast<const uint8_t*>(data)[40] == 0x87)) {   // ICMPv6 neighbor solicitation
+			if ((network->config().ndpEmulation()) && (reinterpret_cast<const uint8_t*>(data)[6] == 0x3a)
+				&& (reinterpret_cast<const uint8_t*>(data)[40] == 0x87)) {	 // ICMPv6 neighbor solicitation
 				Address v6EmbeddedAddress;
 				const uint8_t* const pkt6 = reinterpret_cast<const uint8_t*>(data) + 40 + 8;
 				const uint8_t* my6 = (const uint8_t*)0;
@@ -388,9 +439,12 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 				for (unsigned int sipk = 0; sipk < network->config().staticIpCount; ++sipk) {
 					const InetAddress* const sip = &(network->config().staticIps[sipk]);
 					if (sip->ss_family == AF_INET6) {
-						my6 = reinterpret_cast<const uint8_t*>(reinterpret_cast<const struct sockaddr_in6*>(&(*sip))->sin6_addr.s6_addr);
-						const unsigned int sipNetmaskBits = Utils::ntoh((uint16_t)reinterpret_cast<const struct sockaddr_in6*>(&(*sip))->sin6_port);
-						if ((sipNetmaskBits == 88) && (my6[0] == 0xfd) && (my6[9] == 0x99) && (my6[10] == 0x93)) {	 // ZT-RFC4193 /88 ???
+						my6 = reinterpret_cast<const uint8_t*>(
+							reinterpret_cast<const struct sockaddr_in6*>(&(*sip))->sin6_addr.s6_addr);
+						const unsigned int sipNetmaskBits =
+							Utils::ntoh((uint16_t)reinterpret_cast<const struct sockaddr_in6*>(&(*sip))->sin6_port);
+						if ((sipNetmaskBits == 88) && (my6[0] == 0xfd) && (my6[9] == 0x99)
+							&& (my6[10] == 0x93)) {	  // ZT-RFC4193 /88 ???
 							unsigned int ptr = 0;
 							while (ptr != 11) {
 								if (pkt6[ptr] != my6[ptr]) {
@@ -405,7 +459,10 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 						}
 						else if (sipNetmaskBits == 40) {   // ZT-6PLANE /40 ???
 							const uint32_t nwid32 = (uint32_t)((network->id() ^ (network->id() >> 32)) & 0xffffffff);
-							if ((my6[0] == 0xfc) && (my6[1] == (uint8_t)((nwid32 >> 24) & 0xff)) && (my6[2] == (uint8_t)((nwid32 >> 16) & 0xff)) && (my6[3] == (uint8_t)((nwid32 >> 8) & 0xff)) && (my6[4] == (uint8_t)(nwid32 & 0xff))) {
+							if ((my6[0] == 0xfc) && (my6[1] == (uint8_t)((nwid32 >> 24) & 0xff))
+								&& (my6[2] == (uint8_t)((nwid32 >> 16) & 0xff))
+								&& (my6[3] == (uint8_t)((nwid32 >> 8) & 0xff))
+								&& (my6[4] == (uint8_t)(nwid32 & 0xff))) {
 								unsigned int ptr = 0;
 								while (ptr != 5) {
 									if (pkt6[ptr] != my6[ptr]) {
@@ -489,10 +546,14 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 
 					//
 					// call on separate background thread
-					// this prevents problems related to trying to do rx while inside of doing tx, such as acquiring same lock recursively
+					// this prevents problems related to trying to do rx while inside of doing tx, such as acquiring
+					// same lock recursively
 					//
 
-					std::thread([=]() { RR->node->putFrame(tPtr, network->id(), network->userPtr(), peerMac, from, ZT_ETHERTYPE_IPV6, 0, adv, 72); }).detach();
+					std::thread([=]() {
+						RR->node->putFrame(tPtr, network->id(), network->userPtr(), peerMac, from, ZT_ETHERTYPE_IPV6, 0,
+										   adv, 72);
+					}).detach();
 
 					return;	  // NDP emulation done. We have forged a "fake" reply, so no need to send actual NDP query.
 				}	// else no NDP emulation
@@ -514,12 +575,14 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 		}
 
 		// First pass sets noTee to false, but noTee is set to true in OutboundMulticast to prevent duplicates.
-		if (! network->filterOutgoingPacket(tPtr, false, RR->identity.address(), Address(), from, to, (const uint8_t*)data, len, etherType, vlanId, qosBucket)) {
+		if (! network->filterOutgoingPacket(tPtr, false, RR->identity.address(), Address(), from, to,
+											(const uint8_t*)data, len, etherType, vlanId, qosBucket)) {
 			RR->t->outgoingNetworkFrameDropped(tPtr, network, from, to, etherType, vlanId, len, "filter blocked");
 			return;
 		}
 
-		RR->mc->send(tPtr, RR->node->now(), network, Address(), multicastGroup, (fromBridged) ? from : MAC(), etherType, data, len);
+		RR->mc->send(tPtr, RR->node->now(), network, Address(), multicastGroup, (fromBridged) ? from : MAC(), etherType,
+					 data, len);
 	}
 	else if (to == network->mac()) {
 		// Destination is this node, so just reinject it
@@ -527,15 +590,19 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 		//
 		// same pattern as putFrame call above
 		//
-		std::thread([=]() { RR->node->putFrame(tPtr, network->id(), network->userPtr(), from, to, etherType, vlanId, data, len); }).detach();
+		std::thread([=]() {
+			RR->node->putFrame(tPtr, network->id(), network->userPtr(), from, to, etherType, vlanId, data, len);
+		}).detach();
 	}
 	else if (to[0] == MAC::firstOctetForNetwork(network->id())) {
 		// Destination is another ZeroTier peer on the same network
 
-		Address toZT(to.toAddress(network->id()));	 // since in-network MACs are derived from addresses and network IDs, we can reverse this
+		Address toZT(to.toAddress(
+			network->id()));   // since in-network MACs are derived from addresses and network IDs, we can reverse this
 		SharedPtr<Peer> toPeer(RR->topology->getPeer(tPtr, toZT));
 
-		if (! network->filterOutgoingPacket(tPtr, false, RR->identity.address(), toZT, from, to, (const uint8_t*)data, len, etherType, vlanId, qosBucket)) {
+		if (! network->filterOutgoingPacket(tPtr, false, RR->identity.address(), toZT, from, to, (const uint8_t*)data,
+											len, etherType, vlanId, qosBucket)) {
 			RR->t->outgoingNetworkFrameDropped(tPtr, network, from, to, etherType, vlanId, len, "filter blocked");
 			return;
 		}
@@ -566,7 +633,8 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 		// We filter with a NULL destination ZeroTier address first. Filtrations
 		// for each ZT destination are also done below. This is the same rationale
 		// and design as for multicast.
-		if (! network->filterOutgoingPacket(tPtr, false, RR->identity.address(), Address(), from, to, (const uint8_t*)data, len, etherType, vlanId, qosBucket)) {
+		if (! network->filterOutgoingPacket(tPtr, false, RR->identity.address(), Address(), from, to,
+											(const uint8_t*)data, len, etherType, vlanId, qosBucket)) {
 			RR->t->outgoingNetworkFrameDropped(tPtr, network, from, to, etherType, vlanId, len, "filter blocked");
 			return;
 		}
@@ -610,7 +678,8 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 		}
 
 		for (unsigned int b = 0; b < numBridges; ++b) {
-			if (network->filterOutgoingPacket(tPtr, true, RR->identity.address(), bridges[b], from, to, (const uint8_t*)data, len, etherType, vlanId, qosBucket)) {
+			if (network->filterOutgoingPacket(tPtr, true, RR->identity.address(), bridges[b], from, to,
+											  (const uint8_t*)data, len, etherType, vlanId, qosBucket)) {
 				Packet outp(bridges[b], RR->identity.address(), Packet::VERB_EXT_FRAME);
 				outp.append(network->id());
 				outp.append((uint8_t)0x00);
@@ -621,13 +690,20 @@ void Switch::onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, cons
 				aqm_enqueue(tPtr, network, outp, true, qosBucket, network->id(), flowId);
 			}
 			else {
-				RR->t->outgoingNetworkFrameDropped(tPtr, network, from, to, etherType, vlanId, len, "filter blocked (bridge replication)");
+				RR->t->outgoingNetworkFrameDropped(tPtr, network, from, to, etherType, vlanId, len,
+												   "filter blocked (bridge replication)");
 			}
 		}
 	}
 }
 
-void Switch::aqm_enqueue(void* tPtr, const SharedPtr<Network>& network, Packet& packet, const bool encrypt, const int qosBucket, const uint64_t nwid, const int32_t flowId)
+void Switch::aqm_enqueue(void* tPtr,
+						 const SharedPtr<Network>& network,
+						 Packet& packet,
+						 const bool encrypt,
+						 const int qosBucket,
+						 const uint64_t nwid,
+						 const int32_t flowId)
 {
 	if (! network->qosEnabled()) {
 		send(tPtr, packet, encrypt, nwid, flowId);
@@ -657,7 +733,8 @@ void Switch::aqm_enqueue(void* tPtr, const SharedPtr<Network>& network, Packet& 
 
 	ManagedQueue* selectedQueue = nullptr;
 	for (size_t i = 0; i < ZT_AQM_NUM_BUCKETS; i++) {
-		if (i < nqcb->oldQueues.size()) {	// search old queues first (I think this is best since old would imply most recent usage of the queue)
+		if (i < nqcb->oldQueues.size()) {	// search old queues first (I think this is best since old would imply most
+											// recent usage of the queue)
 			if (nqcb->oldQueues[i]->id == qosBucket) {
 				selectedQueue = nqcb->oldQueues[i];
 			}
@@ -687,7 +764,8 @@ void Switch::aqm_enqueue(void* tPtr, const SharedPtr<Network>& network, Packet& 
 	selectedQueue->byteLength += txEntry->packet.payloadLength();
 	nqcb->_currEnqueuedPackets++;
 
-	// DEBUG_INFO("nq=%2lu, oq=%2lu, iq=%2lu, nqcb.size()=%3d, bucket=%2d, q=%p", nqcb->newQueues.size(), nqcb->oldQueues.size(), nqcb->inactiveQueues.size(), nqcb->_currEnqueuedPackets, qosBucket, selectedQueue);
+	// DEBUG_INFO("nq=%2lu, oq=%2lu, iq=%2lu, nqcb.size()=%3d, bucket=%2d, q=%p", nqcb->newQueues.size(),
+	// nqcb->oldQueues.size(), nqcb->inactiveQueues.size(), nqcb->_currEnqueuedPackets, qosBucket, selectedQueue);
 
 	// Drop a packet if necessary
 	ManagedQueue* selectedQueueToDropFrom = nullptr;
@@ -728,9 +806,7 @@ void Switch::aqm_enqueue(void* tPtr, const SharedPtr<Network>& network, Packet& 
 }
 
 uint64_t Switch::control_law(uint64_t t, int count)
-{
-	return (uint64_t)(t + ZT_AQM_INTERVAL / sqrt(count));
-}
+{ return (uint64_t)(t + ZT_AQM_INTERVAL / sqrt(count)); }
 
 Switch::dqr Switch::dodequeue(ManagedQueue* q, uint64_t now)
 {
@@ -795,7 +871,8 @@ Switch::TXQueueEntry* Switch::CoDelDequeue(ManagedQueue* q, bool isNew, uint64_t
 void Switch::aqm_dequeue(void* tPtr)
 {
 	// Cycle through network-specific QoS control blocks
-	for (std::map<uint64_t, NetworkQoSControlBlock*>::iterator nqcb(_netQueueControlBlock.begin()); nqcb != _netQueueControlBlock.end();) {
+	for (std::map<uint64_t, NetworkQoSControlBlock*>::iterator nqcb(_netQueueControlBlock.begin());
+		 nqcb != _netQueueControlBlock.end();) {
 		if (! (*nqcb).second->_currEnqueuedPackets) {
 			return;
 		}
@@ -837,7 +914,8 @@ void Switch::aqm_dequeue(void* tPtr)
 					(*nqcb).second->_currEnqueuedPackets--;
 				}
 				if (queueAtFrontOfList) {
-					// DEBUG_INFO("dequeuing from q=%p, len=%lu in NEW list (byteCredit=%d)", queueAtFrontOfList, queueAtFrontOfList->q.size(), queueAtFrontOfList->byteCredit);
+					// DEBUG_INFO("dequeuing from q=%p, len=%lu in NEW list (byteCredit=%d)", queueAtFrontOfList,
+					// queueAtFrontOfList->q.size(), queueAtFrontOfList->byteCredit);
 				}
 				break;
 			}
@@ -870,7 +948,8 @@ void Switch::aqm_dequeue(void* tPtr)
 					(*nqcb).second->_currEnqueuedPackets--;
 				}
 				if (queueAtFrontOfList) {
-					// DEBUG_INFO("dequeuing from q=%p, len=%lu in OLD list (byteCredit=%d)", queueAtFrontOfList, queueAtFrontOfList->q.size(), queueAtFrontOfList->byteCredit);
+					// DEBUG_INFO("dequeuing from q=%p, len=%lu in OLD list (byteCredit=%d)", queueAtFrontOfList,
+					// queueAtFrontOfList->q.size(), queueAtFrontOfList->byteCredit);
 				}
 				break;
 			}
@@ -1066,7 +1145,8 @@ bool Switch::_trySend(void* tPtr, Packet& packet, bool encrypt, const uint64_t n
 
 	const SharedPtr<Peer> peer(RR->topology->getPeer(tPtr, destination));
 	if (peer) {
-		if ((peer->bondingPolicy() == ZT_BOND_POLICY_BROADCAST) && (packet.verb() == Packet::VERB_FRAME || packet.verb() == Packet::VERB_EXT_FRAME)) {
+		if ((peer->bondingPolicy() == ZT_BOND_POLICY_BROADCAST)
+			&& (packet.verb() == Packet::VERB_FRAME || packet.verb() == Packet::VERB_EXT_FRAME)) {
 			const SharedPtr<Peer> relay(RR->topology->getUpstreamPeer(nwid));
 			Mutex::Lock _l(peer->_paths_m);
 			for (int i = 0; i < ZT_MAX_PEER_NETWORK_PATHS; ++i) {
@@ -1080,7 +1160,8 @@ bool Switch::_trySend(void* tPtr, Packet& packet, bool encrypt, const uint64_t n
 		else {
 			viaPath = peer->getAppropriatePath(now, false, flowId);
 			if (! viaPath) {
-				peer->tryMemorizedPath(tPtr, now);	 // periodically attempt memorized or statically defined paths, if any are known
+				peer->tryMemorizedPath(
+					tPtr, now);	  // periodically attempt memorized or statically defined paths, if any are known
 				const SharedPtr<Peer> relay(RR->topology->getUpstreamPeer(nwid));
 				if ((! relay) || (! (viaPath = relay->getAppropriatePath(now, false, flowId)))) {
 					if (! (viaPath = peer->getAppropriatePath(now, true, flowId))) {
@@ -1098,7 +1179,14 @@ bool Switch::_trySend(void* tPtr, Packet& packet, bool encrypt, const uint64_t n
 	return false;
 }
 
-void Switch::_sendViaSpecificPath(void* tPtr, SharedPtr<Peer> peer, SharedPtr<Path> viaPath, uint16_t userSpecifiedMtu, int64_t now, Packet& packet, bool encrypt, int32_t flowId)
+void Switch::_sendViaSpecificPath(void* tPtr,
+								  SharedPtr<Peer> peer,
+								  SharedPtr<Path> viaPath,
+								  uint16_t userSpecifiedMtu,
+								  int64_t now,
+								  Packet& packet,
+								  bool encrypt,
+								  int32_t flowId)
 {
 	unsigned int mtu = ZT_DEFAULT_PHYSMTU;
 	uint64_t trustedPathId = 0;
