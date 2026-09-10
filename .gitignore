@@ -72,6 +72,7 @@ rustybits/target
 *.pid
 *.pkg
 *.o
+*.d
 /*.a
 *.dylib
 *.so
@@ -83,6 +84,7 @@ rustybits/target
 *.autosave
 *.tmp
 .depend
+.build-signature
 node_modules
 zt1_update_*
 debian/files

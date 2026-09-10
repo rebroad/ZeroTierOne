@@ -67,18 +67,12 @@ class Path {
 		}
 
 		inline unsigned long hashCode() const
-		{
-			return (unsigned long)(_k[0] + _k[1] + _k[2]);
-		}
+		{ return (unsigned long)(_k[0] + _k[1] + _k[2]); }
 
 		inline bool operator==(const HashKey& k) const
-		{
-			return ((_k[0] == k._k[0]) && (_k[1] == k._k[1]) && (_k[2] == k._k[2]));
-		}
+		{ return ((_k[0] == k._k[0]) && (_k[1] == k._k[1]) && (_k[2] == k._k[2])); }
 		inline bool operator!=(const HashKey& k) const
-		{
-			return (! (*this == k));
-		}
+		{ return (! (*this == k)); }
 
 	  private:
 		uint64_t _k[3];
@@ -138,17 +132,13 @@ class Path {
 	 * @param t Time of receive
 	 */
 	inline void received(const uint64_t t)
-	{
-		_lastIn = t;
-	}
+	{ _lastIn = t; }
 
 	/**
 	 * Set time last trusted packet was received (done in Peer::received())
 	 */
 	inline void trustedPacketReceived(const uint64_t t)
-	{
-		_lastTrustEstablishedPacketReceived = t;
-	}
+	{ _lastTrustEstablishedPacketReceived = t; }
 
 	/**
 	 * Send a packet via this path (last out time is also updated)
@@ -168,9 +158,7 @@ class Path {
 	 * @param t Time of send
 	 */
 	inline void sent(const int64_t t)
-	{
-		_lastOut = t;
-	}
+	{ _lastOut = t; }
 
 	/**
 	 * Update path latency with a new measurement
@@ -192,41 +180,38 @@ class Path {
 	 * @return Local socket as specified by external code
 	 */
 	inline int64_t localSocket() const
-	{
-		return _localSocket;
-	}
+	{ return _localSocket; }
 
 	/**
 	 * @return Local port corresponding to the localSocket
 	 */
 	inline int64_t localPort() const
-	{
-		return _localPort;
-	}
+	{ return _localPort; }
+
+	/**
+	 * Set the local port for this path - TODO is this function needed?
+	 */
+	inline void setLocalPort(unsigned int port)
+	{ _localPort = port; }
 
 	/**
 	 * @return Physical address
 	 */
 	inline const InetAddress& address() const
-	{
-		return _addr;
-	}
+	{ return _addr; }
 
 	/**
 	 * @return IP scope -- faster shortcut for address().ipScope()
 	 */
 	inline InetAddress::IpScope ipScope() const
-	{
-		return _ipScope;
-	}
+	{ return _ipScope; }
 
 	/**
-	 * @return True if path has received a trust established packet (e.g. common network membership) in the past ZT_TRUST_EXPIRATION ms
+	 * @return True if path has received a trust established packet (e.g. common network membership) in the past
+	 * ZT_TRUST_EXPIRATION ms
 	 */
 	inline bool trustEstablished(const int64_t now) const
-	{
-		return ((now - _lastTrustEstablishedPacketReceived) < ZT_TRUST_EXPIRATION);
-	}
+	{ return ((now - _lastTrustEstablishedPacketReceived) < ZT_TRUST_EXPIRATION); }
 
 	/**
 	 * @return Preference rank, higher == better
@@ -266,7 +251,8 @@ class Path {
 						// TEMPORARY HACK: for now, we are going to blacklist he.net IPv6
 						// tunnels due to very spotty performance and low MTU issues over
 						// these IPv6 tunnel links.
-						const uint8_t* ipd = reinterpret_cast<const uint8_t*>(reinterpret_cast<const struct sockaddr_in6*>(&a)->sin6_addr.s6_addr);
+						const uint8_t* ipd = reinterpret_cast<const uint8_t*>(
+							reinterpret_cast<const struct sockaddr_in6*>(&a)->sin6_addr.s6_addr);
 						if ((ipd[0] == 0x20) && (ipd[1] == 0x01) && (ipd[2] == 0x04) && (ipd[3] == 0x70)) {
 							return false;
 						}
@@ -283,9 +269,7 @@ class Path {
 	 * @return Latency or 0xffff if unknown
 	 */
 	inline unsigned int latency() const
-	{
-		return _latency;
-	}
+	{ return _latency; }
 
 	/**
 	 * @return Path quality -- lower is better
@@ -293,57 +277,47 @@ class Path {
 	inline long quality(const int64_t now) const
 	{
 		const int l = (long)_latency;
-		const int age = (long)std::min((now - _lastIn), (int64_t)(ZT_PATH_HEARTBEAT_PERIOD * 10));	 // set an upper sanity limit to avoid overflow
-		return (((age < (ZT_PATH_HEARTBEAT_PERIOD + 5000)) ? l : (l + 0xffff + age)) * (long)((ZT_INETADDRESS_MAX_SCOPE - _ipScope) + 1));
+		const int age = (long)std::min(
+			(now - _lastIn), (int64_t)(ZT_PATH_HEARTBEAT_PERIOD * 10));	  // set an upper sanity limit to avoid overflow
+		return (((age < (ZT_PATH_HEARTBEAT_PERIOD + 5000)) ? l : (l + 0xffff + age))
+				* (long)((ZT_INETADDRESS_MAX_SCOPE - _ipScope) + 1));
 	}
 
 	/**
 	 * @return True if this path is alive (receiving heartbeats)
 	 */
 	inline bool alive(const int64_t now) const
-	{
-		return (now - _lastIn) < (ZT_PATH_HEARTBEAT_PERIOD + 5000);
-	}
+	{ return (now - _lastIn) < (ZT_PATH_HEARTBEAT_PERIOD + 5000); }
 
 	/**
 	 * @return True if this path needs a heartbeat
 	 */
 	inline bool needsHeartbeat(const int64_t now) const
-	{
-		return ((now - _lastOut) >= ZT_PATH_HEARTBEAT_PERIOD);
-	}
+	{ return ((now - _lastOut) >= ZT_PATH_HEARTBEAT_PERIOD); }
 
 	/**
 	 * @return Last time we sent something
 	 */
 	inline int64_t lastOut() const
-	{
-		return _lastOut;
-	}
+	{ return _lastOut; }
 
 	/**
 	 * @return Last time we received anything
 	 */
 	inline int64_t lastIn() const
-	{
-		return _lastIn;
-	}
+	{ return _lastIn; }
 
 	/**
 	 * @return the age of the path in terms of receiving packets
 	 */
 	inline int64_t age(int64_t now)
-	{
-		return (now - _lastIn);
-	}
+	{ return (now - _lastIn); }
 
 	/**
 	 * @return Time last trust-established packet was received
 	 */
 	inline int64_t lastTrustEstablishedPacketReceived() const
-	{
-		return _lastTrustEstablishedPacketReceived;
-	}
+	{ return _lastTrustEstablishedPacketReceived; }
 
 	/**
 	 * Rate limit gate for inbound ECHO requests
@@ -361,98 +335,74 @@ class Path {
 	 * @return Mean latency as reported by the bonding layer
 	 */
 	inline float latencyMean() const
-	{
-		return _latencyMean;
-	}
+	{ return _latencyMean; }
 
 	/**
 	 * @return Latency variance as reported by the bonding layer
 	 */
 	inline float latencyVariance() const
-	{
-		return _latencyVariance;
-	}
+	{ return _latencyVariance; }
 
 	/**
 	 * @return Packet Loss Ratio as reported by the bonding layer
 	 */
 	inline float packetLossRatio() const
-	{
-		return _packetLossRatio;
-	}
+	{ return _packetLossRatio; }
 
 	/**
 	 * @return Packet Error Ratio as reported by the bonding layer
 	 */
 	inline float packetErrorRatio() const
-	{
-		return _packetErrorRatio;
-	}
+	{ return _packetErrorRatio; }
 
 	/**
 	 * @return Number of flows assigned to this path
 	 */
 	inline unsigned int assignedFlowCount() const
-	{
-		return _assignedFlowCount;
-	}
+	{ return _assignedFlowCount; }
 
 	/**
 	 * @return Whether this path is valid as reported by the bonding layer. The bonding layer
 	 * actually checks with Phy to see if the interface is still up
 	 */
 	inline bool valid() const
-	{
-		return _valid;
-	}
+	{ return _valid; }
 
 	/**
 	 * @return Whether this path is eligible for use in a bond as reported by the bonding layer
 	 */
 	inline bool eligible() const
-	{
-		return _eligible;
-	}
+	{ return _eligible; }
 
 	/**
 	 * @return Whether this path is bonded as reported by the bonding layer
 	 */
 	inline bool bonded() const
-	{
-		return _bonded;
-	}
+	{ return _bonded; }
 
 	/**
 	 * @return Whether the user-specified MTU for this path (determined by MTU for parent link)
 	 */
 	inline uint16_t mtu() const
-	{
-		return _mtu;
-	}
+	{ return _mtu; }
 
 	/**
 	 * @return Given link capacity as reported by the bonding layer
 	 */
 	inline uint32_t givenLinkSpeed() const
-	{
-		return _givenLinkSpeed;
-	}
+	{ return _givenLinkSpeed; }
 
 	/**
 	 * @return Path's quality as reported by the bonding layer
 	 */
 	inline float relativeQuality() const
-	{
-		return _relativeQuality;
-	}
+	{ return _relativeQuality; }
 
 	/**
 	 * @return Physical interface name that this path lives on
 	 */
 	char* ifname()
-	{
-		return _ifname;
-	}
+	{ return _ifname; }
 
   private:
 	char _ifname[ZT_MAX_PHYSIFNAME] = {};

@@ -34,3 +34,20 @@ drone:
 
 clang-format:
 	find node osdep service tcp-proxy nonfree/controller -iname '*.cpp' -o -iname '*.hpp' | xargs clang-format -i
+
+WINDOWS_OUT_DIR ?= build/windows-x64
+WINDOWS_INSTALLER ?= $(WINDOWS_OUT_DIR)/ZeroTier-One-x64-Installer.exe
+REMOTE_HOST ?= vicco
+PI_HOST ?= pi3
+PI_INSTALL_STAGE_DIR ?= /var/tmp/zerotier-remote-install
+
+.PHONY: windows windows-install pi-install
+
+windows:
+	tools/windows-cross/build-and-package.sh "$(WINDOWS_OUT_DIR)" "$(WINDOWS_INSTALLER)"
+
+windows-install:
+	tools/windows-cross/remote-install.sh "$(REMOTE_HOST)" "$(WINDOWS_INSTALLER)"
+
+pi-install:
+	REBUILD="$(REBUILD)" tools/pi-install.sh "$(PI_HOST)" "$(PI_INSTALL_STAGE_DIR)"

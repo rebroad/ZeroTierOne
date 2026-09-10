@@ -11,15 +11,13 @@
 #include "../node/Constants.hpp"
 #include "../node/Mutex.hpp"
 #include "../node/Utils.hpp"
-#include "..\windows\TapDriver6\tap-windows.h"
+#include "../windows/TapDriver6/tap-windows.h"
 #include "OSUtils.hpp"
 #include "WinDNSHelper.hpp"
 
-#include <IPHlpApi.h>
-#include <SetupAPI.h>
-#include <atlbase.h>
 #include <cfgmgr32.h>
 #include <iostream>
+#include <iphlpapi.h>
 #include <malloc.h>
 #include <netcon.h>
 #include <netioapi.h>
@@ -27,6 +25,7 @@
 #include <newdev.h>
 #include <nldef.h>
 #include <set>
+#include <setupapi.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,36 +42,71 @@
 #define ZT_WINDOWS_CREATE_FAKE_DEFAULT_ROUTE
 
 // Function signatures of dynamically loaded functions, from newdev.h, setupapi.h, and cfgmgr32.h
-typedef BOOL(WINAPI* UpdateDriverForPlugAndPlayDevicesA_t)(_In_opt_ HWND hwndParent, _In_ LPCSTR HardwareId, _In_ LPCSTR FullInfPath, _In_ DWORD InstallFlags, _Out_opt_ PBOOL bRebootRequired);
-typedef BOOL(WINAPI* SetupDiGetINFClassA_t)(_In_ PCSTR InfName, _Out_ LPGUID ClassGuid, _Out_writes_(ClassNameSize) PSTR ClassName, _In_ DWORD ClassNameSize, _Out_opt_ PDWORD RequiredSize);
+typedef BOOL(WINAPI* UpdateDriverForPlugAndPlayDevicesA_t)(_In_opt_ HWND hwndParent,
+														   _In_ LPCSTR HardwareId,
+														   _In_ LPCSTR FullInfPath,
+														   _In_ DWORD InstallFlags,
+														   _Out_opt_ PBOOL bRebootRequired);
+typedef BOOL(WINAPI* SetupDiGetINFClassA_t)(_In_ PCSTR InfName,
+											_Out_ LPGUID ClassGuid,
+											_Out_writes_(ClassNameSize) PSTR ClassName,
+											_In_ DWORD ClassNameSize,
+											_Out_opt_ PDWORD RequiredSize);
 typedef HDEVINFO(WINAPI* SetupDiCreateDeviceInfoList_t)(_In_opt_ CONST GUID* ClassGuid, _In_opt_ HWND hwndParent);
-typedef BOOL(WINAPI* SetupDiCreateDeviceInfoA_t)(
-	_In_ HDEVINFO DeviceInfoSet,
-	_In_ PCSTR DeviceName,
-	_In_ CONST GUID* ClassGuid,
-	_In_opt_ PCSTR DeviceDescription,
-	_In_opt_ HWND hwndParent,
-	_In_ DWORD CreationFlags,
-	_Out_opt_ PSP_DEVINFO_DATA DeviceInfoData);
-typedef BOOL(
-	WINAPI* SetupDiSetDeviceRegistryPropertyA_t)(_In_ HDEVINFO DeviceInfoSet, _Inout_ PSP_DEVINFO_DATA DeviceInfoData, _In_ DWORD Property, _In_reads_bytes_opt_(PropertyBufferSize) CONST BYTE* PropertyBuffer, _In_ DWORD PropertyBufferSize);
-typedef BOOL(WINAPI* SetupDiCallClassInstaller_t)(_In_ DI_FUNCTION InstallFunction, _In_ HDEVINFO DeviceInfoSet, _In_opt_ PSP_DEVINFO_DATA DeviceInfoData);
+typedef BOOL(WINAPI* SetupDiCreateDeviceInfoA_t)(_In_ HDEVINFO DeviceInfoSet,
+												 _In_ PCSTR DeviceName,
+												 _In_ CONST GUID* ClassGuid,
+												 _In_opt_ PCSTR DeviceDescription,
+												 _In_opt_ HWND hwndParent,
+												 _In_ DWORD CreationFlags,
+												 _Out_opt_ PSP_DEVINFO_DATA DeviceInfoData);
+typedef BOOL(WINAPI* SetupDiSetDeviceRegistryPropertyA_t)(_In_ HDEVINFO DeviceInfoSet,
+														  _Inout_ PSP_DEVINFO_DATA DeviceInfoData,
+														  _In_ DWORD Property,
+														  _In_reads_bytes_opt_(PropertyBufferSize)
+															  CONST BYTE* PropertyBuffer,
+														  _In_ DWORD PropertyBufferSize);
+typedef BOOL(WINAPI* SetupDiCallClassInstaller_t)(_In_ DI_FUNCTION InstallFunction,
+												  _In_ HDEVINFO DeviceInfoSet,
+												  _In_opt_ PSP_DEVINFO_DATA DeviceInfoData);
 typedef BOOL(WINAPI* SetupDiDestroyDeviceInfoList_t)(_In_ HDEVINFO DeviceInfoSet);
-typedef HDEVINFO(
-	WINAPI* SetupDiGetClassDevsExA_t)(_In_opt_ CONST GUID* ClassGuid, _In_opt_ PCSTR Enumerator, _In_opt_ HWND hwndParent, _In_ DWORD Flags, _In_opt_ HDEVINFO DeviceInfoSet, _In_opt_ PCSTR MachineName, _Reserved_ PVOID Reserved);
-typedef BOOL(WINAPI* SetupDiOpenDeviceInfoA_t)(_In_ HDEVINFO DeviceInfoSet, _In_ PCSTR DeviceInstanceId, _In_opt_ HWND hwndParent, _In_ DWORD OpenFlags, _Out_opt_ PSP_DEVINFO_DATA DeviceInfoData);
-typedef BOOL(WINAPI* SetupDiEnumDeviceInfo_t)(_In_ HDEVINFO DeviceInfoSet, _In_ DWORD MemberIndex, _Out_ PSP_DEVINFO_DATA DeviceInfoData);
-typedef BOOL(
-	WINAPI* SetupDiSetClassInstallParamsA_t)(_In_ HDEVINFO DeviceInfoSet, _In_opt_ PSP_DEVINFO_DATA DeviceInfoData, _In_reads_bytes_opt_(ClassInstallParamsSize) PSP_CLASSINSTALL_HEADER ClassInstallParams, _In_ DWORD ClassInstallParamsSize);
-typedef CONFIGRET(WINAPI* CM_Get_Device_ID_ExA_t)(_In_ DEVINST dnDevInst, _Out_writes_(BufferLen) PSTR Buffer, _In_ ULONG BufferLen, _In_ ULONG ulFlags, _In_opt_ HMACHINE hMachine);
-typedef BOOL(
-	WINAPI* SetupDiGetDeviceInstanceIdA_t)(_In_ HDEVINFO DeviceInfoSet, _In_ PSP_DEVINFO_DATA DeviceInfoData, _Out_writes_opt_(DeviceInstanceIdSize) PSTR DeviceInstanceId, _In_ DWORD DeviceInstanceIdSize, _Out_opt_ PDWORD RequiredSize);
+typedef HDEVINFO(WINAPI* SetupDiGetClassDevsExA_t)(_In_opt_ CONST GUID* ClassGuid,
+												   _In_opt_ PCSTR Enumerator,
+												   _In_opt_ HWND hwndParent,
+												   _In_ DWORD Flags,
+												   _In_opt_ HDEVINFO DeviceInfoSet,
+												   _In_opt_ PCSTR MachineName,
+												   _Reserved_ PVOID Reserved);
+typedef BOOL(WINAPI* SetupDiOpenDeviceInfoA_t)(_In_ HDEVINFO DeviceInfoSet,
+											   _In_ PCSTR DeviceInstanceId,
+											   _In_opt_ HWND hwndParent,
+											   _In_ DWORD OpenFlags,
+											   _Out_opt_ PSP_DEVINFO_DATA DeviceInfoData);
+typedef BOOL(WINAPI* SetupDiEnumDeviceInfo_t)(_In_ HDEVINFO DeviceInfoSet,
+											  _In_ DWORD MemberIndex,
+											  _Out_ PSP_DEVINFO_DATA DeviceInfoData);
+typedef BOOL(WINAPI* SetupDiSetClassInstallParamsA_t)(_In_ HDEVINFO DeviceInfoSet,
+													  _In_opt_ PSP_DEVINFO_DATA DeviceInfoData,
+													  _In_reads_bytes_opt_(ClassInstallParamsSize)
+														  PSP_CLASSINSTALL_HEADER ClassInstallParams,
+													  _In_ DWORD ClassInstallParamsSize);
+typedef CONFIGRET(WINAPI* CM_Get_Device_ID_ExA_t)(_In_ DEVINST dnDevInst,
+												  _Out_writes_(BufferLen) PSTR Buffer,
+												  _In_ ULONG BufferLen,
+												  _In_ ULONG ulFlags,
+												  _In_opt_ HMACHINE hMachine);
+typedef BOOL(WINAPI* SetupDiGetDeviceInstanceIdA_t)(_In_ HDEVINFO DeviceInfoSet,
+													_In_ PSP_DEVINFO_DATA DeviceInfoData,
+													_Out_writes_opt_(DeviceInstanceIdSize) PSTR DeviceInstanceId,
+													_In_ DWORD DeviceInstanceIdSize,
+													_Out_opt_ PDWORD RequiredSize);
 
 namespace ZeroTier {
 
 namespace {
 
-// Static/singleton class that when initialized loads a bunch of environment information and a few dynamically loaded DLLs
+// Static/singleton class that when initialized loads a bunch of environment information and a few dynamically loaded
+// DLLs
 class WindowsEthernetTapEnv {
   public:
 	WindowsEthernetTapEnv()
@@ -101,43 +135,53 @@ class WindowsEthernetTapEnv {
 			fprintf(stderr, "FATAL: SetupDiGetINFClassA not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiCreateDeviceInfoList = (SetupDiCreateDeviceInfoList_t)GetProcAddress(setupApiMod, "SetupDiCreateDeviceInfoList"))) {
+		if (! (this->SetupDiCreateDeviceInfoList =
+				   (SetupDiCreateDeviceInfoList_t)GetProcAddress(setupApiMod, "SetupDiCreateDeviceInfoList"))) {
 			fprintf(stderr, "FATAL: SetupDiCreateDeviceInfoList not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiCreateDeviceInfoA = (SetupDiCreateDeviceInfoA_t)GetProcAddress(setupApiMod, "SetupDiCreateDeviceInfoA"))) {
+		if (! (this->SetupDiCreateDeviceInfoA =
+				   (SetupDiCreateDeviceInfoA_t)GetProcAddress(setupApiMod, "SetupDiCreateDeviceInfoA"))) {
 			fprintf(stderr, "FATAL: SetupDiCreateDeviceInfoA not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiSetDeviceRegistryPropertyA = (SetupDiSetDeviceRegistryPropertyA_t)GetProcAddress(setupApiMod, "SetupDiSetDeviceRegistryPropertyA"))) {
+		if (! (this->SetupDiSetDeviceRegistryPropertyA = (SetupDiSetDeviceRegistryPropertyA_t)GetProcAddress(
+				   setupApiMod, "SetupDiSetDeviceRegistryPropertyA"))) {
 			fprintf(stderr, "FATAL: SetupDiSetDeviceRegistryPropertyA not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiCallClassInstaller = (SetupDiCallClassInstaller_t)GetProcAddress(setupApiMod, "SetupDiCallClassInstaller"))) {
+		if (! (this->SetupDiCallClassInstaller =
+				   (SetupDiCallClassInstaller_t)GetProcAddress(setupApiMod, "SetupDiCallClassInstaller"))) {
 			fprintf(stderr, "FATAL: SetupDiCallClassInstaller not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiDestroyDeviceInfoList = (SetupDiDestroyDeviceInfoList_t)GetProcAddress(setupApiMod, "SetupDiDestroyDeviceInfoList"))) {
+		if (! (this->SetupDiDestroyDeviceInfoList =
+				   (SetupDiDestroyDeviceInfoList_t)GetProcAddress(setupApiMod, "SetupDiDestroyDeviceInfoList"))) {
 			fprintf(stderr, "FATAL: SetupDiDestroyDeviceInfoList not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiGetClassDevsExA = (SetupDiGetClassDevsExA_t)GetProcAddress(setupApiMod, "SetupDiGetClassDevsExA"))) {
+		if (! (this->SetupDiGetClassDevsExA =
+				   (SetupDiGetClassDevsExA_t)GetProcAddress(setupApiMod, "SetupDiGetClassDevsExA"))) {
 			fprintf(stderr, "FATAL: SetupDiGetClassDevsExA not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiOpenDeviceInfoA = (SetupDiOpenDeviceInfoA_t)GetProcAddress(setupApiMod, "SetupDiOpenDeviceInfoA"))) {
+		if (! (this->SetupDiOpenDeviceInfoA =
+				   (SetupDiOpenDeviceInfoA_t)GetProcAddress(setupApiMod, "SetupDiOpenDeviceInfoA"))) {
 			fprintf(stderr, "FATAL: SetupDiOpenDeviceInfoA not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiEnumDeviceInfo = (SetupDiEnumDeviceInfo_t)GetProcAddress(setupApiMod, "SetupDiEnumDeviceInfo"))) {
+		if (! (this->SetupDiEnumDeviceInfo =
+				   (SetupDiEnumDeviceInfo_t)GetProcAddress(setupApiMod, "SetupDiEnumDeviceInfo"))) {
 			fprintf(stderr, "FATAL: SetupDiEnumDeviceInfo not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiSetClassInstallParamsA = (SetupDiSetClassInstallParamsA_t)GetProcAddress(setupApiMod, "SetupDiSetClassInstallParamsA"))) {
+		if (! (this->SetupDiSetClassInstallParamsA =
+				   (SetupDiSetClassInstallParamsA_t)GetProcAddress(setupApiMod, "SetupDiSetClassInstallParamsA"))) {
 			fprintf(stderr, "FATAL: SetupDiSetClassInstallParamsA not found in setupapi.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->SetupDiGetDeviceInstanceIdA = (SetupDiGetDeviceInstanceIdA_t)GetProcAddress(setupApiMod, "SetupDiGetDeviceInstanceIdA"))) {
+		if (! (this->SetupDiGetDeviceInstanceIdA =
+				   (SetupDiGetDeviceInstanceIdA_t)GetProcAddress(setupApiMod, "SetupDiGetDeviceInstanceIdA"))) {
 			fprintf(stderr, "FATAL: SetupDiGetDeviceInstanceIdA not found in setupapi.dll\r\n");
 			_exit(1);
 		}
@@ -147,7 +191,8 @@ class WindowsEthernetTapEnv {
 			fprintf(stderr, "FATAL: unable to dynamically load newdev.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->UpdateDriverForPlugAndPlayDevicesA = (UpdateDriverForPlugAndPlayDevicesA_t)GetProcAddress(newDevMod, "UpdateDriverForPlugAndPlayDevicesA"))) {
+		if (! (this->UpdateDriverForPlugAndPlayDevicesA = (UpdateDriverForPlugAndPlayDevicesA_t)GetProcAddress(
+				   newDevMod, "UpdateDriverForPlugAndPlayDevicesA"))) {
 			fprintf(stderr, "FATAL: UpdateDriverForPlugAndPlayDevicesA not found in newdev.dll\r\n");
 			_exit(1);
 		}
@@ -157,7 +202,8 @@ class WindowsEthernetTapEnv {
 			fprintf(stderr, "FATAL: unable to dynamically load cfgmgr32.dll\r\n");
 			_exit(1);
 		}
-		if (! (this->CM_Get_Device_ID_ExA = (CM_Get_Device_ID_ExA_t)GetProcAddress(cfgMgrMod, "CM_Get_Device_ID_ExA"))) {
+		if (! (this->CM_Get_Device_ID_ExA =
+				   (CM_Get_Device_ID_ExA_t)GetProcAddress(cfgMgrMod, "CM_Get_Device_ID_ExA"))) {
 			fprintf(stderr, "FATAL: CM_Get_Device_ID_ExA not found in cfgmgr32.dll\r\n");
 			_exit(1);
 		}
@@ -216,12 +262,15 @@ std::string WindowsEthernetTap::addNewPersistentTapDevice(const char* pathToInf,
 	SP_DEVINFO_DATA deviceInfoData;
 	memset(&deviceInfoData, 0, sizeof(deviceInfoData));
 	deviceInfoData.cbSize = sizeof(deviceInfoData);
-	if (! WINENV.SetupDiCreateDeviceInfoA(deviceInfoSet, className, &classGuid, (PCSTR)0, (HWND)0, DICD_GENERATE_ID, &deviceInfoData)) {
+	if (! WINENV.SetupDiCreateDeviceInfoA(deviceInfoSet, className, &classGuid, (PCSTR)0, (HWND)0, DICD_GENERATE_ID,
+										  &deviceInfoData)) {
 		WINENV.SetupDiDestroyDeviceInfoList(deviceInfoSet);
 		return std::string("SetupDiCreateDeviceInfoA() failed");
 	}
 
-	if (! WINENV.SetupDiSetDeviceRegistryPropertyA(deviceInfoSet, &deviceInfoData, SPDRP_HARDWAREID, (const BYTE*)WINENV.tapDriverName.c_str(), (DWORD)(WINENV.tapDriverName.length() + 1))) {
+	if (! WINENV.SetupDiSetDeviceRegistryPropertyA(deviceInfoSet, &deviceInfoData, SPDRP_HARDWAREID,
+												   (const BYTE*)WINENV.tapDriverName.c_str(),
+												   (DWORD)(WINENV.tapDriverName.length() + 1))) {
 		WINENV.SetupDiDestroyDeviceInfoList(deviceInfoSet);
 		return std::string("SetupDiSetDeviceRegistryPropertyA() failed");
 	}
@@ -236,7 +285,9 @@ std::string WindowsEthernetTap::addNewPersistentTapDevice(const char* pathToInf,
 	bool driverInstalled = false;
 	for (int retryCounter = 0; retryCounter < 60; ++retryCounter) {
 		BOOL rebootRequired = FALSE;
-		if (WINENV.UpdateDriverForPlugAndPlayDevicesA((HWND)0, WINENV.tapDriverName.c_str(), pathToInf, INSTALLFLAG_FORCE | INSTALLFLAG_NONINTERACTIVE, &rebootRequired)) {
+		if (WINENV.UpdateDriverForPlugAndPlayDevicesA((HWND)0, WINENV.tapDriverName.c_str(), pathToInf,
+													  INSTALLFLAG_FORCE | INSTALLFLAG_NONINTERACTIVE,
+													  &rebootRequired)) {
 			driverInstalled = true;
 			break;
 		}
@@ -252,7 +303,8 @@ std::string WindowsEthernetTap::addNewPersistentTapDevice(const char* pathToInf,
 	DWORD iidReqSize = sizeof(iidbuf);
 	if (WINENV.SetupDiGetDeviceInstanceIdA(deviceInfoSet, &deviceInfoData, iidbuf, sizeof(iidbuf), &iidReqSize)) {
 		deviceInstanceId = iidbuf;
-	}	// failure here is not fatal since we only need this on Vista and 2008 -- other versions fill it into the registry automatically
+	}	// failure here is not fatal since we only need this on Vista and 2008 -- other versions fill it into the
+		// registry automatically
 
 	WINENV.SetupDiDestroyDeviceInfoList(deviceInfoSet);
 
@@ -268,7 +320,10 @@ std::string WindowsEthernetTap::destroyAllLegacyPersistentTapDevices()
 	std::set<std::string> instanceIdPathsToRemove;
 	{
 		HKEY nwAdapters;
-		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0, KEY_READ | KEY_WRITE, &nwAdapters) != ERROR_SUCCESS)
+		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+						  "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0,
+						  KEY_READ | KEY_WRITE, &nwAdapters)
+			!= ERROR_SUCCESS)
 			return std::string("Could not open registry key");
 
 		for (DWORD subkeyIndex = 0;; ++subkeyIndex) {
@@ -277,17 +332,22 @@ std::string WindowsEthernetTap::destroyAllLegacyPersistentTapDevices()
 			DWORD subkeyNameLen = sizeof(subkeyName);
 			DWORD subkeyClassLen = sizeof(subkeyClass);
 			FILETIME lastWriteTime;
-			if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass, &subkeyClassLen, &lastWriteTime) == ERROR_SUCCESS) {
+			if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass,
+							  &subkeyClassLen, &lastWriteTime)
+				== ERROR_SUCCESS) {
 				type = 0;
 				dataLen = sizeof(data);
-				if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS) {
+				if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen)
+					== ERROR_SUCCESS) {
 					data[dataLen] = '\0';
 
 					if ((! strnicmp(data, "zttap", 5)) && (WINENV.tapDriverName != data)) {
 						std::string instanceIdPath;
 						type = 0;
 						dataLen = sizeof(data);
-						if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS)
+						if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type, (PVOID)data,
+										 &dataLen)
+							== ERROR_SUCCESS)
 							instanceIdPath.assign(data, dataLen);
 						if (instanceIdPath.length() != 0)
 							instanceIdPathsToRemove.insert(instanceIdPath);
@@ -302,7 +362,8 @@ std::string WindowsEthernetTap::destroyAllLegacyPersistentTapDevices()
 	}
 
 	std::string errlist;
-	for (std::set<std::string>::iterator iidp(instanceIdPathsToRemove.begin()); iidp != instanceIdPathsToRemove.end(); ++iidp) {
+	for (std::set<std::string>::iterator iidp(instanceIdPathsToRemove.begin()); iidp != instanceIdPathsToRemove.end();
+		 ++iidp) {
 		std::string err = deletePersistentTapDevice(iidp->c_str());
 		if (err.length() > 0) {
 			if (errlist.length() > 0)
@@ -322,7 +383,10 @@ std::string WindowsEthernetTap::destroyAllPersistentTapDevices()
 	std::set<std::string> instanceIdPathsToRemove;
 	{
 		HKEY nwAdapters;
-		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0, KEY_READ | KEY_WRITE, &nwAdapters) != ERROR_SUCCESS)
+		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+						  "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0,
+						  KEY_READ | KEY_WRITE, &nwAdapters)
+			!= ERROR_SUCCESS)
 			return std::string("Could not open registry key");
 
 		for (DWORD subkeyIndex = 0;; ++subkeyIndex) {
@@ -331,17 +395,22 @@ std::string WindowsEthernetTap::destroyAllPersistentTapDevices()
 			DWORD subkeyNameLen = sizeof(subkeyName);
 			DWORD subkeyClassLen = sizeof(subkeyClass);
 			FILETIME lastWriteTime;
-			if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass, &subkeyClassLen, &lastWriteTime) == ERROR_SUCCESS) {
+			if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass,
+							  &subkeyClassLen, &lastWriteTime)
+				== ERROR_SUCCESS) {
 				type = 0;
 				dataLen = sizeof(data);
-				if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS) {
+				if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen)
+					== ERROR_SUCCESS) {
 					data[dataLen] = '\0';
 
 					if (! strnicmp(data, "zttap", 5)) {
 						std::string instanceIdPath;
 						type = 0;
 						dataLen = sizeof(data);
-						if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS)
+						if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type, (PVOID)data,
+										 &dataLen)
+							== ERROR_SUCCESS)
 							instanceIdPath.assign(data, dataLen);
 						if (instanceIdPath.length() != 0)
 							instanceIdPathsToRemove.insert(instanceIdPath);
@@ -356,7 +425,8 @@ std::string WindowsEthernetTap::destroyAllPersistentTapDevices()
 	}
 
 	std::string errlist;
-	for (std::set<std::string>::iterator iidp(instanceIdPathsToRemove.begin()); iidp != instanceIdPathsToRemove.end(); ++iidp) {
+	for (std::set<std::string>::iterator iidp(instanceIdPathsToRemove.begin()); iidp != instanceIdPathsToRemove.end();
+		 ++iidp) {
 		std::string err = deletePersistentTapDevice(iidp->c_str());
 		if (err.length() > 0) {
 			if (errlist.length() > 0)
@@ -380,7 +450,8 @@ std::string WindowsEthernetTap::deletePersistentTapDevice(const char* instanceId
 
 	Mutex::Lock _l(_systemDeviceManagementLock);
 
-	HDEVINFO devInfo = WINENV.SetupDiGetClassDevsExA((const GUID*)0, (PCSTR)0, (HWND)0, DIGCF_ALLCLASSES, (HDEVINFO)0, (PCSTR)0, (PVOID)0);
+	HDEVINFO devInfo = WINENV.SetupDiGetClassDevsExA((const GUID*)0, (PCSTR)0, (HWND)0, DIGCF_ALLCLASSES, (HDEVINFO)0,
+													 (PCSTR)0, (PVOID)0);
 	if (devInfo == INVALID_HANDLE_VALUE)
 		return std::string("SetupDiGetClassDevsExA() failed");
 	WINENV.SetupDiOpenDeviceInfoA(devInfo, instanceId, (HWND)0, 0, (PSP_DEVINFO_DATA)0);
@@ -389,8 +460,10 @@ std::string WindowsEthernetTap::deletePersistentTapDevice(const char* instanceId
 	memset(&devInfoData, 0, sizeof(devInfoData));
 	devInfoData.cbSize = sizeof(devInfoData);
 	for (DWORD devIndex = 0; WINENV.SetupDiEnumDeviceInfo(devInfo, devIndex, &devInfoData); devIndex++) {
-		if ((WINENV.CM_Get_Device_ID_ExA(devInfoData.DevInst, iid, sizeof(iid), 0, (HMACHINE)0) == CR_SUCCESS) && (! strcmp(iid, instanceId))) {
-			if (! WINENV.SetupDiSetClassInstallParamsA(devInfo, &devInfoData, &rmdParams.ClassInstallHeader, sizeof(rmdParams))) {
+		if ((WINENV.CM_Get_Device_ID_ExA(devInfoData.DevInst, iid, sizeof(iid), 0, (HMACHINE)0) == CR_SUCCESS)
+			&& (! strcmp(iid, instanceId))) {
+			if (! WINENV.SetupDiSetClassInstallParamsA(devInfo, &devInfoData, &rmdParams.ClassInstallHeader,
+													   sizeof(rmdParams))) {
 				WINENV.SetupDiDestroyDeviceInfoList(devInfo);
 				return std::string("SetupDiSetClassInstallParams() failed");
 			}
@@ -416,7 +489,8 @@ bool WindowsEthernetTap::setPersistentTapDeviceState(const char* instanceId, boo
 
 	Mutex::Lock _l(_systemDeviceManagementLock);
 
-	HDEVINFO devInfo = WINENV.SetupDiGetClassDevsExA((const GUID*)0, (PCSTR)0, (HWND)0, DIGCF_ALLCLASSES, (HDEVINFO)0, (PCSTR)0, (PVOID)0);
+	HDEVINFO devInfo = WINENV.SetupDiGetClassDevsExA((const GUID*)0, (PCSTR)0, (HWND)0, DIGCF_ALLCLASSES, (HDEVINFO)0,
+													 (PCSTR)0, (PVOID)0);
 	if (devInfo == INVALID_HANDLE_VALUE)
 		return false;
 	WINENV.SetupDiOpenDeviceInfoA(devInfo, instanceId, (HWND)0, 0, (PSP_DEVINFO_DATA)0);
@@ -425,7 +499,8 @@ bool WindowsEthernetTap::setPersistentTapDeviceState(const char* instanceId, boo
 	memset(&devInfoData, 0, sizeof(devInfoData));
 	devInfoData.cbSize = sizeof(devInfoData);
 	for (DWORD devIndex = 0; WINENV.SetupDiEnumDeviceInfo(devInfo, devIndex, &devInfoData); devIndex++) {
-		if ((WINENV.CM_Get_Device_ID_ExA(devInfoData.DevInst, iid, sizeof(iid), 0, (HMACHINE)0) == CR_SUCCESS) && (! strcmp(iid, instanceId))) {
+		if ((WINENV.CM_Get_Device_ID_ExA(devInfoData.DevInst, iid, sizeof(iid), 0, (HMACHINE)0) == CR_SUCCESS)
+			&& (! strcmp(iid, instanceId))) {
 			memset(&params, 0, sizeof(params));
 			params.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
 			params.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
@@ -455,15 +530,22 @@ bool WindowsEthernetTap::setPersistentTapDeviceState(const char* instanceId, boo
 	return false;
 }
 
-WindowsEthernetTap::WindowsEthernetTap(
-	const char* hp,
-	const MAC& mac,
-	unsigned int mtu,
-	unsigned int metric,
-	uint64_t nwid,
-	const char* friendlyName,
-	void (*handler)(void*, void*, uint64_t, const MAC&, const MAC&, unsigned int, unsigned int, const void*, unsigned int),
-	void* arg)
+WindowsEthernetTap::WindowsEthernetTap(const char* hp,
+									   const MAC& mac,
+									   unsigned int mtu,
+									   unsigned int metric,
+									   uint64_t nwid,
+									   const char* friendlyName,
+									   void (*handler)(void*,
+													   void*,
+													   uint64_t,
+													   const MAC&,
+													   const MAC&,
+													   unsigned int,
+													   unsigned int,
+													   const void*,
+													   unsigned int),
+									   void* arg)
 	: _handler(handler)
 	, _arg(arg)
 	, _mac(mac)
@@ -489,7 +571,10 @@ WindowsEthernetTap::WindowsEthernetTap(
 	Mutex::Lock _l(_systemTapInitLock);
 
 	HKEY nwAdapters;
-	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0, KEY_READ | KEY_WRITE, &nwAdapters) != ERROR_SUCCESS)
+	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+					  "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0,
+					  KEY_READ | KEY_WRITE, &nwAdapters)
+		!= ERROR_SUCCESS)
 		throw std::runtime_error("unable to open registry key for network adapter enumeration");
 
 	// Look for the tap instance that corresponds with this network
@@ -499,29 +584,39 @@ WindowsEthernetTap::WindowsEthernetTap(
 		DWORD subkeyNameLen = sizeof(subkeyName);
 		DWORD subkeyClassLen = sizeof(subkeyClass);
 		FILETIME lastWriteTime;
-		if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass, &subkeyClassLen, &lastWriteTime) == ERROR_SUCCESS) {
+		if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass, &subkeyClassLen,
+						  &lastWriteTime)
+			== ERROR_SUCCESS) {
 			type = 0;
 			dataLen = sizeof(data);
-			if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS) {
+			if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen)
+				== ERROR_SUCCESS) {
 				data[dataLen] = (char)0;
 
 				if (WINENV.tapDriverName == data) {
 					std::string instanceId;
 					type = 0;
 					dataLen = sizeof(data);
-					if (RegGetValueA(nwAdapters, subkeyName, "NetCfgInstanceId", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS)
+					if (RegGetValueA(nwAdapters, subkeyName, "NetCfgInstanceId", RRF_RT_ANY, &type, (PVOID)data,
+									 &dataLen)
+						== ERROR_SUCCESS)
 						instanceId.assign(data, dataLen);
 
 					std::string instanceIdPath;
 					type = 0;
 					dataLen = sizeof(data);
-					if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS)
+					if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type, (PVOID)data,
+									 &dataLen)
+						== ERROR_SUCCESS)
 						instanceIdPath.assign(data, dataLen);
 
-					if ((_netCfgInstanceId.length() == 0) && (instanceId.length() != 0) && (instanceIdPath.length() != 0)) {
+					if ((_netCfgInstanceId.length() == 0) && (instanceId.length() != 0)
+						&& (instanceIdPath.length() != 0)) {
 						type = 0;
 						dataLen = sizeof(data);
-						if (RegGetValueA(nwAdapters, subkeyName, "_ZeroTierTapIdentifier", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS) {
+						if (RegGetValueA(nwAdapters, subkeyName, "_ZeroTierTapIdentifier", RRF_RT_ANY, &type,
+										 (PVOID)data, &dataLen)
+							== ERROR_SUCCESS) {
 							data[dataLen] = '\0';
 							if (! strcmp(data, tag)) {
 								_netCfgInstanceId = instanceId;
@@ -550,35 +645,51 @@ WindowsEthernetTap::WindowsEthernetTap(
 				DWORD subkeyNameLen = sizeof(subkeyName);
 				DWORD subkeyClassLen = sizeof(subkeyClass);
 				FILETIME lastWriteTime;
-				if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass, &subkeyClassLen, &lastWriteTime) == ERROR_SUCCESS) {
+				if (RegEnumKeyExA(nwAdapters, subkeyIndex, subkeyName, &subkeyNameLen, (DWORD*)0, subkeyClass,
+								  &subkeyClassLen, &lastWriteTime)
+					== ERROR_SUCCESS) {
 					type = 0;
 					dataLen = sizeof(data);
-					if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS) {
+					if (RegGetValueA(nwAdapters, subkeyName, "ComponentId", RRF_RT_ANY, &type, (PVOID)data, &dataLen)
+						== ERROR_SUCCESS) {
 						data[dataLen] = '\0';
 
 						if (WINENV.tapDriverName == data) {
 							type = 0;
 							dataLen = sizeof(data);
-							if ((RegGetValueA(nwAdapters, subkeyName, "_ZeroTierTapIdentifier", RRF_RT_ANY, &type, (PVOID)data, &dataLen) != ERROR_SUCCESS) || (dataLen <= 0)) {
+							if ((RegGetValueA(nwAdapters, subkeyName, "_ZeroTierTapIdentifier", RRF_RT_ANY, &type,
+											  (PVOID)data, &dataLen)
+								 != ERROR_SUCCESS)
+								|| (dataLen <= 0)) {
 								type = 0;
 								dataLen = sizeof(data);
-								if (RegGetValueA(nwAdapters, subkeyName, "NetCfgInstanceId", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS) {
-									RegSetKeyValueA(nwAdapters, subkeyName, "_ZeroTierTapIdentifier", REG_SZ, tag, (DWORD)(strlen(tag) + 1));
+								if (RegGetValueA(nwAdapters, subkeyName, "NetCfgInstanceId", RRF_RT_ANY, &type,
+												 (PVOID)data, &dataLen)
+									== ERROR_SUCCESS) {
+									RegSetKeyValueA(nwAdapters, subkeyName, "_ZeroTierTapIdentifier", REG_SZ, tag,
+													(DWORD)(strlen(tag) + 1));
 
 									_netCfgInstanceId.assign(data, dataLen);
 
 									type = 0;
 									dataLen = sizeof(data);
-									if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type, (PVOID)data, &dataLen) == ERROR_SUCCESS)
+									if (RegGetValueA(nwAdapters, subkeyName, "DeviceInstanceID", RRF_RT_ANY, &type,
+													 (PVOID)data, &dataLen)
+										== ERROR_SUCCESS)
 										_deviceInstanceId.assign(data, dataLen);
 
 									_mySubkeyName = subkeyName;
 
 									// Disable DHCP by default on new devices
 									HKEY tcpIpInterfaces;
-									if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\services\\Tcpip\\Parameters\\Interfaces", 0, KEY_READ | KEY_WRITE, &tcpIpInterfaces) == ERROR_SUCCESS) {
+									if (RegOpenKeyExA(
+											HKEY_LOCAL_MACHINE,
+											"SYSTEM\\CurrentControlSet\\services\\Tcpip\\Parameters\\Interfaces", 0,
+											KEY_READ | KEY_WRITE, &tcpIpInterfaces)
+										== ERROR_SUCCESS) {
 										DWORD enable = 0;
-										RegSetKeyValueA(tcpIpInterfaces, _netCfgInstanceId.c_str(), "EnableDHCP", REG_DWORD, &enable, sizeof(enable));
+										RegSetKeyValueA(tcpIpInterfaces, _netCfgInstanceId.c_str(), "EnableDHCP",
+														REG_DWORD, &enable, sizeof(enable));
 										RegCloseKey(tcpIpInterfaces);
 									}
 
@@ -597,7 +708,8 @@ WindowsEthernetTap::WindowsEthernetTap(
 			}
 			else {
 				// no unused zttap devices, so create one
-				std::string errm = addNewPersistentTapDevice((std::string(_pathToHelpers) + WINENV.tapDriverPath).c_str(), newDeviceInstanceId);
+				std::string errm = addNewPersistentTapDevice(
+					(std::string(_pathToHelpers) + WINENV.tapDriverPath).c_str(), newDeviceInstanceId);
 				if (errm.length() > 0)
 					throw std::runtime_error(std::string("unable to create new device instance: ") + errm);
 			}
@@ -606,7 +718,10 @@ WindowsEthernetTap::WindowsEthernetTap(
 
 	if (_netCfgInstanceId.length() > 0) {
 		char tmps[64];
-		unsigned int tmpsl = OSUtils::ztsnprintf(tmps, sizeof(tmps), "%.2X-%.2X-%.2X-%.2X-%.2X-%.2X", (unsigned int)mac[0], (unsigned int)mac[1], (unsigned int)mac[2], (unsigned int)mac[3], (unsigned int)mac[4], (unsigned int)mac[5]) + 1;
+		unsigned int tmpsl = OSUtils::ztsnprintf(tmps, sizeof(tmps), "%.2X-%.2X-%.2X-%.2X-%.2X-%.2X",
+												 (unsigned int)mac[0], (unsigned int)mac[1], (unsigned int)mac[2],
+												 (unsigned int)mac[3], (unsigned int)mac[4], (unsigned int)mac[5])
+							 + 1;
 		RegSetKeyValueA(nwAdapters, _mySubkeyName.c_str(), "NetworkAddress", REG_SZ, tmps, tmpsl);
 		RegSetKeyValueA(nwAdapters, _mySubkeyName.c_str(), "MAC", REG_SZ, tmps, tmpsl);
 		tmpsl = OSUtils::ztsnprintf(tmps, sizeof(tmps), "%d", mtu);
@@ -620,7 +735,8 @@ WindowsEthernetTap::WindowsEthernetTap(
 		if (creatingNewDevice) {
 			// Vista/2008 does not set this
 			if (newDeviceInstanceId.length() > 0)
-				RegSetKeyValueA(nwAdapters, _mySubkeyName.c_str(), "DeviceInstanceID", REG_SZ, newDeviceInstanceId.c_str(), (DWORD)newDeviceInstanceId.length());
+				RegSetKeyValueA(nwAdapters, _mySubkeyName.c_str(), "DeviceInstanceID", REG_SZ,
+								newDeviceInstanceId.c_str(), (DWORD)newDeviceInstanceId.length());
 
 			// Set EnableDHCP to 0 by default on new devices
 			tmp = 0;
@@ -644,7 +760,8 @@ WindowsEthernetTap::WindowsEthernetTap(
 		}
 		*nbtmp2 = (char)0;
 		if (UuidFromStringA((RPC_CSTR)nobraces, &_deviceGuid) != RPC_S_OK)
-			throw std::runtime_error("unable to convert instance ID GUID to native GUID (invalid NetCfgInstanceId in registry?)");
+			throw std::runtime_error(
+				"unable to convert instance ID GUID to native GUID (invalid NetCfgInstanceId in registry?)");
 	}
 
 	// Get the LUID, which is one of like four fucking ways to refer to a network device in Windows
@@ -671,14 +788,10 @@ WindowsEthernetTap::~WindowsEthernetTap()
 }
 
 void WindowsEthernetTap::setEnabled(bool en)
-{
-	_enabled = en;
-}
+{ _enabled = en; }
 
 bool WindowsEthernetTap::enabled() const
-{
-	return _enabled;
-}
+{ return _enabled; }
 
 bool WindowsEthernetTap::addIp(const InetAddress& ip)
 {
@@ -717,10 +830,12 @@ bool WindowsEthernetTap::removeIp(const InetAddress& ip)
 						InetAddress addr;
 						switch (ipt->Table[i].Address.si_family) {
 							case AF_INET:
-								addr.set(&(ipt->Table[i].Address.Ipv4.sin_addr.S_un.S_addr), 4, ipt->Table[i].OnLinkPrefixLength);
+								addr.set(&(ipt->Table[i].Address.Ipv4.sin_addr.S_un.S_addr), 4,
+										 ipt->Table[i].OnLinkPrefixLength);
 								break;
 							case AF_INET6:
-								addr.set(ipt->Table[i].Address.Ipv6.sin6_addr.u.Byte, 16, ipt->Table[i].OnLinkPrefixLength);
+								addr.set(ipt->Table[i].Address.Ipv6.sin6_addr.u.Byte, 16,
+										 ipt->Table[i].OnLinkPrefixLength);
 								if (addr.ipScope() == InetAddress::IP_SCOPE_LINK_LOCAL)
 									continue;	// can't remove link-local IPv6 addresses
 								break;
@@ -734,7 +849,8 @@ bool WindowsEthernetTap::removeIp(const InetAddress& ip)
 								std::vector<std::string> regSubnetMasks(_getRegistryIPv4Value("SubnetMask"));
 								char ipbuf[64];
 								std::string ipstr(ip.toIpString(ipbuf));
-								for (std::vector<std::string>::iterator rip(regIps.begin()), rm(regSubnetMasks.begin()); ((rip != regIps.end()) && (rm != regSubnetMasks.end())); ++rip, ++rm) {
+								for (std::vector<std::string>::iterator rip(regIps.begin()), rm(regSubnetMasks.begin());
+									 ((rip != regIps.end()) && (rm != regSubnetMasks.end())); ++rip, ++rm) {
 									if (*rip == ipstr) {
 										regIps.erase(rip);
 										regSubnetMasks.erase(rm);
@@ -782,12 +898,14 @@ std::vector<InetAddress> WindowsEthernetTap::ips() const
 					if (ipt->Table[i].InterfaceLuid.Value == _deviceLuid.Value) {
 						switch (ipt->Table[i].Address.si_family) {
 							case AF_INET: {
-								InetAddress ip(&(ipt->Table[i].Address.Ipv4.sin_addr.S_un.S_addr), 4, ipt->Table[i].OnLinkPrefixLength);
+								InetAddress ip(&(ipt->Table[i].Address.Ipv4.sin_addr.S_un.S_addr), 4,
+											   ipt->Table[i].OnLinkPrefixLength);
 								if (ip != InetAddress::LO4)
 									addrs.push_back(ip);
 							} break;
 							case AF_INET6: {
-								InetAddress ip(ipt->Table[i].Address.Ipv6.sin6_addr.u.Byte, 16, ipt->Table[i].OnLinkPrefixLength);
+								InetAddress ip(ipt->Table[i].Address.Ipv6.sin6_addr.u.Byte, 16,
+											   ipt->Table[i].OnLinkPrefixLength);
 								if ((ip != linkLocalLoopback) && (ip != InetAddress::LO6))
 									addrs.push_back(ip);
 							} break;
@@ -841,7 +959,13 @@ void WindowsEthernetTap::setFriendlyName(const char* dn)
 		return;
 
 	HKEY ifp;
-	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, (std::string("SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}\\") + _netCfgInstanceId).c_str(), 0, KEY_READ | KEY_WRITE, &ifp) == ERROR_SUCCESS) {
+	if (RegOpenKeyExA(
+			HKEY_LOCAL_MACHINE,
+			(std::string("SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}\\")
+			 + _netCfgInstanceId)
+				.c_str(),
+			0, KEY_READ | KEY_WRITE, &ifp)
+		== ERROR_SUCCESS) {
 		RegSetKeyValueA(ifp, "Connection", "Name", REG_SZ, (LPCVOID)dn, (DWORD)(strlen(dn) + 1));
 		RegCloseKey(ifp);
 	}
@@ -849,7 +973,7 @@ void WindowsEthernetTap::setFriendlyName(const char* dn)
 	HRESULT hr = S_OK;
 
 	INetSharingManager* nsm;
-	hr = CoCreateInstance(__uuidof(NetSharingManager), NULL, CLSCTX_ALL, __uuidof(INetSharingManager), (void**)&nsm);
+	hr = CoCreateInstance(CLSID_NetSharingManager, NULL, CLSCTX_ALL, IID_INetSharingManager, (void**)&nsm);
 	if (hr != S_OK)
 		return;
 
@@ -865,7 +989,7 @@ void WindowsEthernetTap::setFriendlyName(const char* dn)
 	IUnknown* unk = nullptr;
 	hr = nsecc->get__NewEnum(&unk);
 	if (unk) {
-		hr = unk->QueryInterface(__uuidof(IEnumVARIANT), (void**)&ev);
+		hr = unk->QueryInterface(IID_IEnumVARIANT, (void**)&ev);
 		unk->Release();
 	}
 	if (ev) {
@@ -875,7 +999,7 @@ void WindowsEthernetTap::setFriendlyName(const char* dn)
 		while ((S_OK == ev->Next(1, &v, NULL)) && found == FALSE) {
 			if (V_VT(&v) == VT_UNKNOWN) {
 				INetConnection* nc = nullptr;
-				V_UNKNOWN(&v)->QueryInterface(__uuidof(INetConnection), (void**)&nc);
+				V_UNKNOWN(&v)->QueryInterface(IID_INetConnection, (void**)&nc);
 				if (nc) {
 					NETCON_PROPERTIES* ncp = nullptr;
 					nc->GetProperties(&ncp);
@@ -924,8 +1048,10 @@ void WindowsEthernetTap::scanMulticastGroups(std::vector<MulticastGroup>& added,
 	// pretty much anything work... IPv4, IPv6, IPX, oldskool Netbios, who knows...
 	unsigned char mcastbuf[TAP_WIN_IOCTL_GET_MULTICAST_MEMBERSHIPS_OUTPUT_BUF_SIZE];
 	DWORD bytesReturned = 0;
-	if (DeviceIoControl(t, TAP_WIN_IOCTL_GET_MULTICAST_MEMBERSHIPS, (LPVOID)mcastbuf, sizeof(mcastbuf), (LPVOID)mcastbuf, sizeof(mcastbuf), &bytesReturned, NULL)) {
-		if ((bytesReturned > 0) && (bytesReturned <= TAP_WIN_IOCTL_GET_MULTICAST_MEMBERSHIPS_OUTPUT_BUF_SIZE)) {   // sanity check
+	if (DeviceIoControl(t, TAP_WIN_IOCTL_GET_MULTICAST_MEMBERSHIPS, (LPVOID)mcastbuf, sizeof(mcastbuf),
+						(LPVOID)mcastbuf, sizeof(mcastbuf), &bytesReturned, NULL)) {
+		if ((bytesReturned > 0)
+			&& (bytesReturned <= TAP_WIN_IOCTL_GET_MULTICAST_MEMBERSHIPS_OUTPUT_BUF_SIZE)) {   // sanity check
 			MAC mac;
 			DWORD i = 0;
 			while ((i + 6) <= bytesReturned) {
@@ -963,7 +1089,10 @@ void WindowsEthernetTap::setMtu(unsigned int mtu)
 	if (mtu != _mtu) {
 		_mtu = mtu;
 		HKEY nwAdapters;
-		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0, KEY_READ | KEY_WRITE, &nwAdapters) == ERROR_SUCCESS) {
+		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+						  "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}", 0,
+						  KEY_READ | KEY_WRITE, &nwAdapters)
+			== ERROR_SUCCESS) {
 			char tmps[64];
 			unsigned int tmpsl = OSUtils::ztsnprintf(tmps, sizeof(tmps), "%d", mtu);
 			RegSetKeyValueA(nwAdapters, _mySubkeyName.c_str(), "MTU", REG_SZ, tmps, tmpsl);
@@ -1008,7 +1137,8 @@ void WindowsEthernetTap::threadMain() throw()
 			setPersistentTapDeviceState(_deviceInstanceId.c_str(), true);
 			Sleep(250);
 
-			_tap = CreateFileA(tapPath, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, NULL);
+			_tap = CreateFileA(tapPath, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+							   FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, NULL);
 			if (_tap == INVALID_HANDLE_VALUE) {
 				Sleep(250);
 				continue;
@@ -1017,7 +1147,8 @@ void WindowsEthernetTap::threadMain() throw()
 			{
 				uint32_t tmpi = 1;
 				DWORD bytesReturned = 0;
-				DeviceIoControl(_tap, TAP_WIN_IOCTL_SET_MEDIA_STATUS, &tmpi, sizeof(tmpi), &tmpi, sizeof(tmpi), &bytesReturned, NULL);
+				DeviceIoControl(_tap, TAP_WIN_IOCTL_SET_MEDIA_STATUS, &tmpi, sizeof(tmpi), &tmpi, sizeof(tmpi),
+								&bytesReturned, NULL);
 			}
 
 #ifdef ZT_WINDOWS_CREATE_FAKE_DEFAULT_ROUTE
@@ -1064,7 +1195,8 @@ void WindowsEthernetTap::threadMain() throw()
 					ipnr.Address.si_family = AF_INET;
 					ipnr.Address.Ipv4.sin_addr.s_addr = fakeIp;
 					ipnr.InterfaceLuid.Value = _deviceLuid.Value;
-					ipnr.PhysicalAddress[0] = _mac[0] ^ 0x10;	// just make something up that's consistent and not part of this net
+					ipnr.PhysicalAddress[0] =
+						_mac[0] ^ 0x10;	  // just make something up that's consistent and not part of this net
 					ipnr.PhysicalAddress[1] = 0x00;
 					ipnr.PhysicalAddress[2] = (UCHAR)((_deviceGuid.Data1 >> 24) & 0xff);
 					ipnr.PhysicalAddress[3] = (UCHAR)((_deviceGuid.Data1 >> 16) & 0xff);
@@ -1091,7 +1223,7 @@ void WindowsEthernetTap::threadMain() throw()
 					nr.NextHop.si_family = AF_INET;
 					nr.NextHop.Ipv4.sin_addr.s_addr = fakeIp;
 					nr.Metric = 9999;	// do not use as real default route
-					nr.Protocol = MIB_IPPROTO_NETMGMT;
+					nr.Protocol = static_cast<NL_ROUTE_PROTOCOL>(MIB_IPPROTO_NETMGMT);
 					DWORD result = CreateIpForwardEntry2(&nr);
 					if (result != NO_ERROR)
 						Sleep(250);
@@ -1143,12 +1275,10 @@ void WindowsEthernetTap::threadMain() throw()
 						timeOfLastBorkCheck = tc;
 						char aabuf[16384];
 						ULONG aalen = sizeof(aabuf);
-						if (GetAdaptersAddresses(
-								AF_UNSPEC,
-								GAA_FLAG_SKIP_UNICAST | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME,
-								(void*)0,
-								reinterpret_cast<PIP_ADAPTER_ADDRESSES>(aabuf),
-								&aalen)
+						if (GetAdaptersAddresses(AF_UNSPEC,
+												 GAA_FLAG_SKIP_UNICAST | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST
+													 | GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME,
+												 (void*)0, reinterpret_cast<PIP_ADAPTER_ADDRESSES>(aabuf), &aalen)
 							== NO_ERROR) {
 							bool isBorked = false;
 
@@ -1180,9 +1310,11 @@ void WindowsEthernetTap::threadMain() throw()
 						if ((bytesRead > 14) && (_enabled)) {
 							MAC to(tapReadBuf, 6);
 							MAC from(tapReadBuf + 6, 6);
-							unsigned int etherType = ((((unsigned int)tapReadBuf[12]) & 0xff) << 8) | (((unsigned int)tapReadBuf[13]) & 0xff);
+							unsigned int etherType = ((((unsigned int)tapReadBuf[12]) & 0xff) << 8)
+													 | (((unsigned int)tapReadBuf[13]) & 0xff);
 							try {
-								_handler(_arg, (void*)0, _nwid, from, to, etherType, 0, tapReadBuf + 14, bytesRead - 14);
+								_handler(_arg, (void*)0, _nwid, from, to, etherType, 0, tapReadBuf + 14,
+										 bytesRead - 14);
 							}
 							catch (...) {
 							}	// handlers should not throw
@@ -1222,7 +1354,8 @@ void WindowsEthernetTap::threadMain() throw()
 		}
 	}
 	catch (...) {
-	}	// catch unexpected exceptions -- this should not happen but would prevent program crash or other weird issues since threads should not throw
+	}	// catch unexpected exceptions -- this should not happen but would prevent program crash or other weird issues
+		// since threads should not throw
 	CoUninitialize();
 }
 
@@ -1252,7 +1385,9 @@ std::vector<std::string> WindowsEthernetTap::_getRegistryIPv4Value(const char* r
 {
 	std::vector<std::string> value;
 	HKEY tcpIpInterfaces;
-	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\services\\Tcpip\\Parameters\\Interfaces", 0, KEY_READ | KEY_WRITE, &tcpIpInterfaces) == ERROR_SUCCESS) {
+	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\services\\Tcpip\\Parameters\\Interfaces", 0,
+					  KEY_READ | KEY_WRITE, &tcpIpInterfaces)
+		== ERROR_SUCCESS) {
 		char buf[16384];
 		DWORD len = sizeof(buf);
 		DWORD kt = REG_MULTI_SZ;
@@ -1289,10 +1424,13 @@ void WindowsEthernetTap::_setRegistryIPv4Value(const char* regKey, const std::ve
 		regMulti.push_back((char)0);
 	}
 	HKEY tcpIpInterfaces;
-	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\services\\Tcpip\\Parameters\\Interfaces", 0, KEY_READ | KEY_WRITE, &tcpIpInterfaces) == ERROR_SUCCESS) {
+	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\services\\Tcpip\\Parameters\\Interfaces", 0,
+					  KEY_READ | KEY_WRITE, &tcpIpInterfaces)
+		== ERROR_SUCCESS) {
 		if (regMulti.length() > 0) {
 			regMulti.push_back((char)0);
-			RegSetKeyValueA(tcpIpInterfaces, _netCfgInstanceId.c_str(), regKey, REG_MULTI_SZ, regMulti.data(), (DWORD)regMulti.length());
+			RegSetKeyValueA(tcpIpInterfaces, _netCfgInstanceId.c_str(), regKey, REG_MULTI_SZ, regMulti.data(),
+							(DWORD)regMulti.length());
 		}
 		else {
 			RegDeleteKeyValueA(tcpIpInterfaces, _netCfgInstanceId.c_str(), regKey);
@@ -1359,8 +1497,6 @@ void WindowsEthernetTap::_syncIps()
 }
 
 void WindowsEthernetTap::setDns(const char* domain, const std::vector<InetAddress>& servers)
-{
-	WinDNSHelper::setDNS(_nwid, domain, servers);
-}
+{ WinDNSHelper::setDNS(_nwid, domain, servers); }
 
 }	// namespace ZeroTier

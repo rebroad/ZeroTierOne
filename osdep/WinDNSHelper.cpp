@@ -8,12 +8,12 @@
 
 #include "WinDNSHelper.hpp"
 
-#include <WbemIdl.h>
 #include <comdef.h>
 #include <sstream>
 #include <string>
 #include <strsafe.h>
 #include <vector>
+#include <wbemidl.h>
 
 #define MAX_KEY_LENGTH 255
 #define MAX_VALUE_NAME 16383
@@ -138,19 +138,18 @@ std::vector<std::string> getSubKeys(const char* key)
 		TCHAR achValue[MAX_VALUE_NAME];
 		DWORD cchValue = MAX_VALUE_NAME;
 
-		retCode = RegQueryInfoKey(
-			hKey,					 // key handle
-			achClass,				 // buffer for class name
-			&cchClassName,			 // size of class string
-			NULL,					 // reserved
-			&cSubKeys,				 // number of subkeys
-			&cbMaxSubKey,			 // longest subkey size
-			&cchMaxClass,			 // longest class string
-			&cValues,				 // number of values for this key
-			&cchMaxValue,			 // longest value name
-			&cbMaxValueData,		 // longest value data
-			&cbSecurityDescriptor,	 // security descriptor
-			&ftLastWriteTime);		 // last write time
+		retCode = RegQueryInfoKey(hKey,					   // key handle
+								  achClass,				   // buffer for class name
+								  &cchClassName,		   // size of class string
+								  NULL,					   // reserved
+								  &cSubKeys,			   // number of subkeys
+								  &cbMaxSubKey,			   // longest subkey size
+								  &cchMaxClass,			   // longest class string
+								  &cValues,				   // number of values for this key
+								  &cchMaxValue,			   // longest value name
+								  &cbMaxValueData,		   // longest value data
+								  &cbSecurityDescriptor,   // security descriptor
+								  &ftLastWriteTime);	   // last write time
 
 		for (i = 0; i < cSubKeys; ++i) {
 			cbName = MAX_KEY_LENGTH;
@@ -187,19 +186,18 @@ std::vector<std::string> getValueList(const char* key)
 		TCHAR achValue[MAX_VALUE_NAME];
 		DWORD cchValue = MAX_VALUE_NAME;
 
-		retCode = RegQueryInfoKey(
-			hKey,					 // key handle
-			achClass,				 // buffer for class name
-			&cchClassName,			 // size of class string
-			NULL,					 // reserved
-			&cSubKeys,				 // number of subkeys
-			&cbMaxSubKey,			 // longest subkey size
-			&cchMaxClass,			 // longest class string
-			&cValues,				 // number of values for this key
-			&cchMaxValue,			 // longest value name
-			&cbMaxValueData,		 // longest value data
-			&cbSecurityDescriptor,	 // security descriptor
-			&ftLastWriteTime);		 // last write time
+		retCode = RegQueryInfoKey(hKey,					   // key handle
+								  achClass,				   // buffer for class name
+								  &cchClassName,		   // size of class string
+								  NULL,					   // reserved
+								  &cSubKeys,			   // number of subkeys
+								  &cbMaxSubKey,			   // longest subkey size
+								  &cchMaxClass,			   // longest class string
+								  &cValues,				   // number of values for this key
+								  &cchMaxValue,			   // longest value name
+								  &cbMaxValueData,		   // longest value data
+								  &cbSecurityDescriptor,   // security descriptor
+								  &ftLastWriteTime);	   // last write time
 
 		for (i = 0, retCode = ERROR_SUCCESS; i < cValues; ++i) {
 			cchValue = MAX_VALUE_NAME;
@@ -217,13 +215,13 @@ std::vector<std::string> getValueList(const char* key)
 std::pair<bool, std::string> WinDNSHelper::hasDNSConfig(uint64_t nwid)
 {
 	char networkStr[20] = { 0 };
-	sprintf(networkStr, "%.16llx", nwid);
+	StringCchPrintfA(networkStr, ARRAYSIZE(networkStr), "%.16llx", nwid);
 
 	const char* baseKey = "SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig";
 	auto subkeys = getSubKeys(baseKey);
 	for (auto it = subkeys.begin(); it != subkeys.end(); ++it) {
 		char sub[MAX_KEY_LENGTH] = { 0 };
-		sprintf(sub, "%s\\%s", baseKey, it->c_str());
+		StringCchPrintfA(sub, ARRAYSIZE(sub), "%s\\%s", baseKey, it->c_str());
 		auto dnsRecords = getValueList(sub);
 		for (auto it2 = dnsRecords.begin(); it2 != dnsRecords.end(); ++it2) {
 			if ((*it2) == "Comment") {
@@ -231,7 +229,8 @@ std::pair<bool, std::string> WinDNSHelper::hasDNSConfig(uint64_t nwid)
 				if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, sub, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
 					char buf[16384] = { 0 };
 					DWORD size = sizeof(buf);
-					DWORD retCode = RegGetValueA(HKEY_LOCAL_MACHINE, sub, it2->c_str(), RRF_RT_REG_SZ, NULL, &buf, &size);
+					DWORD retCode =
+						RegGetValueA(HKEY_LOCAL_MACHINE, sub, it2->c_str(), RRF_RT_REG_SZ, NULL, &buf, &size);
 					if (retCode == ERROR_SUCCESS) {
 						if (std::string(networkStr) == std::string(buf)) {
 							RegCloseKey(hKey);
@@ -266,8 +265,10 @@ void WinDNSHelper::setDNS(uint64_t nwid, const char* domain, const std::vector<I
 	if (hasConfig.first) {
 		// update existing config
 		HKEY dnsKey;
-		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, hasConfig.second.c_str(), 0, KEY_READ | KEY_WRITE, &dnsKey) == ERROR_SUCCESS) {
-			auto retCode = RegSetKeyValueA(dnsKey, NULL, "GenericDNSServers", REG_SZ, serverValue.data(), (DWORD)serverValue.length());
+		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, hasConfig.second.c_str(), 0, KEY_READ | KEY_WRITE, &dnsKey)
+			== ERROR_SUCCESS) {
+			auto retCode = RegSetKeyValueA(dnsKey, NULL, "GenericDNSServers", REG_SZ, serverValue.data(),
+										   (DWORD)serverValue.length());
 			if (retCode != ERROR_SUCCESS) {
 				fprintf(stderr, "Error writing dns servers: %d\n", retCode);
 			}
@@ -283,12 +284,12 @@ void WinDNSHelper::setDNS(uint64_t nwid, const char* domain, const std::vector<I
 		StringFromGUID2(guid, guidTmp, 128);
 		wcstombs(guidStr, guidTmp, 128);
 		char fullKey[MAX_KEY_LENGTH] = { 0 };
-		sprintf(fullKey, "%s\\%s", baseKey, guidStr);
+		StringCchPrintfA(fullKey, ARRAYSIZE(fullKey), "%s\\%s", baseKey, guidStr);
 		HKEY dnsKey;
 		RegCreateKeyA(HKEY_LOCAL_MACHINE, fullKey, &dnsKey);
 		if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, fullKey, 0, KEY_READ | KEY_WRITE, &dnsKey) == ERROR_SUCCESS) {
 			char nwString[32] = { 0 };
-			sprintf(nwString, "%.16llx", nwid);
+			StringCchPrintfA(nwString, ARRAYSIZE(nwString), "%.16llx", nwid);
 			RegSetKeyValueA(dnsKey, NULL, "Comment", REG_SZ, nwString, strlen(nwString));
 
 			DWORD configOpts = 8;

@@ -568,7 +568,6 @@ UPNP_GetValidIGD(struct UPNPDev * devlist,
 	int ndev = 0;
 	int i;
 	int state = -1; /* state 1 : IGD connected. State 2 : IGD. State 3 : anything */
-	int n_igd = 0;
 	char extIpAddr[16];
 	char myLanAddr[40];
 	int status_code = -1;
@@ -612,7 +611,6 @@ UPNP_GetValidIGD(struct UPNPDev * devlist,
 			           "urn:schemas-upnp-org:service:WANCommonInterfaceConfig:"))
 			{
 				desc[i].is_igd = 1;
-				n_igd++;
 				if(lanaddr)
 					strncpy(lanaddr, myLanAddr, lanaddrlen);
 			}
@@ -719,4 +717,3 @@ UPNP_GetIGDFromUrl(const char * rootdescurl,
 		return 0;
 	}
 }
-

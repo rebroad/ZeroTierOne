@@ -25,7 +25,7 @@ namespace Metrics {
 // Packet Type Counts
 extern prometheus::simpleapi::counter_family_t packets;
 
-// incoming packets
+// incoming packets by type
 extern prometheus::simpleapi::counter_metric_t pkt_nop_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_in;
 extern prometheus::simpleapi::counter_metric_t pkt_ack_in;
@@ -48,7 +48,7 @@ extern prometheus::simpleapi::counter_metric_t pkt_user_message_in;
 extern prometheus::simpleapi::counter_metric_t pkt_remote_trace_in;
 extern prometheus::simpleapi::counter_metric_t pkt_path_negotiation_request_in;
 
-// outgoing packets
+// outgoing packets by type
 extern prometheus::simpleapi::counter_metric_t pkt_nop_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_out;
 extern prometheus::simpleapi::counter_metric_t pkt_ack_out;
@@ -74,7 +74,7 @@ extern prometheus::simpleapi::counter_metric_t pkt_path_negotiation_request_out;
 // Packet Error Counts
 extern prometheus::simpleapi::counter_family_t packet_errors;
 
-// incoming errors
+// incoming protocol errors
 extern prometheus::simpleapi::counter_metric_t pkt_error_obj_not_found_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_unsupported_op_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_identity_collision_in;
@@ -84,7 +84,7 @@ extern prometheus::simpleapi::counter_metric_t pkt_error_unwanted_multicast_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_authentication_required_in;
 extern prometheus::simpleapi::counter_metric_t pkt_error_internal_server_error_in;
 
-// outgoing errors
+// outgoing protocol errors
 extern prometheus::simpleapi::counter_metric_t pkt_error_obj_not_found_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_unsupported_op_out;
 extern prometheus::simpleapi::counter_metric_t pkt_error_identity_collision_out;

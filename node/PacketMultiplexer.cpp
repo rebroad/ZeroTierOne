@@ -12,17 +12,31 @@
 #include "Node.hpp"
 #include "RuntimeEnvironment.hpp"
 
+#include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(__linux__)
+#include <errno.h>
+#include <pthread.h>
+#include <sched.h>
+#include <string.h>
+#endif
 
 namespace ZeroTier {
 
 PacketMultiplexer::PacketMultiplexer(const RuntimeEnvironment* renv)
-{
-	RR = renv;
-};
+{ RR = renv; };
 
-void PacketMultiplexer::putFrame(void* tPtr, uint64_t nwid, void** nuptr, const MAC& source, const MAC& dest, unsigned int etherType, unsigned int vlanId, const void* data, unsigned int len, unsigned int flowId)
+void PacketMultiplexer::putFrame(void* tPtr,
+								 uint64_t nwid,
+								 void** nuptr,
+								 const MAC& source,
+								 const MAC& dest,
+								 unsigned int etherType,
+								 unsigned int vlanId,
+								 const void* data,
+								 unsigned int len,
+								 unsigned int flowId)
 {
 #if defined(__APPLE__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__WINDOWS__)
 	RR->node->putFrame(tPtr, nwid, nuptr, source, dest, etherType, vlanId, (const void*)data, len);
@@ -75,8 +89,23 @@ void PacketMultiplexer::setUpPostDecodeReceiveThreads(unsigned int concurrency, 
 
 	// Each thread picks from its own queue to feed into the core
 	for (unsigned int i = 0; i < _concurrency; ++i) {
-		_rxThreads.push_back(std::thread([this, i]() {
+		_rxThreads.push_back(std::thread([this, i, cpuPinningEnabled]() {
 			fprintf(stderr, "Created post-decode packet ingestion thread %d\n", i);
+#if defined(__linux__)
+			if (cpuPinningEnabled) {
+				const unsigned int cpuCount = std::max(1u, std::thread::hardware_concurrency());
+				const int pinCore = static_cast<int>(i % cpuCount);
+				cpu_set_t cpuset;
+				CPU_ZERO(&cpuset);
+				CPU_SET(pinCore, &cpuset);
+				int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+				if (rc != 0) {
+					fprintf(stderr, "Failed to pin packet thread %d to core %d: %s\n", i, pinCore, strerror(errno));
+				}
+			}
+#else
+			(void)cpuPinningEnabled;
+#endif
 
 			PacketRecord* packet = nullptr;
 			for (;;) {
@@ -92,7 +121,8 @@ void PacketMultiplexer::setUpPostDecodeReceiveThreads(unsigned int concurrency, 
 				MAC sourceMac = MAC(packet->source);
 				MAC destMac = MAC(packet->dest);
 
-				RR->node->putFrame(packet->tPtr, packet->nwid, packet->nuptr, sourceMac, destMac, packet->etherType, 0, (const void*)packet->data, packet->len);
+				RR->node->putFrame(packet->tPtr, packet->nwid, packet->nuptr, sourceMac, destMac, packet->etherType, 0,
+								   (const void*)packet->data, packet->len);
 				{
 					Mutex::Lock l(_rxPacketVector_m);
 					_rxPacketVector.push_back(packet);

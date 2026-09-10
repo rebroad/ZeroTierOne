@@ -58,11 +58,11 @@ void ge25519_multi_scalarmult_vartime(ge25519_p3 *r, ge25519_p3 *p, sc25519 *s, 
 {
   unsigned long long pos[npoints];
   unsigned long long hlen=((npoints+1)/2)|1;
-  unsigned long long max1, max2,i;
+  unsigned long long max1, max2;
 
   heap_init(pos, hlen, s);
   
-  for(i=0;;i++)
+  for(;;)
   {
     heap_get2max(pos, &max1, &max2, s);
     if((s[max1].v[3] == 0) || (sc25519_iszero_vartime(&s[max2]))) break;
@@ -70,7 +70,7 @@ void ge25519_multi_scalarmult_vartime(ge25519_p3 *r, ge25519_p3 *p, sc25519 *s, 
     ge25519_add(&p[max2],&p[max2],&p[max1]);
     heap_rootreplaced(pos, hlen, s);
   }
-  for(;;i++)
+  for(;;)
   {
     heap_get2max(pos, &max1, &max2, s);
     if((s[max1].v[2] == 0) || (sc25519_iszero_vartime(&s[max2]))) break;
@@ -81,7 +81,7 @@ void ge25519_multi_scalarmult_vartime(ge25519_p3 *r, ge25519_p3 *p, sc25519 *s, 
   /* We know that (npoints-1)/2 scalars are only 128-bit scalars */
   heap_extend(pos, hlen, npoints, s);
   hlen = npoints;
-  for(;;i++)
+  for(;;)
   {
     heap_get2max(pos, &max1, &max2, s);
     if((s[max1].v[1] == 0) || (sc25519_iszero_vartime(&s[max2]))) break;
@@ -89,7 +89,7 @@ void ge25519_multi_scalarmult_vartime(ge25519_p3 *r, ge25519_p3 *p, sc25519 *s, 
     ge25519_add(&p[max2],&p[max2],&p[max1]);
     heap_rootreplaced_2limbs(pos, hlen, s);
   }
-  for(;;i++)
+  for(;;)
   {
     heap_get2max(pos, &max1, &max2, s);
     if(sc25519_iszero_vartime(&s[max2])) break;

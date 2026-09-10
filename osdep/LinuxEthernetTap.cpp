@@ -6,7 +6,7 @@
  * https://www.zerotier.com/
  */
 
-#ifdef __GNUC__
+#if defined(__GNUC__) && ! defined(__clang__)
 #pragma GCC diagnostic ignored "-Wrestrict"
 #endif
 
@@ -90,7 +90,10 @@ bool isOldLinuxKernel()
 	return ver[0] < 3;
 }
 
-static const char _base32_chars[32] = { 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '2', '3', '4', '5', '6', '7' };
+static const char _base32_chars[32] = {
+	'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
+	'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '2', '3', '4', '5', '6', '7'
+};
 static void _base32_5_to_8(const uint8_t* in, char* out)
 {
 	out[0] = _base32_chars[(in[0]) >> 3];
@@ -103,17 +106,24 @@ static void _base32_5_to_8(const uint8_t* in, char* out)
 	out[7] = _base32_chars[(in[4] & 0x1f)];
 }
 
-LinuxEthernetTap::LinuxEthernetTap(
-	const char* homePath,
-	unsigned int concurrency,
-	bool pinning,
-	const MAC& mac,
-	unsigned int mtu,
-	unsigned int metric,
-	uint64_t nwid,
-	const char* friendlyName,
-	void (*handler)(void*, void*, uint64_t, const MAC&, const MAC&, unsigned int, unsigned int, const void*, unsigned int),
-	void* arg)
+LinuxEthernetTap::LinuxEthernetTap(const char* homePath,
+								   unsigned int concurrency,
+								   bool pinning,
+								   const MAC& mac,
+								   unsigned int mtu,
+								   unsigned int metric,
+								   uint64_t nwid,
+								   const char* friendlyName,
+								   void (*handler)(void*,
+												   void*,
+												   uint64_t,
+												   const MAC&,
+												   const MAC&,
+												   unsigned int,
+												   unsigned int,
+												   const void*,
+												   unsigned int),
+								   void* arg)
 	: _handler(handler)
 	, _arg(arg)
 	, _nwid(nwid)
@@ -216,7 +226,10 @@ LinuxEthernetTap::LinuxEthernetTap(
 	_dev = ifr.ifr_name;
 	::fcntl(_fd, F_SETFD, fcntl(_fd, F_GETFD) | FD_CLOEXEC);
 
-	(void)::pipe(_shutdownSignalPipe);
+	if (::pipe(_shutdownSignalPipe) != 0) {
+		::close(_fd);
+		throw std::runtime_error("unable to create shutdown signal pipe for Linux tap");
+	}
 
 	for (unsigned int i = 0; i < concurrency; ++i) {
 		_rxThreads.push_back(std::thread([this, i, concurrency, pinning] {
@@ -338,7 +351,8 @@ LinuxEthernetTap::LinuxEthernetTap(
 								if (_enabled) {
 									MAC to(b, 6), from(b + 6, 6);
 									unsigned int etherType = Utils::ntoh(((const uint16_t*)b)[6]);
-									_handler(_arg, nullptr, _nwid, from, to, etherType, 0, (const void*)(b + 14), (unsigned int)(r - 14));
+									_handler(_arg, nullptr, _nwid, from, to, etherType, 0, (const void*)(b + 14),
+											 (unsigned int)(r - 14));
 								}
 
 								r = 0;
@@ -358,7 +372,7 @@ LinuxEthernetTap::LinuxEthernetTap(
 LinuxEthernetTap::~LinuxEthernetTap()
 {
 	_run = false;
-	(void)::write(_shutdownSignalPipe[1], "\0", 1);
+	if (::write(_shutdownSignalPipe[1], "\0", 1) < 0) {}
 	::close(_fd);
 	::close(_shutdownSignalPipe[0]);
 	::close(_shutdownSignalPipe[1]);
@@ -368,14 +382,10 @@ LinuxEthernetTap::~LinuxEthernetTap()
 }
 
 void LinuxEthernetTap::setEnabled(bool en)
-{
-	_enabled = en;
-}
+{ _enabled = en; }
 
 bool LinuxEthernetTap::enabled() const
-{
-	return _enabled;
-}
+{ return _enabled; }
 
 static bool ___removeIp(const std::string& _dev, const InetAddress& ip)
 {
@@ -401,13 +411,15 @@ bool LinuxEthernetTap::addIps(std::vector<InetAddress> ips)
 		if (ips[i].isV4()) {
 			char iptmp[64], iptmp2[64];
 			std::string numstr4 = ip4_tot > 1 ? std::to_string(ip4) : "";
-			cfg_contents += "\nIPADDR" + numstr4 + "=" + ips[i].toIpString(iptmp) + "\nNETMASK" + numstr4 + "=" + ips[i].netmask().toIpString(iptmp2) + "\n";
+			cfg_contents += "\nIPADDR" + numstr4 + "=" + ips[i].toIpString(iptmp) + "\nNETMASK" + numstr4 + "="
+							+ ips[i].netmask().toIpString(iptmp2) + "\n";
 			ip4++;
 		}
 		else {
 			char iptmp[64], iptmp2[64];
 			std::string numstr6 = ip6_tot > 1 ? std::to_string(ip6) : "";
-			cfg_contents += "\nIPV6ADDR" + numstr6 + "=" + ips[i].toIpString(iptmp) + "\nNETMASK" + numstr6 + "=" + ips[i].netmask().toIpString(iptmp2) + "\n";
+			cfg_contents += "\nIPV6ADDR" + numstr6 + "=" + ips[i].toIpString(iptmp) + "\nNETMASK" + numstr6 + "="
+							+ ips[i].netmask().toIpString(iptmp2) + "\n";
 			ip6++;
 		}
 	}
@@ -470,19 +482,23 @@ std::vector<InetAddress> LinuxEthernetTap::ips() const
 
 	struct ifaddrs* p = ifa;
 	while (p) {
-		if ((! strcmp(p->ifa_name, _dev.c_str())) && (p->ifa_addr) && (p->ifa_netmask) && (p->ifa_addr->sa_family == p->ifa_netmask->sa_family)) {
+		if ((! strcmp(p->ifa_name, _dev.c_str())) && (p->ifa_addr) && (p->ifa_netmask)
+			&& (p->ifa_addr->sa_family == p->ifa_netmask->sa_family)) {
 			switch (p->ifa_addr->sa_family) {
 				case AF_INET: {
 					struct sockaddr_in* sin = (struct sockaddr_in*)p->ifa_addr;
 					struct sockaddr_in* nm = (struct sockaddr_in*)p->ifa_netmask;
-					r.push_back(InetAddress(&(sin->sin_addr.s_addr), 4, Utils::countBits((uint32_t)nm->sin_addr.s_addr)));
+					r.push_back(
+						InetAddress(&(sin->sin_addr.s_addr), 4, Utils::countBits((uint32_t)nm->sin_addr.s_addr)));
 				} break;
 				case AF_INET6: {
 					struct sockaddr_in6* sin = (struct sockaddr_in6*)p->ifa_addr;
 					struct sockaddr_in6* nm = (struct sockaddr_in6*)p->ifa_netmask;
 					uint32_t b[4];
 					memcpy(b, nm->sin6_addr.s6_addr, sizeof(b));
-					r.push_back(InetAddress(sin->sin6_addr.s6_addr, 16, Utils::countBits(b[0]) + Utils::countBits(b[1]) + Utils::countBits(b[2]) + Utils::countBits(b[3])));
+					r.push_back(InetAddress(sin->sin6_addr.s6_addr, 16,
+											Utils::countBits(b[0]) + Utils::countBits(b[1]) + Utils::countBits(b[2])
+												+ Utils::countBits(b[3])));
 				} break;
 			}
 		}
@@ -509,14 +525,12 @@ void LinuxEthernetTap::put(const MAC& from, const MAC& to, unsigned int etherTyp
 		*((uint16_t*)(putBuf + 12)) = htons((uint16_t)etherType);
 		memcpy(putBuf + 14, data, len);
 		len += 14;
-		(void)::write(_fd, putBuf, len);
+		if (::write(_fd, putBuf, len) < 0) {}
 	}
 }
 
 std::string LinuxEthernetTap::deviceName() const
-{
-	return _dev;
-}
+{ return _dev; }
 
 void LinuxEthernetTap::setFriendlyName(const char* friendlyName)
 {
@@ -545,7 +559,8 @@ void LinuxEthernetTap::scanMulticastGroups(std::vector<MulticastGroup>& added, s
 						mcastmac = f;
 					++fno;
 				}
-				if ((devname) && (! strcmp(devname, _dev.c_str())) && (mcastmac) && (Utils::unhex(mcastmac, mac, 6) == 6))
+				if ((devname) && (! strcmp(devname, _dev.c_str())) && (mcastmac)
+					&& (Utils::unhex(mcastmac, mac, 6) == 6))
 					newGroups.push_back(MulticastGroup(MAC(mac, 6), 0));
 			}
 		}

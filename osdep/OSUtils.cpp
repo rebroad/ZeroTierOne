@@ -10,6 +10,7 @@
 #include "../node/Utils.hpp"
 
 #include <inttypes.h>
+#include <sstream>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,7 +121,8 @@ std::vector<std::string> OSUtils::listDirectory(const char* path, bool includeDi
 	if (! d)
 		return r;
 	while ((dptr = readdir(d)) != nullptr) {
-		if ((strcmp(dptr->d_name, ".")) && (strcmp(dptr->d_name, "..")) && ((dptr->d_type != DT_DIR) || (includeDirectories)))
+		if ((strcmp(dptr->d_name, ".")) && (strcmp(dptr->d_name, ".."))
+			&& ((dptr->d_type != DT_DIR) || (includeDirectories)))
 			r.push_back(std::string(dptr->d_name));
 	}
 	closedir(d);
@@ -458,13 +460,9 @@ std::string OSUtils::platformDefaultHomePath()
 #ifndef OMIT_JSON_SUPPORT
 // Inline these massive JSON operations in one place only to reduce binary footprint and compile time
 nlohmann::json OSUtils::jsonParse(const std::string& buf)
-{
-	return nlohmann::json::parse(buf.c_str());
-}
+{ return nlohmann::json::parse(buf.c_str()); }
 std::string OSUtils::jsonDump(const nlohmann::json& j, int indentation)
-{
-	return j.dump(indentation);
-}
+{ return j.dump(indentation); }
 
 uint64_t OSUtils::jsonInt(const nlohmann::json& jv, const uint64_t dfl)
 {

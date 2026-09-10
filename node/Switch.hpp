@@ -69,8 +69,16 @@ class Switch {
 	 * @param fromAddr Internet IP address of origin
 	 * @param data Packet data
 	 * @param len Packet length
+	 * @param localPort Local port where packet was received
+	 * @param authenticatedPeerAddr Output parameter for authenticated peer ZT address (optional)
 	 */
-	void onRemotePacket(void* tPtr, const int64_t localSocket, const InetAddress& fromAddr, const void* data, unsigned int len);
+	void onRemotePacket(void* tPtr,
+						const int64_t localSocket,
+						const InetAddress& fromAddr,
+						const void* data,
+						unsigned int len,
+						unsigned int localPort = 0,
+						Address* authenticatedPeerAddr = nullptr);
 
 	/**
 	 * Returns whether our bonding or balancing policy is aware of flows.
@@ -89,7 +97,14 @@ class Switch {
 	 * @param data Ethernet payload
 	 * @param len Frame length
 	 */
-	void onLocalEthernet(void* tPtr, const SharedPtr<Network>& network, const MAC& from, const MAC& to, unsigned int etherType, unsigned int vlanId, const void* data, unsigned int len);
+	void onLocalEthernet(void* tPtr,
+						 const SharedPtr<Network>& network,
+						 const MAC& from,
+						 const MAC& to,
+						 unsigned int etherType,
+						 unsigned int vlanId,
+						 const void* data,
+						 unsigned int len);
 
 	/**
 	 * Determines the next drop schedule for packets in the TX queue
@@ -117,7 +132,13 @@ class Switch {
 	 * @param encrypt Encrypt packet payload? (always true except for HELLO)
 	 * @param qosBucket Which bucket the rule-system determined this packet should fall into
 	 */
-	void aqm_enqueue(void* tPtr, const SharedPtr<Network>& network, Packet& packet, const bool encrypt, const int qosBucket, const uint64_t nwid, const int32_t flowId /* = ZT_QOS_NO_FLOW*/);
+	void aqm_enqueue(void* tPtr,
+					 const SharedPtr<Network>& network,
+					 Packet& packet,
+					 const bool encrypt,
+					 const int qosBucket,
+					 const uint64_t nwid,
+					 const int32_t flowId /* = ZT_QOS_NO_FLOW*/);
 
 	/**
 	 * Performs a single AQM cycle and dequeues and transmits all eligible packets on all networks
@@ -164,7 +185,11 @@ class Switch {
 	 * @param encrypt Encrypt packet payload? (always true except for HELLO)
 	 * @param nwid Network ID to which this packet is related or 0 if none
 	 */
-	void send(void* tPtr, Packet& packet, const bool encrypt, const uint64_t nwid, const int32_t flowId /* = ZT_QOS_NO_FLOW*/);
+	void send(void* tPtr,
+			  Packet& packet,
+			  const bool encrypt,
+			  const uint64_t nwid,
+			  const int32_t flowId /* = ZT_QOS_NO_FLOW*/);
 
 	/**
 	 * Request WHOIS on a given address
@@ -199,8 +224,16 @@ class Switch {
 
   private:
 	bool _shouldUnite(const int64_t now, const Address& source, const Address& destination);
-	bool _trySend(void* tPtr, Packet& packet, bool encrypt, const uint64_t nwid, const int32_t flowId /* = ZT_QOS_NO_FLOW*/);
-	void _sendViaSpecificPath(void* tPtr, SharedPtr<Peer> peer, SharedPtr<Path> viaPath, uint16_t userSpecifiedMtu, int64_t now, Packet& packet, bool encrypt, int32_t flowId);
+	bool
+	_trySend(void* tPtr, Packet& packet, bool encrypt, const uint64_t nwid, const int32_t flowId /* = ZT_QOS_NO_FLOW*/);
+	void _sendViaSpecificPath(void* tPtr,
+							  SharedPtr<Peer> peer,
+							  SharedPtr<Path> viaPath,
+							  uint16_t userSpecifiedMtu,
+							  int64_t now,
+							  Packet& packet,
+							  bool encrypt,
+							  int32_t flowId);
 	void _recordOutgoingPacketMetrics(const Packet& p);
 
 	const RuntimeEnvironment* const RR;
@@ -245,16 +278,20 @@ class Switch {
 
 	// Returns current entry in rx queue ring buffer and increments ring pointer
 	inline RXQueueEntry* _nextRXQueueEntry()
-	{
-		return &(_rxQueue[static_cast<unsigned int>((++_rxQueuePtr) - 1) % ZT_RX_QUEUE_SIZE]);
-	}
+	{ return &(_rxQueue[static_cast<unsigned int>((++_rxQueuePtr) - 1) % ZT_RX_QUEUE_SIZE]); }
 
 	// ZeroTier-layer TX queue entry
 	struct TXQueueEntry {
 		TXQueueEntry()
 		{
 		}
-		TXQueueEntry(Address d, uint64_t nwid, uint64_t ct, const Packet& p, bool enc, int32_t fid) : dest(d), nwid(nwid), creationTime(ct), packet(p), encrypt(enc), flowId(fid)
+		TXQueueEntry(Address d, uint64_t nwid, uint64_t ct, const Packet& p, bool enc, int32_t fid)
+			: dest(d)
+			, nwid(nwid)
+			, creationTime(ct)
+			, packet(p)
+			, encrypt(enc)
+			, flowId(fid)
 		{
 		}
 
@@ -286,16 +323,13 @@ class Switch {
 			}
 		}
 		inline unsigned long hashCode() const
-		{
-			return ((unsigned long)x ^ (unsigned long)y);
-		}
+		{ return ((unsigned long)x ^ (unsigned long)y); }
 		inline bool operator==(const _LastUniteKey& k) const
-		{
-			return ((x == k.x) && (y == k.y));
-		}
+		{ return ((x == k.x) && (y == k.y)); }
 		uint64_t x, y;
 	};
-	Hashtable<_LastUniteKey, uint64_t> _lastUniteAttempt;	// key is always sorted in ascending order, for set-like behavior
+	Hashtable<_LastUniteKey, uint64_t>
+		_lastUniteAttempt;	 // key is always sorted in ascending order, for set-like behavior
 	Mutex _lastUniteAttempt_m;
 
 	// Queue with additional flow state variables

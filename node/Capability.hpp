@@ -51,14 +51,10 @@ class RuntimeEnvironment;
 class Capability : public Credential {
   public:
 	static inline Credential::Type credentialType()
-	{
-		return Credential::CREDENTIAL_TYPE_CAPABILITY;
-	}
+	{ return Credential::CREDENTIAL_TYPE_CAPABILITY; }
 
-	Capability() : _nwid(0), _ts(0), _id(0), _maxCustodyChainLength(0), _ruleCount(0)
-	{
-		memset(_rules, 0, sizeof(_rules));
-	}
+	Capability() : _nwid(0), _ts(0), _id(0), _maxCustodyChainLength(0), _ruleCount(0), _custody()
+	{ memset(_rules, 0, sizeof(_rules)); }
 
 	/**
 	 * @param id Capability ID
@@ -68,11 +64,19 @@ class Capability : public Credential {
 	 * @param rules Network flow rules for this capability
 	 * @param ruleCount Number of flow rules
 	 */
-	Capability(uint32_t id, uint64_t nwid, int64_t ts, unsigned int mccl, const ZT_VirtualNetworkRule* rules, unsigned int ruleCount)
+	Capability(uint32_t id,
+			   uint64_t nwid,
+			   int64_t ts,
+			   unsigned int mccl,
+			   const ZT_VirtualNetworkRule* rules,
+			   unsigned int ruleCount)
 		: _nwid(nwid)
 		, _ts(ts)
 		, _id(id)
-		, _maxCustodyChainLength((mccl > 0) ? ((mccl < ZT_MAX_CAPABILITY_CUSTODY_CHAIN_LENGTH) ? mccl : (unsigned int)ZT_MAX_CAPABILITY_CUSTODY_CHAIN_LENGTH) : 1)
+		, _maxCustodyChainLength((mccl > 0) ? ((mccl < ZT_MAX_CAPABILITY_CUSTODY_CHAIN_LENGTH)
+												   ? mccl
+												   : (unsigned int)ZT_MAX_CAPABILITY_CUSTODY_CHAIN_LENGTH)
+											: 1)
 		, _ruleCount((ruleCount < ZT_MAX_CAPABILITY_RULES) ? ruleCount : ZT_MAX_CAPABILITY_RULES)
 	{
 		if (_ruleCount > 0) {
@@ -84,41 +88,31 @@ class Capability : public Credential {
 	 * @return Rules -- see ruleCount() for size of array
 	 */
 	inline const ZT_VirtualNetworkRule* rules() const
-	{
-		return _rules;
-	}
+	{ return _rules; }
 
 	/**
 	 * @return Number of rules in rules()
 	 */
 	inline unsigned int ruleCount() const
-	{
-		return _ruleCount;
-	}
+	{ return _ruleCount; }
 
 	/**
 	 * @return ID and evaluation order of this capability in network
 	 */
 	inline uint32_t id() const
-	{
-		return _id;
-	}
+	{ return _id; }
 
 	/**
 	 * @return Network ID for which this capability was issued
 	 */
 	inline uint64_t networkId() const
-	{
-		return _nwid;
-	}
+	{ return _nwid; }
 
 	/**
 	 * @return Timestamp
 	 */
 	inline int64_t timestamp() const
-	{
-		return _ts;
-	}
+	{ return _ts; }
 
 	/**
 	 * @return Last 'to' address in chain of custody
@@ -153,7 +147,8 @@ class Capability : public Credential {
 	inline bool sign(const Identity& from, const Address& to)
 	{
 		try {
-			for (unsigned int i = 0; ((i < _maxCustodyChainLength) && (i < ZT_MAX_CAPABILITY_CUSTODY_CHAIN_LENGTH)); ++i) {
+			for (unsigned int i = 0; ((i < _maxCustodyChainLength) && (i < ZT_MAX_CAPABILITY_CUSTODY_CHAIN_LENGTH));
+				 ++i) {
 				if (! (_custody[i].to)) {
 					Buffer<(sizeof(Capability) * 2)> tmp;
 					this->serialize(tmp, true);
@@ -177,7 +172,8 @@ class Capability : public Credential {
 	 */
 	int verify(const RuntimeEnvironment* RR, void* tPtr) const;
 
-	template <unsigned int C> static inline void serializeRules(Buffer<C>& b, const ZT_VirtualNetworkRule* rules, unsigned int ruleCount)
+	template <unsigned int C>
+	static inline void serializeRules(Buffer<C>& b, const ZT_VirtualNetworkRule* rules, unsigned int ruleCount)
 	{
 		for (unsigned int i = 0; i < ruleCount; ++i) {
 			// Each rule consists of its 8-bit type followed by the size of that type's
@@ -283,7 +279,8 @@ class Capability : public Credential {
 				case ZT_NETWORK_RULE_MATCH_INTEGER_RANGE:
 					b.append((uint8_t)19);
 					b.append((uint64_t)rules[i].v.intRange.start);
-					b.append((uint64_t)(rules[i].v.intRange.start + (uint64_t)rules[i].v.intRange.end));   // more future-proof
+					b.append((uint64_t)(rules[i].v.intRange.start
+										+ (uint64_t)rules[i].v.intRange.end));	 // more future-proof
 					b.append((uint16_t)rules[i].v.intRange.idx);
 					b.append((uint8_t)rules[i].v.intRange.format);
 					break;
@@ -291,7 +288,12 @@ class Capability : public Credential {
 		}
 	}
 
-	template <unsigned int C> static inline void deserializeRules(const Buffer<C>& b, unsigned int& p, ZT_VirtualNetworkRule* rules, unsigned int& ruleCount, const unsigned int maxRuleCount)
+	template <unsigned int C>
+	static inline void deserializeRules(const Buffer<C>& b,
+										unsigned int& p,
+										ZT_VirtualNetworkRule* rules,
+										unsigned int& ruleCount,
+										const unsigned int maxRuleCount)
 	{
 		while ((ruleCount < maxRuleCount) && (p < b.size())) {
 			rules[ruleCount].t = (uint8_t)b[p++];
@@ -376,7 +378,8 @@ class Capability : public Credential {
 					break;
 				case ZT_NETWORK_RULE_MATCH_INTEGER_RANGE:
 					rules[ruleCount].v.intRange.start = b.template at<uint64_t>(p);
-					rules[ruleCount].v.intRange.end = (uint32_t)(b.template at<uint64_t>(p + 8) - rules[ruleCount].v.intRange.start);
+					rules[ruleCount].v.intRange.end =
+						(uint32_t)(b.template at<uint64_t>(p + 8) - rules[ruleCount].v.intRange.start);
 					rules[ruleCount].v.intRange.idx = b.template at<uint16_t>(p + 16);
 					rules[ruleCount].v.intRange.format = (uint8_t)b[p + 18];
 					break;
@@ -485,18 +488,12 @@ class Capability : public Credential {
 
 	// Provides natural sort order by ID
 	inline bool operator<(const Capability& c) const
-	{
-		return (_id < c._id);
-	}
+	{ return (_id < c._id); }
 
 	inline bool operator==(const Capability& c) const
-	{
-		return (memcmp(this, &c, sizeof(Capability)) == 0);
-	}
+	{ return (memcmp(this, &c, sizeof(Capability)) == 0); }
 	inline bool operator!=(const Capability& c) const
-	{
-		return (memcmp(this, &c, sizeof(Capability)) != 0);
-	}
+	{ return (memcmp(this, &c, sizeof(Capability)) != 0); }
 
   private:
 	uint64_t _nwid;

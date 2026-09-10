@@ -80,16 +80,16 @@ endif
 ifeq ($(ZT_DEBUG),1)
 	ZT_TRACE=1
 	ARCH_FLAGS=
-	CFLAGS+=-Wall -g $(INCLUDES) $(DEFS) $(ARCH_FLAGS)
+	CFLAGS+=-Wall -Werror -g $(INCLUDES) $(DEFS) $(ARCH_FLAGS)
 	STRIP=echo
 	EXTRA_CARGO_FLAGS=
 	RUST_VARIANT=debug
 	# The following line enables optimization for the crypto code, since
 	# C25519 in particular is almost UNUSABLE in heavy testing without it.
-node/Salsa20.o node/SHA512.o node/C25519.o node/Poly1305.o: CFLAGS = -Wall -O2 -g $(INCLUDES) $(DEFS)
+node/Salsa20.o node/SHA512.o node/C25519.o node/Poly1305.o: CFLAGS = -Wall -Werror -O2 -g $(INCLUDES) $(DEFS)
 else
 	CFLAGS?=-O3 -fstack-protector-strong
-	CFLAGS+=$(ARCH_FLAGS) -Wall -flto -fPIE -mmacosx-version-min=$(MACOS_VERSION_MIN) -DNDEBUG -Wno-unused-private-field $(INCLUDES) $(DEFS)
+	CFLAGS+=$(ARCH_FLAGS) -Wall -Werror -flto -fPIE -mmacosx-version-min=$(MACOS_VERSION_MIN) -DNDEBUG -Wno-unused-private-field $(INCLUDES) $(DEFS)
 	STRIP=strip
 	EXTRA_CARGO_FLAGS=--release
 	RUST_VARIANT=release

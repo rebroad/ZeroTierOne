@@ -49,12 +49,18 @@ Peer::Peer(const RuntimeEnvironment* renv, const Identity& myIdentity, const Ide
 	, _localMultipathSupported(false)
 	, _lastComputedAggregateMeanLatency(0)
 #ifndef ZT_NO_PEER_METRICS
-	, _peer_latency { Metrics::peer_latency.Add({ { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } }, std::vector<uint64_t> { 1, 3, 6, 10, 30, 60, 100, 300, 600, 1000 }) }
-	, _alive_path_count { Metrics::peer_path_count.Add({ { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) }, { "status", "alive" } }) }
-	, _dead_path_count { Metrics::peer_path_count.Add({ { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) }, { "status", "dead" } }) }
-	, _incoming_packet { Metrics::peer_packets.Add({ { "direction", "rx" }, { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } }) }
-	, _outgoing_packet { Metrics::peer_packets.Add({ { "direction", "tx" }, { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } }) }
-	, _packet_errors { Metrics::peer_packet_errors.Add({ { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } }) }
+	, _peer_latency { Metrics::peer_latency.Add({ { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } },
+												std::vector<uint64_t> { 1, 3, 6, 10, 30, 60, 100, 300, 600, 1000 }) }
+	, _alive_path_count { Metrics::peer_path_count.Add(
+		  { { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) }, { "status", "alive" } }) }
+	, _dead_path_count { Metrics::peer_path_count.Add(
+		  { { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) }, { "status", "dead" } }) }
+	, _incoming_packet { Metrics::peer_packets.Add(
+		  { { "direction", "rx" }, { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } }) }
+	, _outgoing_packet { Metrics::peer_packets.Add(
+		  { { "direction", "tx" }, { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } }) }
+	, _packet_errors { Metrics::peer_packet_errors.Add(
+		  { { "node_id", OSUtils::nodeIDStr(peerIdentity.address().toInt()) } }) }
 #endif
 {
 	if (! myIdentity.agree(peerIdentity, _key)) {
@@ -69,18 +75,17 @@ Peer::Peer(const RuntimeEnvironment* renv, const Identity& myIdentity, const Ide
 	Utils::burn(ktmp, ZT_SYMMETRIC_KEY_SIZE);
 }
 
-void Peer::received(
-	void* tPtr,
-	const SharedPtr<Path>& path,
-	const unsigned int hops,
-	const uint64_t packetId,
-	const unsigned int payloadLength,
-	const Packet::Verb verb,
-	const uint64_t inRePacketId,
-	const Packet::Verb inReVerb,
-	const bool trustEstablished,
-	const uint64_t networkId,
-	const int32_t flowId)
+void Peer::received(void* tPtr,
+					const SharedPtr<Path>& path,
+					const unsigned int hops,
+					const uint64_t packetId,
+					const unsigned int payloadLength,
+					const Packet::Verb verb,
+					const uint64_t inRePacketId,
+					const Packet::Verb inReVerb,
+					const bool trustEstablished,
+					const uint64_t networkId,
+					const int32_t flowId)
 {
 	const int64_t now = RR->node->now();
 
@@ -118,8 +123,10 @@ void Peer::received(
 						havePath = true;
 						break;
 					}
-					// If same address on same interface then don't learn unless existing path isn't alive (prevents learning loop)
-					if (_paths[i].p->address().ipsEqual(path->address()) && _paths[i].p->localSocket() == path->localSocket()) {
+					// If same address on same interface then don't learn unless existing path isn't alive (prevents
+					// learning loop)
+					if (_paths[i].p->address().ipsEqual(path->address())
+						&& _paths[i].p->localSocket() == path->localSocket()) {
 						if (_paths[i].p->alive(now) && ! _bond) {
 							havePath = true;
 							break;
@@ -132,7 +139,8 @@ void Peer::received(
 			}
 		}
 
-		if ((! havePath) && RR->node->shouldUsePathForZeroTierTraffic(tPtr, _id.address(), path->localSocket(), path->address())) {
+		if ((! havePath)
+			&& RR->node->shouldUsePathForZeroTierTraffic(tPtr, _id.address(), path->localSocket(), path->address())) {
 			if (verb == Packet::VERB_OK) {
 				Mutex::Lock _l(_paths_m);
 				unsigned int oldestPathIdx = ZT_MAX_PEER_NETWORK_PATHS;
@@ -179,7 +187,8 @@ void Peer::received(
 				Mutex::Lock ltl(_lastTriedPath_m);
 
 				bool triedTooRecently = false;
-				for (std::list<std::pair<Path*, int64_t> >::iterator i(_lastTriedPath.begin()); i != _lastTriedPath.end();) {
+				for (std::list<std::pair<Path*, int64_t> >::iterator i(_lastTriedPath.begin());
+					 i != _lastTriedPath.end();) {
 					if ((now - i->second) > 1000) {
 						_lastTriedPath.erase(i++);
 					}
@@ -209,7 +218,8 @@ void Peer::received(
 		const int64_t sinceLastPush = now - _lastDirectPathPushSent;
 		bool lowBandwidth = RR->node->lowBandwidthModeEnabled();
 		int timerScale = lowBandwidth ? 16 : 1;
-		if (sinceLastPush >= ((hops == 0) ? ZT_DIRECT_PATH_PUSH_INTERVAL_HAVEPATH * timerScale : ZT_DIRECT_PATH_PUSH_INTERVAL)) {
+		if (sinceLastPush
+			>= ((hops == 0) ? ZT_DIRECT_PATH_PUSH_INTERVAL_HAVEPATH * timerScale : ZT_DIRECT_PATH_PUSH_INTERVAL)) {
 			_lastDirectPathPushSent = now;
 			std::vector<InetAddress> pathsToPush(RR->node->directPaths());
 			std::vector<InetAddress> ma = RR->sa->whoami();
@@ -217,7 +227,8 @@ void Peer::received(
 			if (! pathsToPush.empty()) {
 				std::vector<InetAddress>::const_iterator p(pathsToPush.begin());
 				while (p != pathsToPush.end()) {
-					Packet* const outp = new Packet(_id.address(), RR->identity.address(), Packet::VERB_PUSH_DIRECT_PATHS);
+					Packet* const outp =
+						new Packet(_id.address(), RR->identity.address(), Packet::VERB_PUSH_DIRECT_PATHS);
 					outp->addSize(2);	// leave room for count
 					unsigned int count = 0;
 					while ((p != pathsToPush.end()) && ((outp->size() + 24) < 1200)) {
@@ -381,7 +392,8 @@ void Peer::introduce(void* const tPtr, const int64_t now, const SharedPtr<Peer>&
 	}
 
 	if (mine != ZT_MAX_PEER_NETWORK_PATHS) {
-		unsigned int alt = (unsigned int)RR->node->prng() & 1;	 // randomize which hint we send first for black magickal NAT-t reasons
+		unsigned int alt =
+			(unsigned int)RR->node->prng() & 1;	  // randomize which hint we send first for black magickal NAT-t reasons
 		const unsigned int completed = alt + 2;
 		while (alt != completed) {
 			if ((alt & 1) == 0) {
@@ -461,7 +473,8 @@ void Peer::sendHELLO(void* tPtr, const int64_t localSocket, const InetAddress& a
 	if (atAddress) {
 		outp.armor(_key, false, RR->node->encryptedHelloEnabled(), nullptr, _id);
 		RR->node->expectReplyTo(outp.packetId());
-		RR->node->putPacket(tPtr, RR->node->lowBandwidthModeEnabled() ? localSocket : -1, atAddress, outp.data(), outp.size());
+		RR->node->putPacket(tPtr, RR->node->lowBandwidthModeEnabled() ? localSocket : -1, atAddress, outp.data(),
+							outp.size());
 	}
 	else {
 		RR->node->expectReplyTo(outp.packetId());
@@ -469,7 +482,11 @@ void Peer::sendHELLO(void* tPtr, const int64_t localSocket, const InetAddress& a
 	}
 }
 
-void Peer::attemptToContactAt(void* tPtr, const int64_t localSocket, const InetAddress& atAddress, int64_t now, bool sendFullHello)
+void Peer::attemptToContactAt(void* tPtr,
+							  const int64_t localSocket,
+							  const InetAddress& atAddress,
+							  int64_t now,
+							  bool sendFullHello)
 {
 	if ((! sendFullHello) && (_vProto >= 5) && (! ((_vMajor == 1) && (_vMinor == 1) && (_vRevision == 0)))) {
 		Packet outp(_id.address(), RR->identity.address(), Packet::VERB_ECHO);
@@ -481,6 +498,9 @@ void Peer::attemptToContactAt(void* tPtr, const int64_t localSocket, const InetA
 	else {
 		sendHELLO(tPtr, localSocket, atAddress, now);
 	}
+
+	// Outgoing packet tracking is now handled in nodeWirePacketSendFunction()
+	// where we have access to both the socket and destination information
 }
 
 void Peer::tryMemorizedPath(void* tPtr, int64_t now)
@@ -571,7 +591,8 @@ unsigned int Peer::doPingAndKeepalive(void* tPtr, int64_t now)
 				// Clean expired and reduced priority paths
 				if (((now - _paths[i].lr) < ZT_PEER_PATH_EXPIRATION) && (_paths[i].priority == maxPriority)) {
 					if ((sendFullHello) || (_paths[i].p->needsHeartbeat(now))) {
-						attemptToContactAt(tPtr, _paths[i].p->localSocket(), _paths[i].p->address(), now, sendFullHello);
+						attemptToContactAt(tPtr, _paths[i].p->localSocket(), _paths[i].p->address(), now,
+										   sendFullHello);
 						_paths[i].p->sent(now);
 						sent |= (_paths[i].p->address().ss_family == AF_INET) ? 0x1 : 0x2;
 					}
@@ -614,7 +635,10 @@ unsigned int Peer::doPingAndKeepalive(void* tPtr, int64_t now)
 	return sent;
 }
 
-void Peer::clusterRedirect(void* tPtr, const SharedPtr<Path>& originatingPath, const InetAddress& remoteAddress, const int64_t now)
+void Peer::clusterRedirect(void* tPtr,
+						   const SharedPtr<Path>& originatingPath,
+						   const InetAddress& remoteAddress,
+						   const int64_t now)
 {
 	SharedPtr<Path> np(RR->topology->getPath(originatingPath->localSocket(), remoteAddress));
 	RR->t->peerRedirected(tPtr, 0, *this, np);
@@ -684,12 +708,18 @@ void Peer::resetWithinScope(void* tPtr, InetAddress::IpScope scope, int inetAddr
 	}
 }
 
-void Peer::recordOutgoingPacket(const SharedPtr<Path>& path, const uint64_t packetId, uint16_t payloadLength, const Packet::Verb verb, const int32_t flowId, int64_t now)
+void Peer::recordOutgoingPacket(const SharedPtr<Path>& path,
+								const uint64_t packetId,
+								uint16_t payloadLength,
+								const Packet::Verb verb,
+								const int32_t flowId,
+								int64_t now)
 {
 #ifndef ZT_NO_PEER_METRICS
 	_outgoing_packet++;
 #endif
-	if (_localMultipathSupported && _bond) {
+	if (_localMultipathSupported
+		&& _bond) {	  // TODO - what is multipath support? when is it useful? Is it like onecast?
 		_bond->recordOutgoingPacket(path, packetId, payloadLength, verb, flowId, now);
 	}
 }
@@ -704,7 +734,12 @@ void Peer::recordIncomingInvalidPacket(const SharedPtr<Path>& path)
 	}
 }
 
-void Peer::recordIncomingPacket(const SharedPtr<Path>& path, const uint64_t packetId, uint16_t payloadLength, const Packet::Verb verb, const int32_t flowId, int64_t now)
+void Peer::recordIncomingPacket(const SharedPtr<Path>& path,
+								const uint64_t packetId,
+								uint16_t payloadLength,
+								const Packet::Verb verb,
+								const int32_t flowId,
+								int64_t now)
 {
 	if (_localMultipathSupported && _bond) {
 		_bond->recordIncomingPacket(path, packetId, payloadLength, verb, flowId, now);

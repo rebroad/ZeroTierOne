@@ -16,6 +16,7 @@
 #include "SHA512.hpp"
 #include "Utils.hpp"
 
+#include <atomic>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -35,25 +36,42 @@ namespace ZeroTier {
  */
 class Identity {
   public:
-	Identity() : _publicKey{0}, _privateKey{(ECC::Private*)0}
+	Identity() : _publicKey { 0 }, _privateKey { (ECC::Private*)0 }
 	{
 	}
 
-	Identity(const Identity& id) : _address(id._address), _publicKey(id._publicKey), _privateKey((id._privateKey) ? new ECC::Private(*(id._privateKey)) : (ECC::Private*)0)
+	Identity(const Identity& id)
+		: _address(id._address)
+		, _publicKey(id._publicKey)
+		, _privateKey((id._privateKey) ? new ECC::Private(*(id._privateKey)) : (ECC::Private*)0)
 	{
 	}
 
-	Identity(const char* str) : _publicKey{0}, _privateKey{(ECC::Private*)0}
+	Identity(const char* str) : _publicKey { 0 }, _privateKey { (ECC::Private*)0 }
 	{
 		if (! fromString(str)) {
 			throw ZT_EXCEPTION_INVALID_SERIALIZED_DATA_INVALID_TYPE;
 		}
 	}
 
-	template <unsigned int C> Identity(const Buffer<C>& b, unsigned int startAt = 0) : _publicKey{0}, _privateKey{(ECC::Private*)0}
-	{
-		deserialize(b, startAt);
-	}
+	template <unsigned int C>
+	Identity(const Buffer<C>& b, unsigned int startAt = 0) : _publicKey { 0 }
+														   , _privateKey { (ECC::Private*)0 }
+	{ deserialize(b, startAt); }
+
+	/**
+	 * Generate a new identity matching vanity prefix criteria.
+	 *
+	 * @param vanityPrefix Prefix value as an integer
+	 * @param vanityBits Number of high bits of address that must match vanityPrefix
+	 * @param stopFlag Optional cancellation flag checked during search
+	 * @param attemptCounter Optional counter incremented once per valid non-reserved candidate identity
+	 * @return True if a matching identity was generated, false if canceled via stopFlag
+	 */
+	bool generateVanity(uint64_t vanityPrefix,
+						int vanityBits,
+						const std::atomic<bool>* stopFlag = (const std::atomic<bool>*)0,
+						std::atomic<uint64_t>* attemptCounter = (std::atomic<uint64_t>*)0);
 
 	~Identity()
 	{
@@ -98,9 +116,7 @@ class Identity {
 	 * @return True if this identity contains a private key
 	 */
 	inline bool hasPrivate() const
-	{
-		return (_privateKey != (ECC::Private*)0);
-	}
+	{ return (_privateKey != (ECC::Private*)0); }
 
 	/**
 	 * Compute a SHA384 hash of this identity's address and public key(s).
@@ -169,9 +185,7 @@ class Identity {
 	 * @return True if signature validates and data integrity checks
 	 */
 	inline bool verify(const void* data, unsigned int len, const ECC::Signature& signature) const
-	{
-		return ECC::verify(_publicKey, data, len, signature);
-	}
+	{ return ECC::verify(_publicKey, data, len, signature); }
 
 	/**
 	 * Shortcut method to perform key agreement with another identity
@@ -195,9 +209,7 @@ class Identity {
 	 * @return This identity's address
 	 */
 	inline const Address& address() const
-	{
-		return _address;
-	}
+	{ return _address; }
 
 	/**
 	 * Serialize this identity (binary)
@@ -286,9 +298,7 @@ class Identity {
 	 * @return C25519 public key
 	 */
 	inline const ECC::Public& publicKey() const
-	{
-		return _publicKey;
-	}
+	{ return _publicKey; }
 
 	/**
 	 * @return C25519 key pair (only returns valid pair if private key is present in this Identity object)
@@ -310,34 +320,27 @@ class Identity {
 	 * @return True if this identity contains something
 	 */
 	inline operator bool() const
-	{
-		return (_address);
-	}
+	{ return (_address); }
 
 	inline bool operator==(const Identity& id) const
 	{
-		return ((_address == id._address) && (memcmp(_publicKey.data, id._publicKey.data, ZT_ECC_PUBLIC_KEY_SET_LEN) == 0));
+		return ((_address == id._address)
+				&& (memcmp(_publicKey.data, id._publicKey.data, ZT_ECC_PUBLIC_KEY_SET_LEN) == 0));
 	}
 	inline bool operator<(const Identity& id) const
 	{
-		return ((_address < id._address) || ((_address == id._address) && (memcmp(_publicKey.data, id._publicKey.data, ZT_ECC_PUBLIC_KEY_SET_LEN) < 0)));
+		return ((_address < id._address)
+				|| ((_address == id._address)
+					&& (memcmp(_publicKey.data, id._publicKey.data, ZT_ECC_PUBLIC_KEY_SET_LEN) < 0)));
 	}
 	inline bool operator!=(const Identity& id) const
-	{
-		return ! (*this == id);
-	}
+	{ return ! (*this == id); }
 	inline bool operator>(const Identity& id) const
-	{
-		return (id < *this);
-	}
+	{ return (id < *this); }
 	inline bool operator<=(const Identity& id) const
-	{
-		return ! (id < *this);
-	}
+	{ return ! (id < *this); }
 	inline bool operator>=(const Identity& id) const
-	{
-		return ! (*this < id);
-	}
+	{ return ! (*this < id); }
 
   private:
 	Address _address;
