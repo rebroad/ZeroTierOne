@@ -100,6 +100,10 @@ class IncomingPacket : public Packet {
 		return _receiveTime;
 	}
 
+	/** @return True if this packet passed cryptographic or trusted-path authentication. */
+	inline bool authenticated() const
+	{ return _authenticated; }
+
   private:
 	// These are called internally to handle packet contents once it has
 	// been authenticated, decrypted, decompressed, and classified.
@@ -129,6 +133,7 @@ class IncomingPacket : public Packet {
 	uint64_t _receiveTime;
 	SharedPtr<Path> _path;
 	bool _authenticated;
+
 };
 
 }	// namespace ZeroTier

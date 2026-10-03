@@ -37,6 +37,9 @@ The CLI stores the token in `~/.zeroTierOneAuthToken` with owner-only permission
  * `info`:
    Shows information about this device including its 10-digit ZeroTier address and apparent connection status. Use `-j` for more verbose output.
 
+ * `stats`:
+   Shows authenticated peer UDP packet counts by remote IP and local UDP port. Counters are in memory and reset when the service restarts. Use `-j stats` for the raw JSON response.
+
  * `listpeers`:
    This command lists the ZeroTier VL1 (virtual layer 1, the peer to peer network) peers this service knows about and has recently (within the past 30 minutes or so) communicated with. These are not necessarily all the devices on your virtual network(s), and may also include a few devices not on any virtual network you've joined. These are typically either root servers or network controllers.
 

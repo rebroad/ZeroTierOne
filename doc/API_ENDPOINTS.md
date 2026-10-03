@@ -175,87 +175,46 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 
 ### `/stats`
 **Methods**: `GET`
-**Description**: Get comprehensive peer statistics with advanced aggregation and security monitoring
+**Description**: Get authenticated peer UDP port usage counts
 **CLI Command**: `zerotier-cli stats`
 
-**Features**:
-- **Two-Level Statistics System**:
-  - **Level 1 (Wire-level)**: All incoming packets including spoofed/malicious (UNTRUSTED)
-  - **Level 2 (Protocol-level)**: Only authenticated ZeroTier packets (TRUSTED)
-- **Smart Aggregation**: Compares IP-level vs ZT-address-level stats, uses higher values
-- **Infrastructure Filtering**: Excludes IP-level stats for PLANET/MOON nodes
-- **Source Indicators**: Shows "i" (IP stats) or "z" (ZT address stats) for transparency
-- **Attack Detection**: Divergence analysis between wire and authenticated packet counts
-- **Port Usage Tracking**: Detailed port usage statistics per peer
-- **Sorting**: Ordered by highest total bytes (RX+TX) using the higher of IP vs ZT stats
+Counters cover successfully authenticated incoming packets and successfully sent outgoing packets. Rows are keyed by ZeroTier peer address and remote IP address; remote UDP ports are not part of the key. Counts are held in memory, reset when the service restarts, and bounded to 4096 peer/IP rows by evicting the least recently observed row. The endpoint uses the normal authenticated control-plane access policy.
 
 **Response Structure**:
 ```json
 {
+  "ports": {
+    "primary": 9993,
+    "secondary": 0,
+    "tertiary": 0,
+    "actualBoundPorts": [9993]
+  },
   "peersByZtAddressAndIP": [
     {
       "ztAddress": "abc123def",
       "ipAddress": "192.168.1.100",
-      "pairBytesIncoming": 34816,
-      "pairBytesOutgoing": 59392,
-      "ipBytesIncoming": 155648,
-      "ipBytesOutgoing": 81920,
-      "ztBytesIncoming": 131072,
-      "ztBytesOutgoing": 163840,
-      "displayBytesIncoming": 1572864,
-      "displayBytesOutgoing": 2097152,
-      "rxSource": "i",
-      "txSource": "z",
       "lastSeen": 1700000000000,
-      "WireBytesIncoming": 1572864,
-      "WireBytesOutgoing": 2097152,
-      "AuthBytesIncoming": 1572864,
-      "AuthBytesOutgoing": 2097152,
-      "SuspiciousPacketCount": 0,
-      "AttackEventCount": 0,
-      "MaxDivergenceRatio": 0.0,
+      "incomingPorts": {"9993": 50},
+      "outgoingPorts": {"9993": 52},
       "primaryIncoming": 50,
       "primaryOutgoing": 52,
       "secondaryIncoming": 0,
-      "secondaryOutgoing": 1,
-      "tertiaryIncoming": 97,
-      "tertiaryOutgoing": 100
+      "secondaryOutgoing": 0,
+      "tertiaryIncoming": 0,
+      "tertiaryOutgoing": 0
     }
   ]
 }
 ```
 
-**Key Fields**:
+**Fields**:
 | Field | Type | Description |
 |-------|------|-------------|
-| displayBytesIncoming | integer | Higher of IP vs ZT address incoming bytes (use for enforcement) |
-| displayBytesOutgoing | integer | Higher of IP vs ZT address outgoing bytes (use for enforcement) |
-| pairBytesIncoming/Outgoing | integer | Bytes for this exact ZT+IP row (pair-level) |
-| ipBytesIncoming/Outgoing | integer | Bytes aggregated for this IP across all ZT addresses |
-| ztBytesIncoming/Outgoing | integer | Bytes aggregated for this ZT address across all IPs |
-| rxSource | string | "i" if display RX from IP stats, "z" if from ZT address stats |
-| txSource | string | "i" if display TX from IP stats, "z" if from ZT address stats |
-| lastSeen | integer | Last authenticated traffic timestamp (ms since epoch) |
-| WireBytesIncoming/Outgoing | integer | All wire-level packets (includes attacks) |
-| AuthBytesIncoming/Outgoing | integer | Only authenticated packets (trusted) |
-| SuspiciousPacketCount | integer | Packets that failed authentication |
-| AttackEventCount | integer | Number of attack detection events |
-| MaxDivergenceRatio | number | Highest wire:auth ratio detected |
-| primaryIncoming/Outgoing | integer | Wire-level packet counts for primary local port |
-| secondaryIncoming/Outgoing | integer | Wire-level packet counts for secondary local port |
-| tertiaryIncoming/Outgoing | integer | Wire-level packet counts for tertiary local port |
-
-**CLI Display Format**:
-```
-ZT Address IP Address     RX Bytes      TX Bytes      Security Port Usage
----------- --------------- ------------- ------------- -------- ----------
-abc123def  192.168.1.100  34k/152kz     58k/160ki     OK       5m3s       50:52,0:1,97:100
-```
-- `34k/152kz` means pair RX is 34k and display RX is 152k from ZT aggregate (`z`)
-- `58k/160ki` means pair TX is 58k and display TX is 160k from IP aggregate (`i`)
-- Security: OK/SUSPECT/MINOR/WARNING/DANGER based on attack detection
-
-**Note**: The `/stats/wire-packets` endpoint has been removed and its functionality merged into `/stats`.
+| ports | object | Configured primary, secondary, tertiary, and currently bound UDP ports |
+| peersByZtAddressAndIP | array | Per authenticated peer and remote IP counters |
+| incomingPorts/outgoingPorts | object | Local UDP port to packet count, as string-keyed JSON properties |
+| primary/secondary/tertiary Incoming/Outgoing | integer | Counts for each configured port |
+| lastSeen | integer | Last packet observation time in milliseconds |
 
 ---
 

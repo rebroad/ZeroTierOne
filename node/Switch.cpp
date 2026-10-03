@@ -154,7 +154,7 @@ void Switch::onRemotePacket(void* tPtr,
 
 								if (rq->frag0.tryDecode(RR, tPtr, flowId)) {
 									// Fragmented packet head was successfully decoded and authenticated
-									if (authenticatedPeerAddr) {
+									if (authenticatedPeerAddr && rq->frag0.authenticated()) {
 										*authenticatedPeerAddr = rq->frag0.source();
 									}	// TODO - is this right?
 									rq->timestamp = 0;	 // packet decoded, free entry
@@ -254,7 +254,7 @@ void Switch::onRemotePacket(void* tPtr,
 
 							if (rq->frag0.tryDecode(RR, tPtr, flowId)) {
 								// Fragmented packet was successfully decoded and authenticated
-								if (authenticatedPeerAddr) {
+								if (authenticatedPeerAddr && rq->frag0.authenticated()) {
 									*authenticatedPeerAddr = rq->frag0.source();
 								}	// TODO - is this right?
 								rq->timestamp = 0;	 // packet decoded, free entry
@@ -277,7 +277,7 @@ void Switch::onRemotePacket(void* tPtr,
 					IncomingPacket packet(data, len, path, now);
 					if (packet.tryDecode(RR, tPtr, flowId)) {
 						// Packet was successfully decoded and authenticated
-						if (authenticatedPeerAddr) {
+						if (authenticatedPeerAddr && packet.authenticated()) {
 							*authenticatedPeerAddr = packet.source();
 						}	// TODO - is this right?
 					}

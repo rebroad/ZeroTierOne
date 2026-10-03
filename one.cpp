@@ -136,6 +136,7 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  -T-                     - Read authentication token from standard input and cache it" ZT_EOL_S);
 	fprintf(out, ZT_EOL_S "Available commands:" ZT_EOL_S);
 	fprintf(out, "  info                    - Display status info" ZT_EOL_S);
+	fprintf(out, "  stats                   - Show peer UDP port usage statistics" ZT_EOL_S);
 	fprintf(out, "  listpeers               - List all peers" ZT_EOL_S);
 	fprintf(out, "  peers                   - List all peers (prettier)" ZT_EOL_S);
 	fprintf(out, "  listnetworks            - List all networks" ZT_EOL_S);
@@ -216,6 +217,7 @@ static int cli(int argc, char** argv)
 	std::string homeDir, command, arg1, arg2, arg3, arg4, authToken;
 	std::string ip("127.0.0.1");
 	bool json = false;
+	bool cacheAuthToken = false;
 	for (int i = 1; i < argc; ++i) {
 		if (argv[i][0] == '-') {
 			switch (argv[i][1]) {
@@ -269,6 +271,7 @@ static int cli(int argc, char** argv)
 								fprintf(stderr, "%s: unable to read authentication token from standard input" ZT_EOL_S, argv[0]);
 								return 2;
 							}
+							cacheAuthToken = true;
 						}
 						else {
 							authToken = argv[i] + 2;
@@ -344,10 +347,9 @@ static int cli(int argc, char** argv)
 			}
 		}
 	}
-	if (! authToken.empty()) {
+	if (cacheAuthToken && (! authToken.empty())) {
 #ifndef __WINDOWS__
-		// A token copied from the Rethink app is supplied once with -T. Cache it
-		// for the invoking Termux user so later `zerotier-cli info` needs no flags.
+		// Only cache a token explicitly entered through the hidden stdin prompt.
 		if (! cliSaveAuthToken(authToken))
 			fprintf(stderr, "%s: warning: could not cache the authentication token in the user's home directory" ZT_EOL_S, argv[0]);
 #endif
@@ -413,6 +415,34 @@ static int cli(int argc, char** argv)
 			printf("%u %s %s" ZT_EOL_S, scode, command.c_str(), responseBody.c_str());
 			return 1;
 		}
+	}
+	else if (command == "stats") {
+		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/stats", requestHeaders, responseHeaders, responseBody);
+		if (scode != 200) {
+			printf("%u stats %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+		if (json) {
+			printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
+			return 0;
+		}
+		try {
+			const nlohmann::json result = OSUtils::jsonParse(responseBody);
+			printf("200 stats - Peer UDP Port Usage" ZT_EOL_S);
+			printf("ZT Address  Remote IP        Incoming ports                 Outgoing ports" ZT_EOL_S);
+			for (const auto& row : result["peersByZtAddressAndIP"]) {
+				printf("%-11s %-16s %-30s %s" ZT_EOL_S,
+					OSUtils::jsonString(row["ztAddress"], "").c_str(),
+					OSUtils::jsonString(row["ipAddress"], "").c_str(),
+					row.value("incomingPorts", nlohmann::json::object()).dump().c_str(),
+					row.value("outgoingPorts", nlohmann::json::object()).dump().c_str());
+			}
+		}
+		catch (...) {
+			printf("200 stats invalid JSON response" ZT_EOL_S);
+			return 1;
+		}
+		return 0;
 	}
 	else if (command == "listpeers") {
 		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, "/peer", requestHeaders, responseHeaders, responseBody);

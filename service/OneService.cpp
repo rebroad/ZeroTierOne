@@ -30,6 +30,7 @@
 #include "../node/MAC.hpp"
 #include "../node/Mutex.hpp"
 #include "../node/Node.hpp"
+#include "../node/Packet.hpp"
 #include "../node/Peer.hpp"
 #include "../node/Utils.hpp"
 #include "../node/World.hpp"
@@ -892,6 +893,15 @@ class OneServiceImpl : public OneService {
 	unsigned int _ports[3];
 	Binder _binder;
 
+	struct PeerPortStats {
+		std::map<unsigned int, uint64_t> incoming;
+		std::map<unsigned int, uint64_t> outgoing;
+		uint64_t lastSeen;
+		PeerPortStats() : lastSeen(0) {}
+	};
+	std::map<std::pair<Address, InetAddress>, PeerPortStats> _peerPortStats;
+	Mutex _peerPortStats_m;
+
 	// Time we last received a packet from a global address
 	uint64_t _lastDirectReceiveFromGlobal;
 #ifdef ZT_TCP_FALLBACK_RELAY
@@ -1751,6 +1761,7 @@ class OneServiceImpl : public OneService {
 		std::string peerPath = "/peer/([0-9a-fA-F]{10})";
 		std::string statusPath = "/status";
 		std::string metricsPath = "/metrics";
+		std::string statsPath = "/stats";
 
 		
 
@@ -2396,6 +2407,50 @@ class OneServiceImpl : public OneService {
 		};
 		_controlPlane.Get(peerListPath, peerListGet);
 		_controlPlaneV6.Get(peerListPath, peerListGet);
+
+		auto statsGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
+			nlohmann::json stats = nlohmann::json::object();
+			nlohmann::json ports = nlohmann::json::object();
+			ports["primary"] = _primaryPort;
+			ports["secondary"] = _ports[1];
+			ports["tertiary"] = _tertiaryPort;
+			ports["actualBoundPorts"] = nlohmann::json::array();
+			for (const InetAddress& bound : _binder.allBoundLocalInterfaceAddresses())
+				ports["actualBoundPorts"].push_back(bound.port());
+			stats["ports"] = ports;
+			nlohmann::json peerRows = nlohmann::json::array();
+			{
+				Mutex::Lock lock(_peerPortStats_m);
+				for (const auto& entry : _peerPortStats) {
+					char peerText[16], ipText[64];
+					entry.first.first.toString(peerText);
+					entry.first.second.toIpString(ipText);
+					nlohmann::json row = nlohmann::json::object();
+					row["ztAddress"] = peerText;
+					row["ipAddress"] = ipText;
+					row["lastSeen"] = entry.second.lastSeen;
+					auto portCounts = [](const std::map<unsigned int, uint64_t>& counts) {
+						nlohmann::json result = nlohmann::json::object();
+						for (const auto& count : counts)
+							result[std::to_string(count.first)] = count.second;
+						return result;
+					};
+					row["incomingPorts"] = portCounts(entry.second.incoming);
+					row["outgoingPorts"] = portCounts(entry.second.outgoing);
+					row["primaryIncoming"] = entry.second.incoming.count(_primaryPort) ? entry.second.incoming.at(_primaryPort) : 0;
+					row["primaryOutgoing"] = entry.second.outgoing.count(_primaryPort) ? entry.second.outgoing.at(_primaryPort) : 0;
+					row["secondaryIncoming"] = entry.second.incoming.count(_ports[1]) ? entry.second.incoming.at(_ports[1]) : 0;
+					row["secondaryOutgoing"] = entry.second.outgoing.count(_ports[1]) ? entry.second.outgoing.at(_ports[1]) : 0;
+					row["tertiaryIncoming"] = entry.second.incoming.count(_tertiaryPort) ? entry.second.incoming.at(_tertiaryPort) : 0;
+					row["tertiaryOutgoing"] = entry.second.outgoing.count(_tertiaryPort) ? entry.second.outgoing.at(_tertiaryPort) : 0;
+					peerRows.push_back(row);
+				}
+			}
+			stats["peersByZtAddressAndIP"] = peerRows;
+			setContent(req, res, stats.dump());
+		};
+		_controlPlane.Get(statsPath, statsGet);
+		_controlPlaneV6.Get(statsPath, statsGet);
 
 		auto peerGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
 			auto provider = opentelemetry::trace::Provider::GetTracerProvider();
@@ -3237,7 +3292,12 @@ class OneServiceImpl : public OneService {
 		if ((len >= 16) && (reinterpret_cast<const InetAddress*>(from)->ipScope() == InetAddress::IP_SCOPE_GLOBAL)) {
 			_lastDirectReceiveFromGlobal = now;
 		}
-		const ZT_ResultCode rc = _node->processWirePacket(nullptr, now, reinterpret_cast<int64_t>(sock), reinterpret_cast<const struct sockaddr_storage*>(from), data, len, &_nextBackgroundTaskDeadline);
+		Address authenticatedPeer;
+		const unsigned int localPort = localAddr ? InetAddress(localAddr).port() : 0;
+		const ZT_ResultCode rc = _node->processWirePacket(nullptr, now, reinterpret_cast<int64_t>(sock), reinterpret_cast<const struct sockaddr_storage*>(from), data, len, &_nextBackgroundTaskDeadline, &authenticatedPeer, localPort);
+		if (authenticatedPeer && from && localPort) {
+			recordPeerPort(authenticatedPeer, InetAddress(from), localPort, true);
+		}
 		if (ZT_ResultCode_isFatal(rc)) {
 			char tmp[256];
 			OSUtils::ztsnprintf(tmp, sizeof(tmp), "fatal error code from processWirePacket: %d", (int)rc);
@@ -3246,6 +3306,28 @@ class OneServiceImpl : public OneService {
 			_fatalErrorMessage = tmp;
 			this->terminate();
 		}
+	}
+
+	void recordPeerPort(const Address& peer, const InetAddress& remote, unsigned int localPort, bool incoming)
+	{
+		if ((! peer) || (! remote) || (! localPort))
+			return;
+		const std::pair<Address, InetAddress> key(peer, remote.ipOnly());
+		const uint64_t now = OSUtils::now();
+		Mutex::Lock lock(_peerPortStats_m);
+		auto it = _peerPortStats.find(key);
+		if (it == _peerPortStats.end() && _peerPortStats.size() >= 4096) {
+			auto oldest = _peerPortStats.begin();
+			for (auto candidate = _peerPortStats.begin(); candidate != _peerPortStats.end(); ++candidate) {
+				if (candidate->second.lastSeen < oldest->second.lastSeen)
+					oldest = candidate;
+			}
+			_peerPortStats.erase(oldest);
+			it = _peerPortStats.end();
+		}
+		PeerPortStats& stats = (it == _peerPortStats.end()) ? _peerPortStats[key] : it->second;
+		++(incoming ? stats.incoming[localPort] : stats.outgoing[localPort]);
+		stats.lastSeen = now;
 	}
 
 	inline void phyOnTcpConnect(PhySocket* sock, void** uptr, bool success)
@@ -3980,6 +4062,11 @@ class OneServiceImpl : public OneService {
 
 	inline int nodeWirePacketSendFunction(const int64_t localSocket, const struct sockaddr_storage* addr, const void* data, unsigned int len, unsigned int ttl)
 	{
+		if ((! addr) || (! data) || (len < ZT_PROTO_MIN_PACKET_LENGTH))
+			return -1;
+		const Packet packet(data, len);
+		const Address peer = packet.destination();
+		const InetAddress remote(addr);
 #ifdef ZT_TCP_FALLBACK_RELAY
 		if (_allowTcpFallbackRelay) {
 			if (addr->ss_family == AF_INET) {
@@ -4054,10 +4141,16 @@ class OneServiceImpl : public OneService {
 			if ((ttl) && (addr->ss_family == AF_INET)) {
 				_phy.setIp4UdpTtl((PhySocket*)((uintptr_t)localSocket), 255);
 			}
+			if (r)
+				recordPeerPort(peer, remote, Phy<OneServiceImpl*>::getLocalPort((PhySocket*)((uintptr_t)localSocket)), false);
 			return ((r) ? 0 : -1);
 		}
 		else {
-			return ((_binder.udpSendAll(_phy, addr, data, len, ttl)) ? 0 : -1);
+			const bool r = _binder.udpSendAll(_phy, addr, data, len, ttl, [&](unsigned int sentLocalPort, bool sent) {
+				if (sent)
+					recordPeerPort(peer, remote, sentLocalPort, false);
+			});
+			return (r ? 0 : -1);
 		}
 	}
 
