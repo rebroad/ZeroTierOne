@@ -21,6 +21,14 @@ Note that this gives the user the power to connect or disconnect the system to o
 
 **zerotier-cli** has several command line arguments that are visible in `help` output. The two most commonly used are `-j` for raw JSON output and `-D<path>` to specify an alternative ZeroTier service working directory. Raw JSON output is easier to parse in scripts and also contains verbose details not present in the tabular output. The `-D<path>` option specifies where the service's zerotier-one.port and authtoken.secret files are located if the service is not running at the default location for your system.
 
+On Android builds run from Termux, when `/var` is absent and `PREFIX` is `/data/data/com.termux/files/usr`, **zerotier-cli** looks for the service files in `/data/data/com.termux/files/var/lib/zerotier-one`. If no port file is present, it uses the standard local control port, `9993`.
+
+When using a local ZeroTier service such as the one provided by Rethink, copy its CLI token once and cache it for the Termux user. To avoid putting the token in shell history or command arguments, enter it at the hidden prompt:
+
+    read -s -p 'ZeroTier CLI token: ' zt_token; printf '\n'; printf '%s\n' "$zt_token" | zerotier-cli -T- info; unset zt_token
+
+The CLI stores the token in `~/.zeroTierOneAuthToken` with owner-only permissions. Later commands, including `zerotier-cli info`, use the cached token and the default loopback address and port. The token grants control of the local ZeroTier service; protect the file accordingly.
+
 ## COMMANDS
 
  * `help`:

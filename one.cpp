@@ -133,6 +133,7 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, "  -D<path>                - ZeroTier home path for parameter auto-detect" ZT_EOL_S);
 	fprintf(out, "  -p<port>                - HTTP port (default: auto)" ZT_EOL_S);
 	fprintf(out, "  -T<token>               - Authentication token (default: auto)" ZT_EOL_S);
+	fprintf(out, "  -T-                     - Read authentication token from standard input and cache it" ZT_EOL_S);
 	fprintf(out, ZT_EOL_S "Available commands:" ZT_EOL_S);
 	fprintf(out, "  info                    - Display status info" ZT_EOL_S);
 	fprintf(out, "  listpeers               - List all peers" ZT_EOL_S);
@@ -162,6 +163,48 @@ static std::string cliFixJsonCRs(const std::string& s)
 	}
 	return r;
 }
+
+static std::string cliDefaultHomePath()
+{
+	std::string homePath = OneService::platformDefaultHomePath();
+#if defined(__UNIX_LIKE__) && !defined(__WINDOWS__)
+	// Android does not provide /var. When the CLI is run from Termux, use the
+	// sibling var directory where Rethink stores the ZeroTier service token.
+	if (::access("/var", F_OK) != 0) {
+		const char* prefix = getenv("PREFIX");
+		if (prefix && (std::string(prefix) == "/data/data/com.termux/files/usr")) {
+			return "/data/data/com.termux/files/var/lib/zerotier-one";
+		}
+	}
+#endif
+	return homePath;
+}
+
+#ifndef __WINDOWS__
+static bool cliSaveAuthToken(const std::string& authToken)
+{
+	const char* home = getenv("HOME");
+	if ((! home) || (! *home) || authToken.empty())
+		return false;
+	const std::string path = std::string(home) + "/.zeroTierOneAuthToken";
+	const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd < 0)
+		return false;
+	bool ok = (fchmod(fd, 0600) == 0);
+	size_t offset = 0;
+	while (ok && (offset < authToken.size())) {
+		const ssize_t written = write(fd, authToken.data() + offset, authToken.size() - offset);
+		if (written <= 0) {
+			ok = false;
+			break;
+		}
+		offset += static_cast<size_t>(written);
+	}
+	if (close(fd) != 0)
+		ok = false;
+	return ok;
+}
+#endif
 
 #ifdef __WINDOWS__
 static int cli(int argc, _TCHAR* argv[])
@@ -221,7 +264,15 @@ static int cli(int argc, char** argv)
 
 				case 'T':
 					if (argv[i][2]) {
-						authToken = argv[i] + 2;
+						if ((argv[i][2] == '-') && (! argv[i][3])) {
+							if (! std::getline(std::cin, authToken)) {
+								fprintf(stderr, "%s: unable to read authentication token from standard input" ZT_EOL_S, argv[0]);
+								return 2;
+							}
+						}
+						else {
+							authToken = argv[i] + 2;
+						}
 					}
 					else {
 						cliPrintHelp(argv[0], stdout);
@@ -254,7 +305,7 @@ static int cli(int argc, char** argv)
 		}
 	}
 	if (! homeDir.length())
-		homeDir = OneService::platformDefaultHomePath();
+		homeDir = cliDefaultHomePath();
 
 	// TODO: cleanup this logic
 	if ((! port) || (! authToken.length())) {
@@ -267,10 +318,8 @@ static int cli(int argc, char** argv)
 			std::string portStr;
 			OSUtils::readFile((homeDir + ZT_PATH_SEPARATOR_S + "zerotier-one.port").c_str(), portStr);
 			port = Utils::strToUInt(portStr.c_str());
-			if ((port == 0) || (port > 0xffff)) {
-				fprintf(stderr, "%s: missing port and zerotier-one.port not found in %s" ZT_EOL_S, argv[0], homeDir.c_str());
-				return 2;
-			}
+			if ((port == 0) || (port > 0xffff))
+				port = 9993;
 		}
 
 		if (! authToken.length()) {
@@ -294,6 +343,14 @@ static int cli(int argc, char** argv)
 				return 2;
 			}
 		}
+	}
+	if (! authToken.empty()) {
+#ifndef __WINDOWS__
+		// A token copied from the Rethink app is supplied once with -T. Cache it
+		// for the invoking Termux user so later `zerotier-cli info` needs no flags.
+		if (! cliSaveAuthToken(authToken))
+			fprintf(stderr, "%s: warning: could not cache the authentication token in the user's home directory" ZT_EOL_S, argv[0]);
+#endif
 	}
 
 	InetAddress addr;
