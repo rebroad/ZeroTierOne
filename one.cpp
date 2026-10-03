@@ -79,11 +79,13 @@
 #include "version.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
 #include <deque>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -102,6 +104,13 @@
 #include <ifaddrs.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#endif
+
+#if ! defined(ZT_NO_MAXMINDDB) && defined(__has_include)
+#if __has_include(<maxminddb.h>)
+#include <maxminddb.h>
+#define ZT_HAVE_MAXMINDDB 1
+#endif
 #endif
 
 #define ZT_PID_PATH "zerotier-one.pid"
@@ -189,6 +198,262 @@ static LinuxThermalSample readLinuxThermalSample()
 /* zerotier-cli personality                                                 */
 /****************************************************************************/
 
+struct GeoIpResolver {
+	bool initialized = false;
+	bool torGeoIp4Available = false;
+	bool torGeoIp6Available = false;
+#ifdef ZT_HAVE_MAXMINDDB
+	bool mmdbAvailable = false;
+	MMDB_s mmdb;
+#endif
+	struct TorGeoIp4Range {
+		uint32_t start;
+		uint32_t end;
+		std::string iso;
+	};
+	struct TorGeoIp6Range {
+		std::array<uint8_t, 16> start;
+		std::array<uint8_t, 16> end;
+		std::string iso;
+	};
+	std::vector<TorGeoIp4Range> torGeoIp4;
+	std::vector<TorGeoIp6Range> torGeoIp6;
+
+	GeoIpResolver()
+	{
+#ifdef ZT_HAVE_MAXMINDDB
+		memset(&mmdb, 0, sizeof(mmdb));
+#endif
+	}
+	~GeoIpResolver()
+	{
+#ifdef ZT_HAVE_MAXMINDDB
+		if (mmdbAvailable)
+			MMDB_close(&mmdb);
+#endif
+	}
+
+	static bool isIso2(const std::string& iso)
+	{
+		if (iso.size() != 2)
+			return false;
+		char a = (char)std::toupper((unsigned char)iso[0]);
+		char b = (char)std::toupper((unsigned char)iso[1]);
+		return (a >= 'A' && a <= 'Z' && b >= 'A' && b <= 'Z');
+	}
+
+	static std::string normalizeIso2(const std::string& iso)
+	{
+		if (! isIso2(iso))
+			return std::string();
+		std::string out = iso;
+		out[0] = (char)std::toupper((unsigned char)out[0]);
+		out[1] = (char)std::toupper((unsigned char)out[1]);
+		return out;
+	}
+
+	bool loadTorGeoIp4(const char* path)
+	{
+		std::ifstream in(path);
+		if (! in.is_open())
+			return false;
+		std::string line;
+		while (std::getline(in, line)) {
+			if (line.empty() || line[0] == '#')
+				continue;
+			const std::size_t c1 = line.find(',');
+			if (c1 == std::string::npos)
+				continue;
+			const std::size_t c2 = line.find(',', c1 + 1);
+			if (c2 == std::string::npos)
+				continue;
+
+			const std::string startStr = line.substr(0, c1);
+			const std::string endStr = line.substr(c1 + 1, c2 - (c1 + 1));
+			const std::string iso = normalizeIso2(line.substr(c2 + 1));
+			if (iso.empty())
+				continue;
+
+			char* endPtr = nullptr;
+			errno = 0;
+			const unsigned long long startUll = strtoull(startStr.c_str(), &endPtr, 10);
+			if (errno != 0 || ! endPtr || *endPtr != '\0' || startUll > 0xFFFFFFFFULL)
+				continue;
+			errno = 0;
+			const unsigned long long endUll = strtoull(endStr.c_str(), &endPtr, 10);
+			if (errno != 0 || ! endPtr || *endPtr != '\0' || endUll > 0xFFFFFFFFULL || endUll < startUll)
+				continue;
+
+			TorGeoIp4Range r;
+			r.start = (uint32_t)startUll;
+			r.end = (uint32_t)endUll;
+			r.iso = iso;
+			torGeoIp4.push_back(r);
+		}
+
+		if (torGeoIp4.empty())
+			return false;
+
+		std::sort(torGeoIp4.begin(), torGeoIp4.end(), [](const TorGeoIp4Range& a, const TorGeoIp4Range& b) {
+			if (a.start != b.start)
+				return a.start < b.start;
+			return a.end < b.end;
+		});
+		return true;
+	}
+
+	bool loadTorGeoIp6(const char* path)
+	{
+		std::ifstream in(path);
+		if (! in.is_open())
+			return false;
+		std::string line;
+		while (std::getline(in, line)) {
+			if (line.empty() || line[0] == '#')
+				continue;
+			const std::size_t c1 = line.find(',');
+			if (c1 == std::string::npos)
+				continue;
+			const std::size_t c2 = line.find(',', c1 + 1);
+			if (c2 == std::string::npos)
+				continue;
+
+			const std::string startStr = line.substr(0, c1);
+			const std::string endStr = line.substr(c1 + 1, c2 - (c1 + 1));
+			const std::string iso = normalizeIso2(line.substr(c2 + 1));
+			if (iso.empty())
+				continue;
+
+			InetAddress startAddr(startStr.c_str());
+			InetAddress endAddr(endStr.c_str());
+			if (! startAddr.isV6() || ! endAddr.isV6())
+				continue;
+
+			TorGeoIp6Range r;
+			memcpy(r.start.data(), startAddr.rawIpData(), 16);
+			memcpy(r.end.data(), endAddr.rawIpData(), 16);
+			if (memcmp(r.start.data(), r.end.data(), 16) > 0)
+				continue;
+			r.iso = iso;
+			torGeoIp6.push_back(r);
+		}
+
+		if (torGeoIp6.empty())
+			return false;
+
+		std::sort(torGeoIp6.begin(), torGeoIp6.end(), [](const TorGeoIp6Range& a, const TorGeoIp6Range& b) {
+			const int cmpStart = memcmp(a.start.data(), b.start.data(), 16);
+			if (cmpStart != 0)
+				return (cmpStart < 0);
+			return (memcmp(a.end.data(), b.end.data(), 16) < 0);
+		});
+		return true;
+	}
+
+		std::string lookupTorCountryIso(const InetAddress& addr) const
+		{
+			if (addr.isV4() && torGeoIp4Available) {
+				uint32_t rawIp = 0;
+				memcpy(&rawIp, addr.rawIpData(), sizeof(rawIp));
+				const uint32_t ip = Utils::ntoh(rawIp);
+			std::size_t lo = 0;
+			std::size_t hi = torGeoIp4.size();
+			while (lo < hi) {
+				const std::size_t mid = lo + ((hi - lo) / 2);
+				if (torGeoIp4[mid].start <= ip) {
+					lo = mid + 1;
+				}
+				else {
+					hi = mid;
+				}
+			}
+			if (lo > 0) {
+				const TorGeoIp4Range& r = torGeoIp4[lo - 1];
+				if (ip <= r.end)
+					return r.iso;
+			}
+		}
+		else if (addr.isV6() && torGeoIp6Available) {
+			const uint8_t* ip = reinterpret_cast<const uint8_t*>(addr.rawIpData());
+			std::size_t lo = 0;
+			std::size_t hi = torGeoIp6.size();
+			while (lo < hi) {
+				const std::size_t mid = lo + ((hi - lo) / 2);
+				if (memcmp(torGeoIp6[mid].start.data(), ip, 16) <= 0) {
+					lo = mid + 1;
+				}
+				else {
+					hi = mid;
+				}
+			}
+			if (lo > 0) {
+				const TorGeoIp6Range& r = torGeoIp6[lo - 1];
+				if (memcmp(ip, r.end.data(), 16) <= 0)
+					return r.iso;
+			}
+		}
+		return std::string();
+	}
+
+	void initOnce()
+	{
+		if (initialized)
+			return;
+		initialized = true;
+#ifdef ZT_HAVE_MAXMINDDB
+		const char* paths[] = {
+			"/var/lib/geoip/GeoLite2-Country.mmdb",
+			"/var/lib/geoip/GeoLite2-City.mmdb",
+			"/usr/share/GeoIP/GeoLite2-Country.mmdb",
+			"/usr/share/GeoIP/GeoLite2-City.mmdb",
+#ifdef __WINDOWS__
+			"C:\\ProgramData\\ZeroTier\\One\\GeoLite2-Country.mmdb",
+			"C:\\ProgramData\\ZeroTier\\One\\GeoLite2-City.mmdb",
+#endif
+		};
+		for (unsigned int i = 0; i < (sizeof(paths) / sizeof(paths[0])); ++i) {
+			const int rc = MMDB_open(paths[i], MMDB_MODE_MMAP, &mmdb);
+			if (rc == MMDB_SUCCESS) {
+				mmdbAvailable = true;
+				break;
+			}
+		}
+#endif
+		// Keep Tor's range files available as a fallback for addresses missing
+		// from the MaxMind database as well as for systems without MaxMind.
+		torGeoIp4Available = loadTorGeoIp4("/usr/share/tor/geoip");
+		torGeoIp6Available = loadTorGeoIp6("/usr/share/tor/geoip6");
+	}
+
+	std::string countryIso(const std::string& ip)
+	{
+		initOnce();
+		InetAddress addr(ip.c_str());
+		if (! addr.isV4() && ! addr.isV6())
+			return std::string();
+#ifdef ZT_HAVE_MAXMINDDB
+		if (mmdbAvailable) {
+			int gaiError = 0;
+			int mmdbError = 0;
+			MMDB_lookup_result_s result = MMDB_lookup_string(&mmdb, ip.c_str(), &gaiError, &mmdbError);
+			if (gaiError == 0 && mmdbError == MMDB_SUCCESS && result.found_entry) {
+				MMDB_entry_data_s data;
+				int status = MMDB_get_value(&result.entry, &data, "country", "iso_code", nullptr);
+				if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2)
+					return std::string(data.utf8_string, data.data_size);
+				status = MMDB_get_value(&result.entry, &data, "registered_country", "iso_code", nullptr);
+				if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2)
+					return std::string(data.utf8_string, data.data_size);
+				status = MMDB_get_value(&result.entry, &data, "represented_country", "iso_code", nullptr);
+				if (status == MMDB_SUCCESS && data.has_data && data.type == MMDB_DATA_TYPE_UTF8_STRING && data.data_size == 2)
+					return std::string(data.utf8_string, data.data_size);
+			}
+		}
+#endif
+		return lookupTorCountryIso(addr);
+	}
+};
+
 static void cliPrintHelp(const char* pn, FILE* out)
 {
 	fprintf(
@@ -215,6 +480,8 @@ static void cliPrintHelp(const char* pn, FILE* out)
 	fprintf(out, ZT_EOL_S "Available commands:" ZT_EOL_S);
 	fprintf(out, "  info                    - Display status info" ZT_EOL_S);
 	fprintf(out, "  stats                   - Show peer UDP port usage statistics" ZT_EOL_S);
+	fprintf(out, "  findzt <ip_address>     - Find ZeroTier address(es) observed using an in-network IP" ZT_EOL_S);
+	fprintf(out, "  findip <zt_address>     - Find in-network IP address(es) observed for a ZeroTier address" ZT_EOL_S);
 	fprintf(out, "  listpeers               - List all peers" ZT_EOL_S);
 	fprintf(out, "  peers                   - List all peers (prettier)" ZT_EOL_S);
 	fprintf(out, "  listnetworks            - List all networks" ZT_EOL_S);
@@ -507,11 +774,14 @@ static int cli(int argc, char** argv)
 		try {
 			const nlohmann::json result = OSUtils::jsonParse(responseBody);
 			printf("200 stats - Peer UDP Port Usage" ZT_EOL_S);
-			printf("ZT Address  Remote IP        Incoming ports                 Outgoing ports" ZT_EOL_S);
+			printf("ZT Address  Remote IP        Country  Incoming ports                 Outgoing ports" ZT_EOL_S);
+			GeoIpResolver geo;
 			for (const auto& row : result["peersByZtAddressAndIP"]) {
-				printf("%-11s %-16s %-30s %s" ZT_EOL_S,
+				const std::string ip = OSUtils::jsonString(row["ipAddress"], "");
+				const std::string country = geo.countryIso(ip);
+				printf("%-11s %-16s %-8s %-30s %s" ZT_EOL_S,
 					OSUtils::jsonString(row["ztAddress"], "").c_str(),
-					OSUtils::jsonString(row["ipAddress"], "").c_str(),
+					ip.c_str(), country.empty() ? "-" : country.c_str(),
 					row.value("incomingPorts", nlohmann::json::object()).dump().c_str(),
 					row.value("outgoingPorts", nlohmann::json::object()).dump().c_str());
 			}
@@ -519,6 +789,69 @@ static int cli(int argc, char** argv)
 		catch (...) {
 			printf("200 stats invalid JSON response" ZT_EOL_S);
 			return 1;
+		}
+		return 0;
+	}
+	else if (command == "findzt" || command == "findip") {
+		if (arg1.empty()) {
+			printf("usage: zerotier-cli %s <%s>" ZT_EOL_S, command.c_str(), command == "findzt" ? "ip_address" : "zt_address");
+			return 2;
+		}
+		std::string parameter;
+		std::string value;
+		if (command == "findzt") {
+			InetAddress ip(arg1.c_str());
+			if (! ip.isV4() && ! ip.isV6()) {
+				printf("Invalid IP address: %s" ZT_EOL_S, arg1.c_str());
+				return 2;
+			}
+			char ipText[64];
+			ip.ipOnly().toIpString(ipText);
+			parameter = "ip";
+			value = ipText;
+		}
+		else {
+			value = arg1;
+			if (value.size() != 10 || ! std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isxdigit(c) != 0; }) || Utils::hexStrToU64(value.c_str()) == 0) {
+				printf("Invalid ZeroTier address: %s" ZT_EOL_S, value.c_str());
+				return 2;
+			}
+			parameter = "zt";
+		}
+
+		const std::string path = "/overlay/lookup?" + parameter + "=" + value;
+		const unsigned int scode = Http::GET(1024 * 1024 * 16, 60000, (const struct sockaddr*)&addr, path.c_str(), requestHeaders, responseHeaders, responseBody);
+		if (scode != 200) {
+			printf("Error %u: %s" ZT_EOL_S, scode, responseBody.c_str());
+			return 1;
+		}
+		if (json) {
+			printf("%s" ZT_EOL_S, cliFixJsonCRs(responseBody).c_str());
+			return 0;
+		}
+		nlohmann::json result;
+		try {
+			result = OSUtils::jsonParse(responseBody);
+		}
+		catch (...) {
+			printf("Error parsing response" ZT_EOL_S);
+			return 1;
+		}
+		if (! result.contains("results") || ! result["results"].is_array() || result["results"].empty()) {
+			printf("No observed in-network mapping found for %s %s" ZT_EOL_S, parameter.c_str(), value.c_str());
+			return 1;
+		}
+		for (const auto& row : result["results"]) {
+			const std::string nwid = row.value("networkId", "");
+			const std::string ztAddress = row.value("ztAddress", "");
+			if (command == "findzt") {
+				printf("200 findzt %s %s (network %s, observed)" ZT_EOL_S, value.c_str(), ztAddress.c_str(), nwid.c_str());
+			}
+			else if (row.contains("ips") && row["ips"].is_array()) {
+				for (const auto& ip : row["ips"])
+					if (ip.is_string())
+						printf("200 findip %s %s (network %s, observed)" ZT_EOL_S, value.c_str(), ip.get<std::string>().c_str(), nwid.c_str());
+			}
 		}
 		return 0;
 	}

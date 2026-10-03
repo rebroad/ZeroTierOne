@@ -173,6 +173,22 @@ Note: Both IPv4 and IPv6 endpoints provide identical functionality.
 
 ## Security and Monitoring
 
+### `/overlay/lookup?ip=<address>` or `/overlay/lookup?zt=<address>`
+**Methods**: `GET`
+**Description**: Look up in-network IP/ZeroTier address pairs observed in virtual IPv4, IPv6, and ARP frames since service start.
+**CLI Commands**: `zerotier-cli findzt <ip_address>`, `zerotier-cli findip <zt_address>`
+
+The response groups observed addresses by network. This is a bounded, in-memory observation cache (up to 65,536 pairs), so results may be absent until traffic is observed and reset when the service restarts. The endpoint uses the normal authenticated control-plane access policy.
+
+**Example response**:
+```json
+{
+  "results": [
+    { "networkId": "8056c2e21c000001", "ztAddress": "0123456789", "ips": ["10.10.10.4"] }
+  ]
+}
+```
+
 ### `/stats`
 **Methods**: `GET`
 **Description**: Get authenticated peer UDP port usage counts

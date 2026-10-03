@@ -38,7 +38,13 @@ The CLI stores the token in `~/.zeroTierOneAuthToken` with owner-only permission
    Shows information about this device including its 10-digit ZeroTier address and apparent connection status. Use `-j` for more verbose output.
 
  * `stats`:
-   Shows authenticated peer UDP packet counts by remote IP and local UDP port. Counters are in memory and reset when the service restarts. Use `-j stats` for the raw JSON response.
+   Shows authenticated peer UDP packet counts by remote IP and local UDP port. On Linux, country codes are shown when a GeoLite2 MaxMind database or Tor GeoIP data files are installed. GeoIP lookup uses local data and does not send addresses to a remote service. Counters are in memory and reset when the service restarts. Use `-j stats` for the raw JSON response.
+
+ * `findzt` <in-network IP address>:
+   Lists ZeroTier addresses observed using that in-network IP address. Results are learned from virtual IPv4, IPv6, and ARP traffic while the service is running.
+
+ * `findip` <ZeroTier address>:
+   Lists in-network IP addresses observed for that ZeroTier address. Results are limited to traffic observed since the service started.
 
  * `listpeers`:
    This command lists the ZeroTier VL1 (virtual layer 1, the peer to peer network) peers this service knows about and has recently (within the past 30 minutes or so) communicated with. These are not necessarily all the devices on your virtual network(s), and may also include a few devices not on any virtual network you've joined. These are typically either root servers or network controllers.

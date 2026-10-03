@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-HOST="${1:-pi3}"
+HOST="${1:?usage: pi-install.sh user@pi [stage-dir]}"
 REMOTE_STAGE_DIR="${2:-/var/tmp/zerotier-remote-install}"
 REMOTE_INSTALL_SCRIPT="install-zerotier-staged.sh"
 REMOTE_SUDO="${REMOTE_SUDO:-sudo}"

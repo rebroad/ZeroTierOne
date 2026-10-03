@@ -7,8 +7,10 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <exception>
 #include <map>
+#include <set>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -901,6 +903,15 @@ class OneServiceImpl : public OneService {
 	};
 	std::map<std::pair<Address, InetAddress>, PeerPortStats> _peerPortStats;
 	Mutex _peerPortStats_m;
+
+	// In-network address pairs learned from virtual IPv4, IPv6 and ARP frames.
+	struct OverlayPairStats {
+		uint64_t lastSeen;
+		OverlayPairStats() : lastSeen(0) {}
+	};
+	std::map<std::pair<uint64_t, std::pair<Address, InetAddress> >, OverlayPairStats> _overlayPairStats;
+	Mutex _overlayPairStats_m;
+	static const size_t ZT_OVERLAY_LOOKUP_MAX_ENTRIES = 65536;
 
 	// Time we last received a packet from a global address
 	uint64_t _lastDirectReceiveFromGlobal;
@@ -2451,6 +2462,71 @@ class OneServiceImpl : public OneService {
 		};
 		_controlPlane.Get(statsPath, statsGet);
 		_controlPlaneV6.Get(statsPath, statsGet);
+
+		auto overlayLookupGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
+			const bool hasZt = req.has_param("zt");
+			const bool hasIp = req.has_param("ip");
+			if (hasZt == hasIp) {
+				setContent(req, res, "{\"error\":\"provide exactly one query parameter: zt or ip\"}");
+				res.status = 400;
+				return;
+			}
+
+			Address queryZt;
+			InetAddress queryIp;
+			if (hasZt) {
+				const std::string raw = req.get_param_value("zt");
+				if (raw.size() != 10 || ! std::all_of(raw.begin(), raw.end(), [](unsigned char c) { return std::isxdigit(c) != 0; }) || Utils::hexStrToU64(raw.c_str()) == 0) {
+					setContent(req, res, "{\"error\":\"zt must be a nonzero 10-character hexadecimal address\"}");
+					res.status = 400;
+					return;
+				}
+				queryZt = Address(Utils::hexStrToU64(raw.c_str()));
+			}
+			else {
+				queryIp = InetAddress(req.get_param_value("ip").c_str());
+				if (! queryIp.isV4() && ! queryIp.isV6()) {
+					setContent(req, res, "{\"error\":\"ip must be a valid IPv4 or IPv6 address\"}");
+					res.status = 400;
+					return;
+				}
+				queryIp = queryIp.ipOnly();
+			}
+
+			std::map<std::pair<uint64_t, Address>, std::set<InetAddress> > grouped;
+			{
+				Mutex::Lock lock(_overlayPairStats_m);
+				for (const auto& entry : _overlayPairStats) {
+					const Address& zt = entry.first.second.first;
+					const InetAddress& ip = entry.first.second.second;
+					if ((hasZt && zt != queryZt) || (hasIp && ip != queryIp))
+						continue;
+					grouped[std::make_pair(entry.first.first, zt)].insert(ip);
+				}
+			}
+
+			json out = json::object();
+			json results = json::array();
+			for (const auto& group : grouped) {
+				char nwidBuf[32], ztBuf[16];
+				OSUtils::ztsnprintf(nwidBuf, sizeof(nwidBuf), "%.16llx", (unsigned long long)group.first.first);
+				group.first.second.toString(ztBuf);
+				json row = json::object();
+				row["networkId"] = nwidBuf;
+				row["ztAddress"] = ztBuf;
+				row["ips"] = json::array();
+				for (const InetAddress& ip : group.second) {
+					char ipBuf[64];
+					ip.toIpString(ipBuf);
+					row["ips"].push_back(ipBuf);
+				}
+				results.push_back(row);
+			}
+			out["results"] = results;
+			setContent(req, res, out.dump(2));
+		};
+		_controlPlane.Get("/overlay/lookup", overlayLookupGet);
+		_controlPlaneV6.Get("/overlay/lookup", overlayLookupGet);
 
 		auto peerGet = [&, setContent](const httplib::Request& req, httplib::Response& res) {
 			auto provider = opentelemetry::trace::Provider::GetTracerProvider();
@@ -4154,12 +4230,76 @@ class OneServiceImpl : public OneService {
 		}
 	}
 
+	void observeOverlayAddressPairs(uint64_t nwid, const MAC& from, const MAC& to, unsigned int etherType, const void* data, unsigned int len)
+	{
+		if (! data)
+			return;
+		auto validZtMac = [nwid](const MAC& mac) {
+			return mac && ! mac.isBroadcast() && ! mac.isMulticast() && mac.isLocallyAdministered() && mac[0] == MAC::firstOctetForNetwork(nwid);
+		};
+		Address srcZt = validZtMac(from) ? from.toAddress(nwid) : Address();
+		Address dstZt = validZtMac(to) ? to.toAddress(nwid) : Address();
+		InetAddress srcIp, dstIp;
+		if (etherType == 0x0800 && len >= 20) {
+			srcIp.set(static_cast<const uint8_t*>(data) + 12, 4, 0);
+			dstIp.set(static_cast<const uint8_t*>(data) + 16, 4, 0);
+		}
+		else if (etherType == 0x86dd && len >= 40) {
+			srcIp.set(static_cast<const uint8_t*>(data) + 8, 16, 0);
+			dstIp.set(static_cast<const uint8_t*>(data) + 24, 16, 0);
+		}
+		else if (etherType == 0x0806 && len >= 28) {
+			const uint8_t* arp = static_cast<const uint8_t*>(data);
+			const unsigned int hardwareType = (static_cast<unsigned int>(arp[0]) << 8) | arp[1];
+			const unsigned int protocolType = (static_cast<unsigned int>(arp[2]) << 8) | arp[3];
+			if (hardwareType == 1 && protocolType == 0x0800 && arp[4] == 6 && arp[5] == 4) {
+				const MAC sender(arp + 8, 6);
+				const MAC target(arp + 18, 6);
+				srcZt = validZtMac(sender) ? sender.toAddress(nwid) : Address();
+				dstZt = validZtMac(target) ? target.toAddress(nwid) : Address();
+				srcIp.set(arp + 14, 4, 0);
+				dstIp.set(arp + 24, 4, 0);
+			}
+		}
+
+		const uint64_t now = OSUtils::now();
+		Mutex::Lock lock(_overlayPairStats_m);
+		static uint64_t lastPrune = 0;
+		auto record = [&](const Address& zt, const InetAddress& ip) {
+			if (! zt || (! ip.isV4() && ! ip.isV6()))
+				return;
+			const auto key = std::make_pair(nwid, std::make_pair(zt, ip.ipOnly()));
+			auto entry = _overlayPairStats.find(key);
+			if (entry == _overlayPairStats.end()) {
+				if (_overlayPairStats.size() >= ZT_OVERLAY_LOOKUP_MAX_ENTRIES) {
+					if (now > lastPrune && now - lastPrune >= 60000ULL) {
+						lastPrune = now;
+						for (auto stale = _overlayPairStats.begin(); stale != _overlayPairStats.end();) {
+							if (stale->second.lastSeen > 0 && now > stale->second.lastSeen && now - stale->second.lastSeen >= 48ULL * 60ULL * 60ULL * 1000ULL)
+								stale = _overlayPairStats.erase(stale);
+							else
+								++stale;
+						}
+					}
+					if (_overlayPairStats.size() >= ZT_OVERLAY_LOOKUP_MAX_ENTRIES)
+						return;
+				}
+				entry = _overlayPairStats.insert(std::make_pair(key, OverlayPairStats())).first;
+			}
+			entry->second.lastSeen = now;
+		};
+		record(srcZt, srcIp);
+		if (srcZt != dstZt || srcIp.ipOnly() != dstIp.ipOnly())
+			record(dstZt, dstIp);
+	}
+
 	inline void nodeVirtualNetworkFrameFunction(uint64_t nwid, void** nuptr, uint64_t sourceMac, uint64_t destMac, unsigned int etherType, unsigned int vlanId, const void* data, unsigned int len)
 	{
 		NetworkState* n = reinterpret_cast<NetworkState*>(*nuptr);
 		if ((! n) || (! n->tap())) {
 			return;
 		}
+		observeOverlayAddressPairs(nwid, MAC(sourceMac), MAC(destMac), etherType, data, len);
 		n->tap()->put(MAC(sourceMac), MAC(destMac), etherType, data, len);
 	}
 
@@ -4238,6 +4378,7 @@ class OneServiceImpl : public OneService {
 
 	inline void tapFrameHandler(uint64_t nwid, const MAC& from, const MAC& to, unsigned int etherType, unsigned int vlanId, const void* data, unsigned int len)
 	{
+		observeOverlayAddressPairs(nwid, from, to, etherType, data, len);
 		_node->processVirtualNetworkFrame((void*)0, OSUtils::now(), nwid, from.toInt(), to.toInt(), etherType, vlanId, data, len, &_nextBackgroundTaskDeadline);
 	}
 

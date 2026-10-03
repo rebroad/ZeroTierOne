@@ -15,6 +15,17 @@ LDLIBS?=
 DESTDIR?=
 EXTRA_DEPS?=
 
+# GeoIP in the CLI is optional. Use the system MaxMind DB library when its
+# development package is available; the CLI falls back to Tor's geoip files.
+MMDB_PKG:=$(shell pkg-config --exists libmaxminddb >/dev/null 2>&1 && echo 1 || true)
+ifeq ($(MMDB_PKG),1)
+	override DEFS+=-DZT_ENABLE_MAXMINDDB=1
+	override INCLUDES+=$(shell pkg-config --cflags libmaxminddb 2>/dev/null)
+	LDLIBS+= $(shell pkg-config --libs libmaxminddb 2>/dev/null)
+else
+	override DEFS+=-DZT_NO_MAXMINDDB=1
+endif
+
 include objects.mk
 
 ifeq ($(ZT_CONTROLLER),1)
@@ -337,11 +348,13 @@ OTEL_VERSION=1.21.0
 ifeq (${ZT_OTEL},1)
 	OTEL_INSTALL_DIR=ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall
 	override DEFS+=-DZT_OPENTELEMETRY_ENABLED=1
-	INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override CXXFLAGS+=-I${OTEL_INSTALL_DIR}/include
 	LDLIBS+=-L${OTEL_INSTALL_DIR}/lib -lopentelemetry_exporter_in_memory_metric -lopentelemetry_exporter_in_memory -lopentelemetry_exporter_ostream_logs -lopentelemetry_exporter_ostream_metrics -lopentelemetry_exporter_ostream_span -lopentelemetry_exporter_otlp_grpc  -lopentelemetry_exporter_otlp_grpc_client -lopentelemetry_exporter_otlp_grpc_log -lopentelemetry_exporter_otlp_grpc_metrics -lopentelemetry_otlp_recordable -lopentelemetry_common -lopentelemetry_trace -lopentelemetry_common -lopentelemetry_resources -lopentelemetry_logs -lopentelemetry_metrics -lopentelemetry_proto -lopentelemetry_proto_grpc -lopentelemetry_version -lprotobuf -lgrpc++
 else
 	OTEL_INSTALL_DIR=ext/opentelemetry-cpp-api-only
-	INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override INCLUDES+=-I${OTEL_INSTALL_DIR}/include
+	override CXXFLAGS+=-I${OTEL_INSTALL_DIR}/include
 endif
 
 # Disable software updates by default on Linux since that is normally done with package management
@@ -459,6 +472,39 @@ otel:
 endif
 
 ext/${OTEL_INSTALL_DIR}/include/opentelemetry/version.h: otel
+
+# Build and install on an explicitly selected compatible Linux host. Run these
+# targets from the mirrored external build tree, not from the source checkout.
+REMOTE_HOST ?=
+REMOTE_SSH ?= ssh
+REMOTE_SCP ?= scp
+REMOTE_SUDO ?= sudo
+REMOTE_STAGE_DIR ?= /var/tmp/zerotier-remote-install
+DOCKER ?= docker
+DOCKER_REMOTE_BUILD_IMAGE ?= zerotier-build-ubuntu2204
+DOCKER_REMOTE_BUILD_DOCKERFILE ?= tools/Dockerfile.ubuntu2204-builder
+DOCKER_BUILD_NETWORK ?= host
+DOCKER_CARGO_HOME ?= /src/.cache/cargo
+REMOTE_BUILD_DIR ?= build/glibc2.35-$(shell uname -m)
+REMOTE_BUILD_BIN ?= $(REMOTE_BUILD_DIR)/zerotier-one
+
+.PHONY: docker-build-ubuntu2204 docker-build-clean docker-build-remote-install-binary check-remote-host remote-install
+docker-build-ubuntu2204:
+	$(DOCKER) build --network=$(DOCKER_BUILD_NETWORK) --progress=plain -f $(DOCKER_REMOTE_BUILD_DOCKERFILE) -t $(DOCKER_REMOTE_BUILD_IMAGE) .
+
+docker-build-clean:
+	-$(DOCKER) rmi $(DOCKER_REMOTE_BUILD_IMAGE)
+
+docker-build-remote-install-binary: docker-build-ubuntu2204
+	$(DOCKER) run --rm --network=$(DOCKER_BUILD_NETWORK) --user "$$(id -u):$$(id -g)" -v "$(CURDIR):/src" -w /src \
+		-e CARGO_HOME=$(DOCKER_CARGO_HOME) -e CARGO_HTTP_TIMEOUT=120 -e CARGO_NET_RETRY=10 -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+		$(DOCKER_REMOTE_BUILD_IMAGE) bash -lc 'set -eu; mkdir -p "$$CARGO_HOME" "$(REMOTE_BUILD_DIR)"; make one; cp -f zerotier-one "$(REMOTE_BUILD_BIN)"'
+
+check-remote-host:
+	@test -n "$(REMOTE_HOST)" || { echo "error: set REMOTE_HOST=user@host" >&2; exit 2; }
+
+remote-install: check-remote-host docker-build-remote-install-binary
+	REMOTE_SSH='$(REMOTE_SSH)' REMOTE_SCP='$(REMOTE_SCP)' REMOTE_SUDO='$(REMOTE_SUDO)' REMOTE_STAGE_DIR='$(REMOTE_STAGE_DIR)' tools/remote-install.sh "$(REMOTE_HOST)" "$(REMOTE_BUILD_BIN)"
 
 clean: FORCE
 	rm -rf *.a *.so *.o node/*.o nonfree/controller/*.o osdep/*.o service/*.o ext/http-parser/*.o ext/miniupnpc/*.o ext/libnatpmp/*.o $(CORE_OBJS) $(ONE_OBJS) zerotier-one zerotier-idtool zerotier-cli zerotier-selftest build-* ZeroTierOneInstaller-* *.deb *.rpm .depend debian/files debian/zerotier-one*.debhelper debian/zerotier-one.substvars debian/*.log debian/zerotier-one doc/node_modules ext/misc/*.o debian/.debhelper debian/debhelper-build-stamp docker/zerotier-one rustybits/target ext/opentelemetry-cpp-${OTEL_VERSION}/localinstall ext/opentelemetry-cpp-${OTEL_VERSION}/build
