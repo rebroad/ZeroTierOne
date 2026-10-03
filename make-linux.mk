@@ -90,6 +90,21 @@ else
 	ZT_CARGO_FLAGS=--release
 endif
 
+# Native builds are deliberately opt-in because their binaries may not run on
+# older CPUs than the machine used to build them. "auto" is a portable alias;
+# select ZT_NATIVE=1 explicitly to use host-specific instructions.
+ZT_NATIVE?=auto
+ifeq ($(ZT_NATIVE),1)
+	override CFLAGS+=-march=native -mtune=native
+	override CXXFLAGS+=-march=native -mtune=native
+	override DEFS+=-DZT_NATIVE_BUILD=1
+else
+	ifneq ($(filter $(ZT_NATIVE),0 auto),$(ZT_NATIVE))
+		$(error ZT_NATIVE must be 0, 1, or auto)
+	endif
+	override DEFS+=-DZT_NATIVE_BUILD=0
+endif
+
 ifeq ($(ZT_QNAP), 1)
 	override DEFS+=-D__QNAP__
 	ZT_EMBEDDED=1
