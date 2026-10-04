@@ -904,6 +904,13 @@ class OneServiceImpl : public OneService {
 	std::map<std::pair<Address, InetAddress>, PeerPortStats> _peerPortStats;
 	Mutex _peerPortStats_m;
 
+	// Preserve the full physical peer endpoint (including UDP port) separately
+	// from the peer/IP aggregate above. This lets callers correlate each
+	// authenticated ZeroTier peer with the endpoint and local ports observed.
+	std::map<std::pair<Address, InetAddress>, PeerPortStats> _peerEndpointStats;
+	Mutex _peerEndpointStats_m;
+	static const size_t ZT_PEER_ENDPOINT_STATS_MAX_ENTRIES = 4096;
+
 	// In-network address pairs learned from virtual IPv4, IPv6 and ARP frames.
 	struct OverlayPairStats {
 		uint64_t lastSeen;
@@ -2458,6 +2465,31 @@ class OneServiceImpl : public OneService {
 				}
 			}
 			stats["peersByZtAddressAndIP"] = peerRows;
+
+			nlohmann::json endpointRows = nlohmann::json::array();
+			{
+				Mutex::Lock lock(_peerEndpointStats_m);
+				for (const auto& entry : _peerEndpointStats) {
+					char peerText[16], ipText[64];
+					entry.first.first.toString(peerText);
+					entry.first.second.toIpString(ipText);
+					nlohmann::json row = nlohmann::json::object();
+					row["ztAddress"] = peerText;
+					row["ipAddress"] = ipText;
+					row["remotePort"] = entry.first.second.port();
+					row["lastSeen"] = entry.second.lastSeen;
+					auto portCounts = [](const std::map<unsigned int, uint64_t>& counts) {
+						nlohmann::json result = nlohmann::json::object();
+						for (const auto& count : counts)
+							result[std::to_string(count.first)] = count.second;
+						return result;
+					};
+					row["incomingLocalPorts"] = portCounts(entry.second.incoming);
+					row["outgoingLocalPorts"] = portCounts(entry.second.outgoing);
+					endpointRows.push_back(row);
+				}
+			}
+			stats["peersByZtAddressAndEndpoint"] = endpointRows;
 			setContent(req, res, stats.dump());
 		};
 		_controlPlane.Get(statsPath, statsGet);
@@ -3404,6 +3436,22 @@ class OneServiceImpl : public OneService {
 		PeerPortStats& stats = (it == _peerPortStats.end()) ? _peerPortStats[key] : it->second;
 		++(incoming ? stats.incoming[localPort] : stats.outgoing[localPort]);
 		stats.lastSeen = now;
+
+		const std::pair<Address, InetAddress> endpointKey(peer, remote);
+		Mutex::Lock endpointLock(_peerEndpointStats_m);
+		auto endpoint = _peerEndpointStats.find(endpointKey);
+		if (endpoint == _peerEndpointStats.end() && _peerEndpointStats.size() >= ZT_PEER_ENDPOINT_STATS_MAX_ENTRIES) {
+			auto oldest = _peerEndpointStats.begin();
+			for (auto candidate = _peerEndpointStats.begin(); candidate != _peerEndpointStats.end(); ++candidate) {
+				if (candidate->second.lastSeen < oldest->second.lastSeen)
+					oldest = candidate;
+			}
+			_peerEndpointStats.erase(oldest);
+			endpoint = _peerEndpointStats.end();
+		}
+		PeerPortStats& endpointStats = (endpoint == _peerEndpointStats.end()) ? _peerEndpointStats[endpointKey] : endpoint->second;
+		++(incoming ? endpointStats.incoming[localPort] : endpointStats.outgoing[localPort]);
+		endpointStats.lastSeen = now;
 	}
 
 	inline void phyOnTcpConnect(PhySocket* sock, void** uptr, bool success)

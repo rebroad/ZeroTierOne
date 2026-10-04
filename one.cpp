@@ -785,6 +785,17 @@ static int cli(int argc, char** argv)
 					row.value("incomingPorts", nlohmann::json::object()).dump().c_str(),
 					row.value("outgoingPorts", nlohmann::json::object()).dump().c_str());
 			}
+			printf("200 stats - Peer UDP Endpoints" ZT_EOL_S);
+			printf("ZT Address  Remote endpoint                       Incoming local ports       Outgoing local ports" ZT_EOL_S);
+			for (const auto& row : result["peersByZtAddressAndEndpoint"]) {
+				const std::string ip = OSUtils::jsonString(row["ipAddress"], "");
+				const std::string remotePort = std::to_string(row.value("remotePort", 0U));
+				const std::string endpoint = (ip.find(':') == std::string::npos) ? ip + ":" + remotePort : "[" + ip + "]:" + remotePort;
+				printf("%-11s %-38s %-26s %s" ZT_EOL_S,
+					OSUtils::jsonString(row["ztAddress"], "").c_str(), endpoint.c_str(),
+					row.value("incomingLocalPorts", nlohmann::json::object()).dump().c_str(),
+					row.value("outgoingLocalPorts", nlohmann::json::object()).dump().c_str());
+			}
 		}
 		catch (...) {
 			printf("200 stats invalid JSON response" ZT_EOL_S);

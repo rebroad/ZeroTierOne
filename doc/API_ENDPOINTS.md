@@ -194,7 +194,7 @@ The response groups observed addresses by network. This is a bounded, in-memory 
 **Description**: Get authenticated peer UDP port usage counts
 **CLI Command**: `zerotier-cli stats`
 
-Counters cover successfully authenticated incoming packets and successfully sent outgoing packets. Rows are keyed by ZeroTier peer address and remote IP address; remote UDP ports are not part of the key. Counts are held in memory, reset when the service restarts, and bounded to 4096 peer/IP rows by evicting the least recently observed row. The endpoint uses the normal authenticated control-plane access policy.
+Counters cover successfully authenticated incoming packets and successfully sent outgoing packets. `peersByZtAddressAndIP` aggregates by ZeroTier peer address and remote IP, with local UDP port counts. `peersByZtAddressAndEndpoint` separately preserves the full remote IP:UDP-port endpoint and the local ports used to exchange packets with it. Both tables are held in memory, reset when the service restarts, and bounded to 4096 rows each by evicting the least recently observed row. The endpoint uses the normal authenticated control-plane access policy.
 
 **Response Structure**:
 ```json
@@ -219,6 +219,16 @@ Counters cover successfully authenticated incoming packets and successfully sent
       "tertiaryIncoming": 0,
       "tertiaryOutgoing": 0
     }
+  ],
+  "peersByZtAddressAndEndpoint": [
+    {
+      "ztAddress": "abc123def",
+      "ipAddress": "192.168.1.100",
+      "remotePort": 9993,
+      "lastSeen": 1700000000000,
+      "incomingLocalPorts": {"9993": 50},
+      "outgoingLocalPorts": {"9993": 52}
+    }
   ]
 }
 ```
@@ -227,9 +237,12 @@ Counters cover successfully authenticated incoming packets and successfully sent
 | Field | Type | Description |
 |-------|------|-------------|
 | ports | object | Configured primary, secondary, tertiary, and currently bound UDP ports |
-| peersByZtAddressAndIP | array | Per authenticated peer and remote IP counters |
-| incomingPorts/outgoingPorts | object | Local UDP port to packet count, as string-keyed JSON properties |
-| primary/secondary/tertiary Incoming/Outgoing | integer | Counts for each configured port |
+| peersByZtAddressAndIP | array | Per authenticated peer and remote IP aggregate counters |
+| incomingPorts/outgoingPorts | object | Local UDP port to packet count in the aggregate table, as string-keyed JSON properties |
+| peersByZtAddressAndEndpoint | array | Per authenticated peer and full observed remote IP/UDP-port endpoint |
+| remotePort | integer | Remote UDP port observed on the endpoint |
+| incomingLocalPorts/outgoingLocalPorts | object | Local UDP port to packet count for this exact remote endpoint |
+| primary/secondary/tertiary Incoming/Outgoing | integer | Aggregate counts for each configured local port |
 | lastSeen | integer | Last packet observation time in milliseconds |
 
 ---
