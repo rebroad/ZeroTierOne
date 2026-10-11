@@ -324,7 +324,7 @@ class Path {
 	 */
 	inline bool rateGateEchoRequest(const int64_t now)
 	{
-		if ((now - _lastEchoRequestReceived) >= (ZT_PEER_GENERAL_RATE_LIMIT / 6)) {
+		if ((now - _lastEchoRequestReceived) >= (1000 / ZT_PEER_ECHO_RATE_LIMIT)) {
 			_lastEchoRequestReceived = now;
 			return true;
 		}

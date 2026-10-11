@@ -628,6 +628,11 @@
  */
 #define ZT_PEER_GENERAL_RATE_LIMIT 1000
 
+/** Maximum inbound ECHO replies per second on one path. This leaves margin above
+ * the 6/s heartbeat cadence possible at the minimum bond failover interval.
+ */
+#define ZT_PEER_ECHO_RATE_LIMIT 10
+
 /**
  * Minimum allowed amount of time between flow/path optimizations (anti-flapping)
  */
