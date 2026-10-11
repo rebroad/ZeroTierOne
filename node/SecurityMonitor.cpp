@@ -60,6 +60,7 @@ void SecurityMonitor::recordSecurityEvent(void* tPtr,
 			ipStats.authFailures++;
 			break;
 		case SEC_RATE_LIMIT_EXCEEDED:
+		case SEC_EXCESSIVE_ECHO: // Suppressed ECHO replies are rate-limit hits, not protocol violations.
 			ipStats.rateLimitViolations++;
 			break;
 		case SEC_INVALID_PACKET:
@@ -68,7 +69,6 @@ void SecurityMonitor::recordSecurityEvent(void* tPtr,
 		case SEC_PROTOCOL_VIOLATION:
 		case SEC_IDENTITY_COLLISION:
 		case SEC_EXCESSIVE_HELLO:
-		case SEC_EXCESSIVE_ECHO:
 		case SEC_EXCESSIVE_WHOIS:
 		case SEC_SUSPICIOUS_PATTERN:
 			ipStats.protocolViolations++;
