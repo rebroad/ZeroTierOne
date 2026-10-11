@@ -66,6 +66,25 @@ class SecurityMonitor {
 	 * Statistics for a single IP address
 	 */
 	struct IPStats {
+		struct ThreatBucket {
+			uint32_t bucketIndex;
+			uint8_t authFailures;
+			uint8_t rateLimitViolations;
+			uint8_t invalidPackets;
+			uint8_t protocolViolations;
+			bool initialized;
+
+			ThreatBucket()
+				: bucketIndex(0)
+				, authFailures(0)
+				, rateLimitViolations(0)
+				, invalidPackets(0)
+				, protocolViolations(0)
+				, initialized(false)
+			{
+			}
+		};
+
 		uint64_t totalPackets;
 		uint64_t authFailures;
 		uint64_t rateLimitViolations;
@@ -74,6 +93,7 @@ class SecurityMonitor {
 		uint64_t lastActivity;
 		uint64_t firstSeen;
 		ThreatLevel currentThreatLevel;
+		ThreatBucket threatBuckets[13]; // Five-minute buckets cover the rolling-hour window.
 
 		IPStats()
 			: totalPackets(0)
@@ -133,8 +153,10 @@ class SecurityMonitor {
 	static const uint64_t INVALID_PACKET_THRESHOLD_LOW = 10;	// per hour
 	static const uint64_t INVALID_PACKET_THRESHOLD_HIGH = 50;	// per hour
 
-	// Time windows for analysis
-	static constexpr uint64_t THREAT_ANALYSIS_WINDOW = 3600000;	  // 1 hour in ms
+	// Threat counts use 13 five-minute buckets, covering the most recent hour
+	// with at most five minutes of boundary overcount.
+	static constexpr uint64_t THREAT_ANALYSIS_BUCKET_DURATION = 300000;
+	static const unsigned int THREAT_ANALYSIS_BUCKET_COUNT = 13;
 	static constexpr uint64_t CLEANUP_INTERVAL = 86400000;		  // 24 hours in ms
 
 	uint64_t _lastCleanup;

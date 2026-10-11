@@ -22,6 +22,7 @@
 #include "node/Peer.hpp"
 #include "node/Poly1305.hpp"
 #include "node/RuntimeEnvironment.hpp"
+#include "node/SecurityMonitor.hpp"
 #include "node/SHA512.hpp"
 #include "node/Salsa20.hpp"
 #include "node/Utils.hpp"
@@ -1192,6 +1193,118 @@ static int testPacket()
 	return 0;
 }
 
+static void securityMonitorTestStatePut(ZT_Node*,
+							void*,
+							void*,
+							enum ZT_StateObjectType,
+							const uint64_t[2],
+							const void*,
+							int)
+{
+}
+
+static int securityMonitorTestStateGet(ZT_Node*,
+							void*,
+							void*,
+							enum ZT_StateObjectType,
+							const uint64_t[2],
+							void*,
+							unsigned int)
+{
+	return -1;
+}
+
+static int securityMonitorTestWirePacket(ZT_Node*,
+							  void*,
+							  void*,
+							  int64_t,
+							  const struct sockaddr_storage*,
+							  const void*,
+							  unsigned int,
+							  unsigned int)
+{
+	return 0;
+}
+
+static void securityMonitorTestFrame(ZT_Node*,
+						  void*,
+						  void*,
+						  uint64_t,
+						  void**,
+						  uint64_t,
+						  uint64_t,
+						  unsigned int,
+						  unsigned int,
+						  const void*,
+						  unsigned int)
+{
+}
+
+static int securityMonitorTestNetworkConfig(ZT_Node*,
+								   void*,
+								   void*,
+								   uint64_t,
+								   void**,
+								   enum ZT_VirtualNetworkConfigOperation,
+								   const ZT_VirtualNetworkConfig*)
+{
+	return 0;
+}
+
+static void securityMonitorTestEvent(ZT_Node*, void*, void*, enum ZT_Event, const void*)
+{
+}
+
+static int testSecurityMonitorThreatWindow()
+{
+	std::cout << "[security] Testing rolling threat window for suppressed ECHO events... ";
+	ZT_Node_Config config = {};
+	ZT_Node_Callbacks callbacks = {};
+	callbacks.version = 0;
+	callbacks.statePutFunction = securityMonitorTestStatePut;
+	callbacks.stateGetFunction = securityMonitorTestStateGet;
+	callbacks.wirePacketSendFunction = securityMonitorTestWirePacket;
+	callbacks.virtualNetworkFrameFunction = securityMonitorTestFrame;
+	callbacks.virtualNetworkConfigFunction = securityMonitorTestNetworkConfig;
+	callbacks.eventCallback = securityMonitorTestEvent;
+
+	Node node(nullptr, nullptr, &config, &callbacks, 0);
+	SecurityMonitor* monitor = node.RR->sm;
+	const InetAddress sourceIP("198.51.100.42/9993");
+	const Address sourceZT(0x123456789aULL);
+	for (uint64_t i = 0; i < 50; ++i) {
+		node._now = 1000 + (int64_t)i * 1000;
+		monitor->recordSecurityEvent(nullptr,
+							  sourceIP,
+							  sourceZT,
+							  SecurityMonitor::SEC_EXCESSIVE_ECHO,
+							  "test ECHO rate limit");
+	}
+
+	const SecurityMonitor::IPStats* stats = monitor->getIPStats(sourceIP);
+	if ((! stats) || (stats->rateLimitViolations != 50) || (stats->protocolViolations != 0)
+		|| (monitor->getThreatLevel(sourceIP) != SecurityMonitor::THREAT_MEDIUM)) {
+		std::cout << "FAIL" << std::endl;
+		return -1;
+	}
+
+	// After the rolling window and its five-minute bucket allowance, only the new event should score.
+	node._now = 1000 + (int64_t)65 * 60 * 1000;
+	monitor->recordSecurityEvent(nullptr,
+						  sourceIP,
+						  sourceZT,
+						  SecurityMonitor::SEC_EXCESSIVE_ECHO,
+						  "test ECHO rate limit after expiry");
+	stats = monitor->getIPStats(sourceIP);
+	if ((! stats) || (stats->rateLimitViolations != 51) || (stats->protocolViolations != 0)
+		|| (monitor->getThreatLevel(sourceIP) != SecurityMonitor::THREAT_LOW)) {
+		std::cout << "FAIL" << std::endl;
+		return -1;
+	}
+	std::cout << "PASS" << std::endl;
+	return 0;
+}
+
 static int testOther()
 {
 	char buf[1024];
@@ -1669,6 +1782,7 @@ int main(int argc, char** argv)
 
 	///*
 	r |= testOther();
+	r |= testSecurityMonitorThreatWindow();
 	r |= testCrypto();
 	r |= testPacket();
 	r |= testIdentity();

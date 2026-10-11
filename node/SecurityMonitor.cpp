@@ -54,17 +54,34 @@ void SecurityMonitor::recordSecurityEvent(void* tPtr,
 	ipStats.lastActivity = now;
 	ipStats.totalPackets++;
 
-	// Update specific counters based on event type
+	// Keep lifetime counters for reporting, and bounded recent counters for scoring.
+	const uint64_t bucketIndex64 = now / THREAT_ANALYSIS_BUCKET_DURATION;
+	const uint32_t bucketIndex = static_cast<uint32_t>(bucketIndex64);
+	IPStats::ThreatBucket& recent = ipStats.threatBuckets[bucketIndex % THREAT_ANALYSIS_BUCKET_COUNT];
+	if ((! recent.initialized) || (recent.bucketIndex != bucketIndex)) {
+		recent = IPStats::ThreatBucket();
+		recent.bucketIndex = bucketIndex;
+		recent.initialized = true;
+	}
+	auto incrementRecent = [](uint8_t& counter) {
+		if (counter != 0xff) {
+			++counter;
+		}
+	};
+
 	switch (eventType) {
 		case SEC_AUTH_FAILURE:
 			ipStats.authFailures++;
+			incrementRecent(recent.authFailures);
 			break;
 		case SEC_RATE_LIMIT_EXCEEDED:
 		case SEC_EXCESSIVE_ECHO: // Suppressed ECHO replies are rate-limit hits, not protocol violations.
 			ipStats.rateLimitViolations++;
+			incrementRecent(recent.rateLimitViolations);
 			break;
 		case SEC_INVALID_PACKET:
 			ipStats.invalidPackets++;
+			incrementRecent(recent.invalidPackets);
 			break;
 		case SEC_PROTOCOL_VIOLATION:
 		case SEC_IDENTITY_COLLISION:
@@ -72,6 +89,7 @@ void SecurityMonitor::recordSecurityEvent(void* tPtr,
 		case SEC_EXCESSIVE_WHOIS:
 		case SEC_SUSPICIOUS_PATTERN:
 			ipStats.protocolViolations++;
+			incrementRecent(recent.protocolViolations);
 			break;
 	}
 
@@ -202,42 +220,42 @@ void SecurityMonitor::doPeriodicMaintenance(void* tPtr, uint64_t now)
 
 SecurityMonitor::ThreatLevel SecurityMonitor::_calculateThreatLevel(IPStats& stats, uint64_t now)
 {
-	// Calculate rates per hour for recent activity
-	const uint64_t timeWindow = std::min(now - stats.firstSeen, SecurityMonitor::THREAT_ANALYSIS_WINDOW);
-	if (timeWindow == 0)
-		return THREAT_LOW;
+	const uint64_t currentBucket = now / THREAT_ANALYSIS_BUCKET_DURATION;
+	uint64_t authFailures = 0;
+	uint64_t rateLimitViolations = 0;
+	uint64_t invalidPackets = 0;
+	uint64_t protocolViolations = 0;
 
-	const double hoursActive = timeWindow / 3600000.0;	 // Convert ms to hours
-	if (hoursActive < 0.01)
-		return THREAT_LOW;	 // Less than 36 seconds
+	for (const IPStats::ThreatBucket& bucket : stats.threatBuckets) {
+		if ((! bucket.initialized) || (bucket.bucketIndex > currentBucket)
+			|| ((currentBucket - bucket.bucketIndex) >= THREAT_ANALYSIS_BUCKET_COUNT)) {
+			continue;
+		}
+		authFailures += bucket.authFailures;
+		rateLimitViolations += bucket.rateLimitViolations;
+		invalidPackets += bucket.invalidPackets;
+		protocolViolations += bucket.protocolViolations;
+	}
 
-	const double authFailureRate = stats.authFailures / hoursActive;
-	const double rateLimitRate = stats.rateLimitViolations / hoursActive;
-	const double invalidPacketRate = stats.invalidPackets / hoursActive;
-	const double protocolViolationRate = stats.protocolViolations / hoursActive;
-
-	// Determine threat level based on violation rates
 	int threatScore = 0;
-
-	if (authFailureRate >= AUTH_FAILURE_THRESHOLD_HIGH)
+	if (authFailures >= AUTH_FAILURE_THRESHOLD_HIGH)
 		threatScore += 3;
-	else if (authFailureRate >= AUTH_FAILURE_THRESHOLD_LOW)
+	else if (authFailures >= AUTH_FAILURE_THRESHOLD_LOW)
 		threatScore += 1;
 
-	if (rateLimitRate >= RATE_LIMIT_THRESHOLD_HIGH)
+	if (rateLimitViolations >= RATE_LIMIT_THRESHOLD_HIGH)
 		threatScore += 3;
-	else if (rateLimitRate >= RATE_LIMIT_THRESHOLD_LOW)
+	else if (rateLimitViolations >= RATE_LIMIT_THRESHOLD_LOW)
 		threatScore += 1;
 
-	if (invalidPacketRate >= INVALID_PACKET_THRESHOLD_HIGH)
+	if (invalidPackets >= INVALID_PACKET_THRESHOLD_HIGH)
 		threatScore += 3;
-	else if (invalidPacketRate >= INVALID_PACKET_THRESHOLD_LOW)
+	else if (invalidPackets >= INVALID_PACKET_THRESHOLD_LOW)
 		threatScore += 1;
 
-	if (protocolViolationRate >= 5)
+	if (protocolViolations >= 5)
 		threatScore += 2;	// Protocol violations are serious
 
-	// Convert score to threat level
 	if (threatScore >= 6)
 		return THREAT_CRITICAL;
 	if (threatScore >= 4)
